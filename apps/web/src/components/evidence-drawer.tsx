@@ -13,6 +13,85 @@ import {
 } from "@/components/ui/sheet";
 import type { Answer, Citation } from "@/lib/contracts";
 
+function SourceCard({
+  citation,
+  index,
+}: {
+  citation: Citation;
+  index: number;
+}) {
+  const isHaystackPassage =
+    citation.id.startsWith("source:") || Boolean(citation.document);
+  return (
+    <li className="rounded-xl border bg-slate-50 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <strong>
+          [{index + 1}] {citation.title}
+        </strong>
+        <Badge variant="outline">{citation.provenance}</Badge>
+        {isHaystackPassage && (
+          <Badge variant="secondary">Haystack passage</Badge>
+        )}
+      </div>
+      <p className="mt-1 text-sm text-slate-600">{citation.source}</p>
+      {citation.excerpt && isHaystackPassage ? (
+        <details className="mt-3 rounded-lg border border-sky-200 bg-white p-3">
+          <summary className="cursor-pointer font-semibold text-sky-800">
+            Show full retrieved passage
+          </summary>
+          <blockquote className="mt-3 whitespace-pre-wrap border-l-2 border-sky-400 pl-3 text-sm leading-6 text-slate-800">
+            {citation.excerpt}
+          </blockquote>
+        </details>
+      ) : citation.excerpt ? (
+        <blockquote className="mt-3 border-l-2 border-sky-400 pl-3 text-sm">
+          {citation.excerpt}
+        </blockquote>
+      ) : null}
+      <dl className="mt-2 text-xs text-slate-500">
+        {citation.document && (
+          <div>
+            <dt className="inline font-semibold">Document: </dt>
+            <dd className="inline">{citation.document}</dd>
+          </div>
+        )}
+        {citation.article && (
+          <div>
+            <dt className="inline font-semibold">Article: </dt>
+            <dd className="inline">{citation.article}</dd>
+          </div>
+        )}
+        {citation.paragraph && (
+          <div>
+            <dt className="inline font-semibold">Paragraph: </dt>
+            <dd className="inline">{citation.paragraph}</dd>
+          </div>
+        )}
+        {citation.startLine && citation.endLine && (
+          <div>
+            <dt className="inline font-semibold">Lines: </dt>
+            <dd className="inline">
+              {citation.startLine}–{citation.endLine}
+            </dd>
+          </div>
+        )}
+        {citation.relationship && (
+          <div>
+            <dt className="inline font-semibold">Relationship: </dt>
+            <dd className="inline">{citation.relationship}</dd>
+          </div>
+        )}
+        {citation.nodeId && (
+          <div>
+            <dt className="inline font-semibold">Node: </dt>
+            <dd className="inline">{citation.nodeId}</dd>
+          </div>
+        )}
+      </dl>
+    </li>
+  );
+}
+
 export function EvidenceDrawer({
   answer,
   citations,
@@ -69,39 +148,11 @@ export function EvidenceDrawer({
           {citations.length ? (
             <ol className="mt-3 space-y-3">
               {citations.map((citation, index) => (
-                <li
+                <SourceCard
                   key={citation.id}
-                  className="rounded-xl border bg-slate-50 p-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <strong>
-                      [{index + 1}] {citation.title}
-                    </strong>
-                    <Badge variant="outline">{citation.provenance}</Badge>
-                  </div>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {citation.source}
-                  </p>
-                  {citation.excerpt && (
-                    <blockquote className="mt-3 border-l-2 border-sky-400 pl-3 text-sm">
-                      {citation.excerpt}
-                    </blockquote>
-                  )}
-                  <dl className="mt-2 text-xs text-slate-500">
-                    {citation.relationship && (
-                      <div>
-                        <dt className="inline font-semibold">Relationship: </dt>
-                        <dd className="inline">{citation.relationship}</dd>
-                      </div>
-                    )}
-                    {citation.nodeId && (
-                      <div>
-                        <dt className="inline font-semibold">Node: </dt>
-                        <dd className="inline">{citation.nodeId}</dd>
-                      </div>
-                    )}
-                  </dl>
-                </li>
+                  citation={citation}
+                  index={index}
+                />
               ))}
             </ol>
           ) : (

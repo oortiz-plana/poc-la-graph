@@ -84,6 +84,48 @@ describe("EvidenceDrawer", () => {
     ).toBeInTheDocument();
   });
 
+  it("expands the complete passage for Haystack source citations", async () => {
+    const user = userEvent.setup();
+    const passage =
+      "Son beneficiarios el cónyuge, los hijos, los padres y los hermanos dependientes.";
+    render(
+      <EvidenceDrawer
+        citations={[
+          {
+            id: "source:article-49-d",
+            title: "ley-2381-de-2024.md — Artículo 49, d)",
+            source: "ley-2381-de-2024.md",
+            nodeId: null,
+            relationship: null,
+            provenance: "explicit",
+            excerpt: passage,
+            document: "ley-2381-de-2024.md",
+            article: "49",
+            paragraph: "d)",
+            startLine: 842,
+            endLine: 844,
+          },
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Haystack passage")).toBeInTheDocument();
+    const disclosure = screen
+      .getByText("Show full retrieved passage")
+      .closest("details");
+    expect(disclosure).not.toHaveAttribute("open");
+
+    await user.click(screen.getByText("Show full retrieved passage"));
+
+    expect(disclosure).toHaveAttribute("open");
+    expect(screen.getByText(passage)).toBeInTheDocument();
+    expect(
+      screen.getByText("ley-2381-de-2024.md", { selector: "dd" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("842–844")).toBeInTheDocument();
+  });
+
   it("is keyboard dismissible and moves focus to its heading", async () => {
     const close = vi.fn();
     render(<EvidenceDrawer citations={[]} onClose={close} />);

@@ -32,6 +32,7 @@ services:
       KNOWLEDGE_ARCHIVE_DIR: /knowledge/archive
       KNOWLEDGE_FAILED_DIR: /knowledge/failed
       KNOWLEDGE_MANIFEST_PATH: /knowledge/state/manifest.json
+      KNOWLEDGE_SOURCE_INDEX_PATH: /knowledge/state/source-index.sqlite
       KNOWLEDGE_INGEST_ON_STARTUP: ${KNOWLEDGE_INGEST_ON_STARTUP:-true}
       KNOWLEDGE_FORCE_REBUILD: ${KNOWLEDGE_FORCE_REBUILD:-false}
       KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES: ${KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES:-2097152}
@@ -127,6 +128,7 @@ services:
       KNOWLEDGE_ARCHIVE_DIR: /knowledge/archive
       KNOWLEDGE_FAILED_DIR: /knowledge/failed
       KNOWLEDGE_MANIFEST_PATH: /knowledge/state/manifest.json
+      KNOWLEDGE_SOURCE_INDEX_PATH: /knowledge/state/source-index.sqlite
       KNOWLEDGE_INGEST_ON_STARTUP: "false"
       KNOWLEDGE_ADMIN_ENDPOINTS_ENABLED: ${KNOWLEDGE_ADMIN_ENDPOINTS_ENABLED:-true}
       KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES: ${KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES:-2097152}

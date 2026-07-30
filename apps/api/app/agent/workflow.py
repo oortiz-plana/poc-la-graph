@@ -7,14 +7,17 @@ import json
 import re
 import unicodedata
 from collections.abc import AsyncIterator, Mapping
+from pathlib import PurePosixPath
 from typing import Any, Protocol, cast
 from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
+from app.integrations.haystack import RetrievalScope, SourceRetriever
 from app.integrations.llm.client import FollowUpRequest, LanguageModel, ModelRequest
 from app.integrations.llm.errors import ModelResponseError
 from app.integrations.llm.models import ChatMessage
+from app.knowledge.source_index import SourcePassage
 from app.prompts import (
     follow_up_system_prompt,
     follow_up_user_prompt,
@@ -47,6 +50,17 @@ INSUFFICIENT_ANSWER_ES = (
 UNSUPPORTED_CITATIONS_WARNING = "The model returned unsupported citation identifiers."
 UNSUPPORTED_CITATIONS_WARNING_ES = (
     "El modelo devolvió identificadores de citas sin respaldo."
+)
+SOURCE_PASSAGES_MISSING_WARNING = (
+    "Graphify identified the requested article, but no matching source passage "
+    "was available; article contents were not inferred from graph labels."
+)
+SOURCE_PASSAGES_MISSING_WARNING_ES = (
+    "Graphify identificó el artículo solicitado, pero no se encontró un pasaje "
+    "de la fuente; su contenido no se infirió a partir de etiquetas del grafo."
+)
+SOURCE_RETRIEVAL_UNAVAILABLE_WARNING = (
+    "Source-text retrieval was unavailable; only graph evidence could be used."
 )
 
 _SPANISH_WORDS = frozenset(
@@ -85,6 +99,7 @@ _LEGAL_IDENTIFIER = re.compile(
     r"[A-Z0-9][\w.-]*(?:\s+de\s+\d{4})?",
     re.IGNORECASE,
 )
+_ARTICLE_IDENTIFIER = re.compile(r"\bart[ií]culo\s+(\d+[A-Z]?)\b", re.IGNORECASE)
 
 
 def detect_response_language(question: str) -> ResponseLanguage:
@@ -367,6 +382,76 @@ def _merge_evidence(
     )
 
 
+def _source_scope(result: Any, question: str) -> RetrievalScope:
+    """Derive an immutable text scope only from normalized Graphify evidence."""
+    evidence, citations, _, _ = _merge_evidence([result], WorkflowLimits())
+    documents: list[str] = []
+    articles: list[str] = []
+    for source in [
+        *(node.source for node in evidence.nodes),
+        *(citation.source for citation in citations),
+    ]:
+        if not source:
+            continue
+        candidate = PurePosixPath(source).name
+        if (
+            candidate.lower().endswith(".md")
+            and candidate not in {".", ".."}
+            and candidate not in documents
+        ):
+            documents.append(candidate)
+    for node in evidence.nodes:
+        values = [node.label, *(str(value) for value in node.properties.values())]
+        for value in values:
+            for match in _ARTICLE_IDENTIFIER.finditer(value):
+                article = match.group(1).upper()
+                if article not in articles:
+                    articles.append(article)
+    requested = [
+        match.group(1).upper() for match in _ARTICLE_IDENTIFIER.finditer(question)
+    ]
+    scoped_articles = (
+        [article for article in requested if article in articles]
+        if requested
+        else articles
+    )
+    return RetrievalScope(
+        documents=documents,
+        articles=scoped_articles,
+    )
+
+
+def _is_article_detail_question(state: WorkflowState) -> bool:
+    return bool(
+        _ARTICLE_IDENTIFIER.search(state.get("resolved_query", state["question"]))
+    )
+
+
+def _source_citations(passages: list[SourcePassage]) -> list[Citation]:
+    citations: list[Citation] = []
+    for passage in passages:
+        location = (
+            f"Artículo {passage.article}" if passage.article else "pasaje documental"
+        )
+        if passage.paragraph:
+            location += f", {passage.paragraph}"
+        citations.append(
+            Citation(
+                id=passage.id,
+                title=f"{passage.document} — {location}",
+                source=passage.document,
+                document=passage.document,
+                article=passage.article,
+                paragraph=passage.paragraph,
+                start_line=passage.start_line,
+                end_line=passage.end_line,
+                excerpt=passage.text,
+                provenance="explicit",
+            )
+        )
+    return citations
+
+
 class KnowledgeWorkflow:
     """Compiled workflow and streaming facade used by the API layer."""
 
@@ -375,10 +460,12 @@ class KnowledgeWorkflow:
         graph_client: GraphKnowledgeClient,
         model: LanguageModel,
         limits: WorkflowLimits | None = None,
+        source_retriever: SourceRetriever | None = None,
     ) -> None:
         self.graph_client = graph_client
         self.model = model
         self.limits = limits or WorkflowLimits()
+        self.source_retriever = source_retriever
         builder = StateGraph(WorkflowState)
         for name in (
             "validate_request",
@@ -387,7 +474,10 @@ class KnowledgeWorkflow:
             "classify_question",
             "plan_graph_query",
             "query_graphify",
+            "scope_text_retrieval",
+            "retrieve_source_passages_with_haystack",
             "expand_graph_evidence",
+            "merge_graph_and_text_evidence",
             "prepare_context",
             "generate_answer",
             "validate_grounding",
@@ -413,7 +503,10 @@ class KnowledgeWorkflow:
             "classify_question",
             "plan_graph_query",
             "query_graphify",
+            "scope_text_retrieval",
+            "retrieve_source_passages_with_haystack",
             "expand_graph_evidence",
+            "merge_graph_and_text_evidence",
             "prepare_context",
             "generate_answer",
             "validate_grounding",
@@ -589,6 +682,70 @@ class KnowledgeWorkflow:
             "tool_calls": state.get("tool_calls", 0) + len(results) - 1,
         }
 
+    async def scope_text_retrieval(self, state: WorkflowState) -> dict[str, Any]:
+        return {
+            "retrieval_scope": _source_scope(
+                state["search_result"],
+                state.get("resolved_query", state["question"]),
+            )
+        }
+
+    async def retrieve_source_passages_with_haystack(
+        self, state: WorkflowState
+    ) -> dict[str, Any]:
+        scope = cast(RetrievalScope, state["retrieval_scope"])
+        article_detail = _is_article_detail_question(state)
+        if self.source_retriever is None:
+            return {"source_passages": [], "source_available": False}
+        if not scope.documents or (article_detail and not scope.articles):
+            warnings = list(state.get("warnings", []))
+            if article_detail:
+                warnings.append(
+                    SOURCE_PASSAGES_MISSING_WARNING_ES
+                    if state["response_language"] == "es"
+                    else SOURCE_PASSAGES_MISSING_WARNING
+                )
+            return {
+                "source_passages": [],
+                "source_available": bool(scope.documents),
+                "warnings": list(dict.fromkeys(warnings)),
+            }
+        try:
+            passages = await self.source_retriever.retrieve(
+                state["planned_query"], scope, top_k=8
+            )
+        except Exception:
+            return {
+                "source_passages": [],
+                "source_available": False,
+                "warnings": list(
+                    dict.fromkeys(
+                        state.get("warnings", [])
+                        + [SOURCE_RETRIEVAL_UNAVAILABLE_WARNING]
+                    )
+                ),
+            }
+        warnings = list(state.get("warnings", []))
+        if article_detail and not passages:
+            warnings.append(
+                SOURCE_PASSAGES_MISSING_WARNING_ES
+                if state["response_language"] == "es"
+                else SOURCE_PASSAGES_MISSING_WARNING
+            )
+        return {
+            "source_passages": passages,
+            "source_available": True,
+            "warnings": list(dict.fromkeys(warnings)),
+        }
+
+    async def merge_graph_and_text_evidence(
+        self, state: WorkflowState
+    ) -> dict[str, Any]:
+        citations = list(state["evidence_citations"])
+        citations.extend(_source_citations(state.get("source_passages", [])))
+        merged = {item.id: item for item in citations}
+        return {"evidence_citations": list(merged.values())}
+
     async def prepare_context(self, state: WorkflowState) -> dict[str, Any]:
         evidence = state["evidence"]
         citation_by_node = {
@@ -632,10 +789,32 @@ class KnowledgeWorkflow:
             }
             for path in evidence.paths
         ]
+        source_passages = [
+            {
+                "kind": "source_passage",
+                "evidenceId": passage.id,
+                "label": (
+                    f"{passage.document} — Artículo {passage.article}"
+                    if passage.article
+                    else passage.document
+                ),
+                "document": passage.document,
+                "article": passage.article,
+                "paragraph": passage.paragraph,
+                "startLine": passage.start_line,
+                "endLine": passage.end_line,
+                "excerpt": passage.text,
+                "provenance": "explicit",
+            }
+            for passage in state.get("source_passages", [])
+        ]
+        citation_allowlist = [citation.id for citation in state["evidence_citations"]]
         return {
             "context": json.dumps(
                 {
                     "questionCategory": state.get("category", "knowledge"),
+                    "citationIdAllowlist": citation_allowlist,
+                    "sourcePassages": source_passages,
                     "nodes": nodes,
                     "edges": edges,
                     "paths": paths,
@@ -647,6 +826,16 @@ class KnowledgeWorkflow:
 
     async def generate_answer(self, state: WorkflowState) -> dict[str, Any]:
         if not state["evidence"].nodes or not state["evidence_citations"]:
+            return {
+                "draft_answer": _insufficient_answer(state["response_language"]),
+                "draft_confidence": "insufficient",
+                "draft_citation_ids": [],
+            }
+        if (
+            self.source_retriever is not None
+            and _is_article_detail_question(state)
+            and not state.get("source_passages")
+        ):
             return {
                 "draft_answer": _insufficient_answer(state["response_language"]),
                 "draft_confidence": "insufficient",
@@ -690,10 +879,22 @@ class KnowledgeWorkflow:
     async def validate_grounding(self, state: WorkflowState) -> dict[str, Any]:
         allowed = {citation.id for citation in state["evidence_citations"]}
         requested = state.get("draft_citation_ids", [])
+        article_without_source_citation = (
+            self.source_retriever is not None
+            and _is_article_detail_question(state)
+            and not any(citation_id.startswith("source:") for citation_id in requested)
+        )
+        knowledge_without_source_citation = (
+            state.get("category") != "relationship"
+            and bool(state.get("source_passages"))
+            and not any(citation_id.startswith("source:") for citation_id in requested)
+        )
         if (
             state.get("draft_confidence") == "insufficient"
             or not requested
             or any(citation_id not in allowed for citation_id in requested)
+            or article_without_source_citation
+            or knowledge_without_source_citation
         ):
             warnings = list(state.get("warnings", []))
             if requested and any(item not in allowed for item in requested):

@@ -16,6 +16,7 @@ import pytest
 
 from app.config.settings import Settings
 from app.knowledge.service import IngestionConflict, KnowledgeIngestionService
+from app.knowledge.source_index import SourceIndex
 from app.knowledge.sources import SourceValidationError
 from app.knowledge.state.lock import ProcessFileLock
 
@@ -229,6 +230,7 @@ async def test_unchanged_inputs_skip_build_under_lock(
     assert service.current()["status"] == "completed"
     assert service.manifest()["activeGraphVersion"] == "v1"
     assert os.readlink(graph_root / "active") == "versions/v1"
+    assert SourceIndex(service.source_index_path()).has_version("v1")
     skipped = next(
         record
         for record in caplog.records

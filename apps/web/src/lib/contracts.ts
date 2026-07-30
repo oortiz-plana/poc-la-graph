@@ -18,6 +18,11 @@ export const citationSchema = z.object({
     .string()
     .nullish()
     .transform((value) => value ?? null),
+  document: z.string().nullish(),
+  article: z.string().nullish(),
+  paragraph: z.string().nullish(),
+  startLine: z.number().int().positive().nullish(),
+  endLine: z.number().int().positive().nullish(),
 });
 export const graphEvidenceSchema = z.object({
   nodes: z.array(

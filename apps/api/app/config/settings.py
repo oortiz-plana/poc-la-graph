@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     knowledge_archive_dir: str = "/knowledge/archive"
     knowledge_failed_dir: str = "/knowledge/failed"
     knowledge_manifest_path: str = "/knowledge/state/manifest.json"
+    knowledge_source_index_path: str = "/knowledge/state/source-index.sqlite"
     knowledge_ingest_on_startup: bool = True
     knowledge_force_rebuild: bool = False
     knowledge_admin_endpoints_enabled: bool = True

@@ -15,6 +15,7 @@ from app.integrations.graphify import (
     MCPGraphKnowledgeClient,
     MockGraphKnowledgeClient,
 )
+from app.integrations.haystack import HaystackSourceRetriever
 from app.integrations.llm import DeterministicModel, LanguageModel, LiteLLMClient
 from app.store import ConversationStore
 
@@ -80,6 +81,11 @@ def get_workflow(request: Request) -> KnowledgeWorkflow:
     return KnowledgeWorkflow(
         graph_client=build_graph_client(settings, graph_version=graph_version),
         model=model,
+        source_retriever=(
+            HaystackSourceRetriever(str(knowledge.source_index_path()), graph_version)
+            if graph_version
+            else None
+        ),
         limits=WorkflowLimits(
             max_tool_calls=settings.agent_max_tool_calls,
             max_traversal_depth=settings.agent_max_traversal_depth,

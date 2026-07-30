@@ -48,6 +48,15 @@ class Citation(BaseModel):
     relationship: str | None = None
     provenance: Provenance = "unknown"
     excerpt: str | None = None
+    document: str | None = None
+    article: str | None = None
+    paragraph: str | None = None
+    start_line: int | None = Field(
+        default=None, serialization_alias="startLine", validation_alias="startLine"
+    )
+    end_line: int | None = Field(
+        default=None, serialization_alias="endLine", validation_alias="endLine"
+    )
 
 
 class GraphNode(BaseModel):
@@ -141,6 +150,9 @@ class WorkflowState(TypedDict, total=False):
     original_query: str
     planned_query: str
     search_result: Any
+    retrieval_scope: Any
+    source_passages: list[Any]
+    source_available: bool
     evidence: GraphEvidence
     evidence_citations: list[Citation]
     graph_version: str | None

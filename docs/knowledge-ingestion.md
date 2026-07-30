@@ -1,5 +1,12 @@
 # Knowledge ingestion
 
+Each successful graph build also parses the original UTF-8 Markdown into
+article- and paragraph-aware passages and commits them to the versioned SQLite
+FTS5 index at `KNOWLEDGE_SOURCE_INDEX_PATH`. Rows carry the graph version and
+document checksum. The manifest's active graph version selects both graph and
+text evidence, so a staged rebuild or failed source-index transaction leaves
+the previous graph/text pair available.
+
 The default stack uses the open-source `graphifyy==0.9.18` package and its
 native `graph.json` runtime. The four Spanish Markdown inputs live in
 `knowledge/input/`; their bytes are not rewritten.

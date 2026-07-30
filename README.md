@@ -1,10 +1,11 @@
 # Graphify Knowledge Agent POC
 
 The default Compose stack now pins the actual open-source
-`graphifyy==0.9.18` runtime. It discovers the four Spanish legal Markdown
-documents under `knowledge/input`, builds a native Graphify `graph.json`,
-starts Graphify's Streamable HTTP MCP server, and serves grounded chat through
-FastAPI and Next.js.
+`graphifyy==0.9.18` runtime and `haystack-ai==2.31.0`. It discovers the four
+Spanish legal Markdown documents under `knowledge/input`, builds a native
+Graphify `graph.json`, indexes the original article and paragraph text in
+SQLite FTS5, starts Graphify's Streamable HTTP MCP server, and serves grounded
+hybrid-retrieval chat through FastAPI and Next.js.
 
 Graphify semantic extraction requires a valid provider credential. Copy
 `.env.example` to `.env`, set `OPENAI_API_KEY` (and provider/model overrides
@@ -47,6 +48,10 @@ Ask a sample question such as:
 
 > ¿Qué establece la Ley 100 de 1993 sobre el sistema general de pensiones?
 
+For an article-level text retrieval example:
+
+> Según el Artículo 49, ¿quiénes son los posibles beneficiarios?
+
 With `LLM_ADAPTER=litellm`, answers use the configured model. With
 `LLM_ADAPTER=mock`, deterministic answers exercise streaming and citation
 contracts without an external answer model.
@@ -58,7 +63,37 @@ converts the backend's typed SSE lifecycle events to the Vercel AI SDK data
 stream. FastAPI owns a durable SQLAlchemy conversation store and invokes a
 bounded LangGraph workflow. The workflow resolves follow-up references from a
 sanitized history window, retrieves fresh Graphify evidence for every answer,
-and then calls the internal model interface implemented with LiteLLM.
+uses that evidence to bound Haystack BM25 retrieval over the original source
+passages, and then calls the internal model interface implemented with LiteLLM.
+
+Graphify remains the authoritative entity and relationship graph. Haystack does
+not replace Graphify or add another network service: a persistent SQLite FTS5
+index under `/knowledge/state` is the canonical source-text store, while an
+ephemeral Haystack document store ranks only the allowlisted passages for the
+current request.
+
+```text
+Graphify nodes, edges, and paths
+              +
+bounded legal source passages
+              ↓
+       grounded answer
+```
+
+The retrieval boundary is deliberately one-way:
+
+- Graphify runs first and determines the allowed source documents and articles.
+- Haystack cannot retrieve passages from another document or expand that scope.
+- Relationship claims require graph citations.
+- Article contents and other textual legal claims require exact source-passage
+  citations with document, article, paragraph, and line metadata.
+- Missing article passages produce an insufficient-evidence response instead of
+  an answer inferred from graph labels.
+
+In the web UI, citations retrieved through Haystack are labeled
+`Haystack passage` in the **Sources** drawer. Select
+**Show full retrieved passage** to expand the complete indexed source text,
+including its document, article, paragraph marker, and line range.
 
 The browser never receives an LLM key or Graphify credentials and never connects
 directly to Graphify. Only `query_graph`, `get_node`, `get_neighbors`, and
@@ -111,7 +146,28 @@ docker compose -f docker-compose.yml -f compose/postgres.yml up --build
 Only the current conversation UUID is kept in browser `localStorage`. Previous
 turn text is bounded and sanitized before it is supplied to follow-up
 resolution. It is never accepted as knowledge evidence: citations must match
-Graphify evidence retrieved for the current request.
+graph or bounded source evidence retrieved for the current request.
+
+### Source-text index
+
+Knowledge ingestion parses Markdown into article-aware paragraph and list
+passages while preserving the original UTF-8 text, filename, article and
+paragraph markers, line range, document checksum, and graph version. The
+default location is:
+
+```env
+KNOWLEDGE_SOURCE_INDEX_PATH=/knowledge/state/source-index.sqlite
+```
+
+Passages for multiple graph versions can coexist in SQLite. The active manifest
+version selects the matching graph and source rows, so staging or a failed index
+rebuild does not replace the previously active evidence. Unchanged input
+checksums continue to use the existing ingestion skip path. A rollback selects
+the prior graph version and its corresponding source passages.
+
+SQLite uses FTS5 with Unicode diacritic handling, allowing accented and
+unaccented Spanish queries without an embedding model, vector database,
+Elasticsearch, or OpenSearch.
 
 Never commit `.env`, provider keys, proprietary source material, or proprietary
 Graphify projects. Do not prefix secrets with `NEXT_PUBLIC_`.
@@ -152,6 +208,13 @@ for direct test commands.
 - There is no account-level conversation list or cross-device synchronization.
 - Conversation IDs are bearer capabilities in this unauthenticated POC.
 - One server-configured Graphify project is supported per deployment.
+- Source-text retrieval is lexical BM25; no semantic embedding retriever is
+  configured.
+- Article-detail answers require both a Graphify article scope and matching
+  source passages.
+- If Haystack is unavailable, sufficiently supported graph-only relationship
+  questions may continue, but article-detail questions return insufficient
+  evidence.
 - The synthetic troubleshooting profile is not Graphify and cannot establish
   compatibility with Graphify 0.9.18.
 - The deterministic model proves integration behavior, not answer quality.

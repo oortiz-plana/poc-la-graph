@@ -24,6 +24,7 @@ from app.knowledge.domain import (
     KnowledgeDocumentSource,
     KnowledgeSnapshot,
 )
+from app.knowledge.source_index import SourceIndex
 from app.knowledge.sources import (
     FilesystemDocumentSource,
     SourceLimitError,
@@ -103,6 +104,7 @@ class KnowledgeIngestionService:
             or manifest.get("sourceVersion") != snapshot.source_version
             or manifest.get("graphifyVersion") != self.settings.graphify_package_version
             or not self._has_valid_active_graph()
+            or not self._has_valid_active_source_index()
         )
         if changed or self.settings.knowledge_force_rebuild:
             await self.start(force=self.settings.knowledge_force_rebuild)
@@ -152,6 +154,18 @@ class KnowledgeIngestionService:
 
     def active_graph_path(self) -> Path:
         return Path(self.settings.knowledge_graph_dir) / "active" / "graph.json"
+
+    def source_index_path(self) -> Path:
+        configured = Path(self.settings.knowledge_source_index_path)
+        default_manifest = Path("/knowledge/state/manifest.json")
+        if (
+            configured == Path("/knowledge/state/source-index.sqlite")
+            and Path(self.settings.knowledge_manifest_path) != default_manifest
+        ):
+            return Path(self.settings.knowledge_manifest_path).with_name(
+                "source-index.sqlite"
+            )
+        return configured
 
     def rollback(self) -> str:
         rollback_started = time.monotonic()
@@ -268,6 +282,44 @@ class KnowledgeIngestionService:
             and old.get("graphifyVersion") == self.settings.graphify_package_version
             and self._has_valid_active_graph()
         ):
+            active_version = str(old["activeGraphVersion"])
+            if not SourceIndex(self.source_index_path()).has_version(active_version):
+                try:
+                    passage_count = SourceIndex(
+                        self.source_index_path()
+                    ).rebuild_version(active_version, snapshot.documents)
+                except Exception:
+                    failure = self._manifest(
+                        snapshot,
+                        ingestion_id,
+                        "failed",
+                        started,
+                        datetime.now(UTC),
+                        "source_index_build_failed",
+                        old,
+                    )
+                    self._write_manifest(failure)
+                    self.logger.error(
+                        "knowledge_source_index_reconciliation_failed",
+                        extra={
+                            "ingestion_id": ingestion_id,
+                            "graph_version": active_version,
+                            "document_count": len(snapshot.documents),
+                            "error_type": "source_index_build_failed",
+                            "duration_ms": self._duration_ms(monotonic_started),
+                        },
+                    )
+                    return
+                self.logger.info(
+                    "knowledge_source_index_reconciled",
+                    extra={
+                        "ingestion_id": ingestion_id,
+                        "graph_version": active_version,
+                        "document_count": len(snapshot.documents),
+                        "source_passage_count": passage_count,
+                        "duration_ms": self._duration_ms(monotonic_started),
+                    },
+                )
             unchanged = self._manifest(
                 snapshot,
                 ingestion_id,
@@ -276,7 +328,7 @@ class KnowledgeIngestionService:
                 datetime.now(UTC),
                 None,
                 old,
-                active_version=old["activeGraphVersion"],
+                active_version=active_version,
             )
             unchanged["previousGraphVersion"] = old.get("previousGraphVersion")
             unchanged["generatedAt"] = old.get("generatedAt")
@@ -362,6 +414,12 @@ class KnowledgeIngestionService:
             artifact_sha = hashlib.sha256(
                 (publish / "graph.json").read_bytes()
             ).hexdigest()
+            try:
+                passage_count = SourceIndex(self.source_index_path()).rebuild_version(
+                    version, snapshot.documents
+                )
+            except Exception as exc:
+                raise RuntimeError("source_index_build_failed") from exc
             (publish / "build.json").write_text(
                 json.dumps(
                     {
@@ -369,6 +427,7 @@ class KnowledgeIngestionService:
                         "sha256": artifact_sha,
                         "nodes": counts[0],
                         "edges": counts[1],
+                        "sourcePassages": passage_count,
                     },
                     separators=(",", ":"),
                 ),
@@ -427,6 +486,7 @@ class KnowledgeIngestionService:
                 "graph_artifact_missing",
                 "graph_artifact_invalid",
                 "graph_version_already_exists",
+                "source_index_build_failed",
             }
             error_code = str(exc) if str(exc) in known_codes else type(exc).__name__
             failure = self._manifest(
@@ -627,6 +687,13 @@ class KnowledgeIngestionService:
 
     def _has_valid_active_graph(self) -> bool:
         return self._active_target() is not None
+
+    def _has_valid_active_source_index(self) -> bool:
+        manifest = self.manifest()
+        version = manifest.get("activeGraphVersion") if manifest else None
+        return bool(
+            version and SourceIndex(self.source_index_path()).has_version(str(version))
+        )
 
     def _restore_active(self, target: str | None) -> None:
         graph_root = Path(self.settings.knowledge_graph_dir)

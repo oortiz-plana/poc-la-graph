@@ -25,14 +25,14 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  "fixed z-50 gap-4 overflow-y-auto border bg-white p-5 shadow-2xl",
+  "fixed z-50 max-h-dvh max-w-full gap-4 overflow-y-auto overscroll-contain border bg-white p-5 shadow-2xl",
   {
     variants: {
       side: {
         top: "inset-x-0 top-0 border-b",
         bottom: "inset-x-0 bottom-0 border-t",
-        left: "inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm",
-        right: "inset-y-0 right-0 h-full w-full border-l sm:max-w-xl",
+        left: "inset-y-0 left-0 h-dvh w-3/4 border-r sm:max-w-sm",
+        right: "inset-y-0 right-0 h-dvh w-full border-l sm:max-w-xl",
       },
     },
     defaultVariants: {

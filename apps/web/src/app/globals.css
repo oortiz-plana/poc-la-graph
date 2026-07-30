@@ -17,9 +17,14 @@
 }
 html {
   scroll-behavior: smooth;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 body {
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   color: hsl(var(--foreground));
   background:
     radial-gradient(

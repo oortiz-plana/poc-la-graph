@@ -9,6 +9,9 @@ def test_english_system_prompt_explicitly_requests_json_mode() -> None:
     assert "Copy evidenceId exactly" in prompt
     assert "2 to 4 substantive paragraphs" in prompt
     assert "120 to 280 words" in prompt
+    assert "categories, beneficiaries, requirements" in prompt
+    assert "concise Markdown headings" in prompt
+    assert "square brackets" in prompt
 
 
 def test_spanish_system_prompt_explicitly_requests_json_mode() -> None:
@@ -19,3 +22,6 @@ def test_spanish_system_prompt_explicitly_requests_json_mode() -> None:
     assert "Copia evidenceId literalmente" in prompt
     assert "2 a 4 párrafos sustantivos" in prompt
     assert "120 a 280 palabras" in prompt
+    assert "categorías, beneficiarios, requisitos" in prompt
+    assert "encabezados y viñetas" in prompt
+    assert "corchetes" in prompt

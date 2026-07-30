@@ -107,6 +107,18 @@ describe("ChatWorkspace", () => {
     mocks.createConversation.mockResolvedValue(conversation);
     mocks.loadConversation.mockResolvedValue(null);
     mocks.deleteConversation.mockResolvedValue(undefined);
+    window.matchMedia = vi
+      .fn()
+      .mockImplementation((query: string): MediaQueryList => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        dispatchEvent: () => false,
+      }));
   });
 
   it("persists the active conversation and submits with Enter", async () => {
@@ -183,6 +195,29 @@ describe("ChatWorkspace", () => {
     ).toBeInTheDocument();
   });
 
+  it("opens overlay navigation, closes it with Escape, and restores focus", async () => {
+    const user = userEvent.setup();
+    render(<ChatWorkspace />);
+    await screen.findByText("API connected");
+
+    const trigger = screen.getByRole("button", { name: "Open navigation" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await user.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("dialog", { name: "Primary navigation" }),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Primary navigation" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(trigger).toHaveFocus();
+  });
+
   it("renders streaming Graphify activity, markdown, citations, and evidence", async () => {
     mocks.chat.status = "streaming";
     mocks.chat.messages = [
@@ -208,6 +243,48 @@ describe("ChatWorkspace", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("[1] Design doc")).toBeInTheDocument();
     expect(screen.getByText("Nodes (1)")).toBeInTheDocument();
+  });
+
+  it("uses an in-layout evidence panel at tablet widths and returns focus to an inline citation", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    window.matchMedia = vi
+      .fn()
+      .mockImplementation((query: string): MediaQueryList => ({
+        matches: query === "(min-width: 768px)",
+        media: query,
+        onchange: null,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        dispatchEvent: () => false,
+      }));
+    mocks.chat.messages = [
+      assistant([
+        {
+          kind: "completed",
+          result: { ...answer, answer: "Grounded by c1." },
+        },
+      ]),
+    ];
+    const user = userEvent.setup();
+    render(<ChatWorkspace />);
+    await screen.findByText("API connected");
+
+    const citation = screen.getByRole("button", {
+      name: /Open source 1:/,
+    });
+    await user.click(citation);
+
+    expect(
+      screen.getByRole("complementary", { name: "Answer evidence" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close evidence" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Open source 1:/ }),
+      ).toHaveFocus(),
+    );
   });
 
   it("renders partial answer deltas before the completed event arrives", async () => {
@@ -355,7 +432,9 @@ describe("ChatWorkspace", () => {
     );
     expect(mocks.setMessages).toHaveBeenCalledWith([]);
     expect(localStorage.getItem("graphify-conversation-id")).toBe("conv-2");
-    expect(screen.getByLabelText("Ask a question")).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Ask a question")).toHaveFocus(),
+    );
   });
 
   it("surfaces hook stream errors in an alert", async () => {

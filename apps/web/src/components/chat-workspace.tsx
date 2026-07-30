@@ -6,13 +6,13 @@ import {
   BookOpen,
   CircleAlert,
   LoaderCircle,
+  Menu,
   RotateCcw,
   Search,
   Send,
   Square,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +24,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   checkHealth,
   createConversation,
@@ -37,6 +44,7 @@ import {
   type UIEvent,
   uiEventSchema,
 } from "@/lib/contracts";
+import { CitedAnswer } from "./cited-answer";
 import { EvidenceDrawer } from "./evidence-drawer";
 
 type Connection = "checking" | "connected" | "unavailable";
@@ -79,9 +87,18 @@ export function ChatWorkspace() {
   const [initError, setInitError] = useState<string>();
   const [continuityNotice, setContinuityNotice] = useState<string>();
   const [selected, setSelected] = useState<UIMessage>();
+  const [selectedCitationId, setSelectedCitationId] = useState<string>();
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [lastQuestion, setLastQuestion] = useState("");
   const composer = useRef<HTMLTextAreaElement>(null);
+  const navigationTrigger = useRef<HTMLButtonElement>(null);
+  const evidenceTrigger = useRef<HTMLElement | null>(null);
+  const pendingEvidenceFocus = useRef<{
+    citationId?: string;
+    trigger: HTMLElement | null;
+  } | null>(null);
+  const evidenceIsPanel = useMediaQuery("(min-width: 768px)");
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -160,6 +177,20 @@ export function ChatWorkspace() {
     const timer = window.setInterval(() => void initialize(), 15_000);
     return () => window.clearInterval(timer);
   }, [connection, initialize]);
+  useEffect(() => {
+    if (selected || !pendingEvidenceFocus.current) return;
+    const pending = pendingEvidenceFocus.current;
+    pendingEvidenceFocus.current = null;
+    window.requestAnimationFrame(() => {
+      const replacement = pending.citationId
+        ? [
+            ...document.querySelectorAll<HTMLElement>("[data-citation-id]"),
+          ].find((element) => element.dataset.citationId === pending.citationId)
+        : undefined;
+      if (replacement) replacement.focus();
+      else if (pending.trigger?.isConnected) pending.trigger.focus();
+    });
+  }, [selected]);
   const recoveringExpiredConversation = useRef(false);
   useEffect(() => {
     if (
@@ -175,6 +206,7 @@ export function ChatWorkspace() {
         setConversationId(fresh.id);
         setMessages([]);
         setSelected(undefined);
+        setSelectedCitationId(undefined);
         setDraft(lastQuestion);
         setContinuityNotice(
           "Your previous conversation expired. A new conversation was started, and your question is ready to resend.",
@@ -205,6 +237,7 @@ export function ChatWorkspace() {
       localStorage.removeItem(CONVERSATION_KEY);
       setMessages([]);
       setSelected(undefined);
+      setSelectedCitationId(undefined);
       setContinuityNotice(undefined);
       setResetOpen(false);
       const fresh = await createConversation(projectId);
@@ -218,153 +251,246 @@ export function ChatWorkspace() {
       setResetOpen(false);
     }
   }
+  const closeNavigation = useCallback(() => {
+    setNavigationOpen(false);
+    window.setTimeout(() => navigationTrigger.current?.focus(), 0);
+  }, []);
+  const closeEvidence = useCallback(() => {
+    pendingEvidenceFocus.current = {
+      citationId: selectedCitationId,
+      trigger: evidenceTrigger.current,
+    };
+    setSelected(undefined);
+    setSelectedCitationId(undefined);
+    evidenceTrigger.current = null;
+  }, [selectedCitationId]);
+  const openEvidence = useCallback(
+    (message: UIMessage, trigger: HTMLElement, citationId?: string) => {
+      evidenceTrigger.current = trigger;
+      setSelectedCitationId(citationId);
+      setSelected(message);
+    },
+    [],
+  );
   const hasMessages = messages.length > 0;
   return (
-    <div className="min-h-screen">
-      <header className="border-b bg-white/90 px-4 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">
-              Graphify Knowledge Agent
-            </h1>
-            <p className="text-xs text-slate-500">
-              Answers grounded in connected knowledge
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <ConnectionStatus status={connection} check={initialize} />
-            <Button
-              aria-label="Reset conversation"
-              variant="outline"
-              disabled={!hasMessages || busy}
-              onClick={() => setResetOpen(true)}
-              className="min-h-11"
-            >
-              <RotateCcw />
-              Reset conversation
-            </Button>
-          </div>
-        </div>
-      </header>
-      <div className="border-b bg-sky-50 px-4 py-2 text-sm">
-        <div className="mx-auto max-w-6xl">
-          <strong>Knowledge project:</strong>{" "}
-          <span className="font-mono">{projectId}</span>
-          <span className="ml-2 text-slate-600">
-            Answers use this knowledge graph.
-          </span>
-        </div>
-      </div>
-      <main className="mx-auto flex min-h-[calc(100vh-9rem)] max-w-4xl flex-col px-4">
-        <section aria-label="Conversation" className="flex-1 py-7">
-          {!hasMessages ? (
-            <EmptyState choose={setDraft} />
-          ) : (
-            <div className="space-y-5">
-              {messages.map((message) => (
-                <Message
-                  key={message.id}
-                  message={message}
-                  busy={busy && message === messages.at(-1)}
-                  openEvidence={() => setSelected(message)}
-                  retry={() =>
-                    void (lastQuestion ? submit(lastQuestion) : regenerate())
-                  }
-                />
-              ))}
-            </div>
-          )}
-          {(error || initError) && (
-            <div
-              role="alert"
-              className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900"
-            >
-              <CircleAlert className="mr-2 inline h-4 w-4" />
-              {initError ??
-                (error ? readableChatError(error) : "The request failed.")}
-            </div>
-          )}
-          {continuityNotice && (
-            <div
-              role="status"
-              className="mt-5 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900"
-            >
-              {continuityNotice}
-            </div>
-          )}
-        </section>
-        <form
-          className="sticky bottom-0 mb-4 rounded-2xl border bg-white p-3 shadow-xl"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-        >
-          <label htmlFor="question" className="text-sm font-semibold">
-            Ask a question
-          </label>
-          <Textarea
-            ref={composer}
-            id="question"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={2}
-            maxLength={4000}
-            placeholder="What does this knowledge graph say about…?"
-            onKeyDown={(e) => {
-              if (
-                e.key === "Enter" &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing
-              ) {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            className="mt-2 w-full resize-none rounded-lg border bg-slate-50 p-3 disabled:opacity-60"
-          />
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <span className="text-xs text-slate-500">
-              Enter to send · Shift+Enter for a new line
-            </span>
-            {busy ? (
+    <div className="flex h-dvh max-w-full overflow-hidden">
+      <aside
+        aria-label="Primary navigation"
+        className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r bg-white xl:flex"
+      >
+        <NavigationContent
+          busy={busy}
+          hasMessages={hasMessages}
+          projectId={projectId}
+          reset={() => setResetOpen(true)}
+        />
+      </aside>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="shrink-0 border-b bg-white/90 px-3 py-3 backdrop-blur sm:px-4">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               <Button
+                ref={navigationTrigger}
                 type="button"
-                aria-label="Stop response"
-                onClick={stop}
-                className="min-h-11 bg-slate-900 hover:bg-slate-800"
+                variant="outline"
+                size="icon"
+                aria-label="Open navigation"
+                aria-expanded={navigationOpen}
+                aria-controls="navigation-drawer"
+                onClick={() => setNavigationOpen(true)}
+                className="min-h-11 min-w-11 xl:hidden"
               >
-                <Square />
-                Stop
+                <Menu aria-hidden className="h-5 w-5" />
               </Button>
-            ) : (
-              <Button
-                type="submit"
-                aria-label="Send question"
-                disabled={
-                  !draft.trim() || connection !== "connected" || !conversationId
-                }
-                className="min-h-11"
-              >
-                <Send />
-                Send
-              </Button>
-            )}
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-bold tracking-tight sm:text-xl">
+                  Graphify Knowledge Agent
+                </h1>
+                <p className="hidden truncate text-xs text-slate-500 sm:block">
+                  Answers grounded in connected knowledge
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0">
+              <ConnectionStatus status={connection} check={initialize} />
+            </div>
           </div>
-        </form>
-      </main>
-      <p aria-live="polite" className="sr-only">
-        {busy
-          ? "Question submitted."
-          : status === "ready" && hasMessages
-            ? "Answer complete."
-            : ""}
-      </p>
-      {selected && (
+        </header>
+        <div className="shrink-0 border-b bg-sky-50 px-3 py-2 text-sm sm:px-4">
+          <div className="min-w-0 truncate">
+            <strong>Knowledge project:</strong>{" "}
+            <span className="font-mono">{projectId}</span>
+            <span className="ml-2 hidden text-slate-600 lg:inline">
+              Answers use this knowledge graph.
+            </span>
+          </div>
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <section
+              aria-label="Conversation"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-5 sm:py-7"
+            >
+              <div className="mx-auto w-full max-w-4xl">
+                {!hasMessages ? (
+                  <EmptyState choose={setDraft} />
+                ) : (
+                  <div className="space-y-5">
+                    {messages.map((message) => (
+                      <Message
+                        key={message.id}
+                        message={message}
+                        busy={busy && message === messages.at(-1)}
+                        openEvidence={(trigger, citationId) =>
+                          openEvidence(message, trigger, citationId)
+                        }
+                        retry={() =>
+                          void (lastQuestion
+                            ? submit(lastQuestion)
+                            : regenerate())
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                {(error || initError) && (
+                  <div
+                    role="alert"
+                    className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+                  >
+                    <CircleAlert className="mr-2 inline h-4 w-4" />
+                    {initError ??
+                      (error
+                        ? readableChatError(error)
+                        : "The request failed.")}
+                  </div>
+                )}
+                {continuityNotice && (
+                  <div
+                    role="status"
+                    className="mt-5 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900"
+                  >
+                    {continuityNotice}
+                  </div>
+                )}
+              </div>
+            </section>
+            <div className="shrink-0 border-t bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-5">
+              <form
+                className="mx-auto w-full max-w-4xl rounded-2xl border bg-white p-3 shadow-xl"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submit();
+                }}
+              >
+                <label htmlFor="question" className="text-sm font-semibold">
+                  Ask a question
+                </label>
+                <Textarea
+                  ref={composer}
+                  id="question"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={2}
+                  maxLength={4000}
+                  placeholder="What does this knowledge graph say about…?"
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !e.nativeEvent.isComposing
+                    ) {
+                      e.preventDefault();
+                      void submit();
+                    }
+                  }}
+                  className="mt-2 w-full resize-none rounded-lg border bg-slate-50 p-3 disabled:opacity-60"
+                />
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="hidden text-xs text-slate-500 sm:inline">
+                    Enter to send · Shift+Enter for a new line
+                  </span>
+                  {busy ? (
+                    <Button
+                      type="button"
+                      aria-label="Stop response"
+                      onClick={stop}
+                      className="ml-auto min-h-11 bg-slate-900 hover:bg-slate-800"
+                    >
+                      <Square />
+                      Stop
+                    </Button>
+                  ) : (
+                    <Button
+                      type="submit"
+                      aria-label="Send question"
+                      disabled={
+                        !draft.trim() ||
+                        connection !== "connected" ||
+                        !conversationId
+                      }
+                      className="ml-auto min-h-11"
+                    >
+                      <Send />
+                      Send
+                    </Button>
+                  )}
+                </div>
+              </form>
+            </div>
+          </main>
+          {selected && evidenceIsPanel && (
+            <EvidenceDrawer
+              mode="panel"
+              answer={finalOf(selected)}
+              citations={citationsOf(selected)}
+              selectedCitationId={selectedCitationId}
+              onClose={closeEvidence}
+            />
+          )}
+        </div>
+        <p aria-live="polite" className="sr-only">
+          {busy
+            ? "Question submitted."
+            : status === "ready" && hasMessages
+              ? "Answer complete."
+              : ""}
+        </p>
+      </div>
+      {navigationOpen && (
+        <Sheet open onOpenChange={(open) => !open && closeNavigation()}>
+          <SheetContent
+            id="navigation-drawer"
+            side="left"
+            aria-label="Primary navigation"
+            className="w-[min(22rem,calc(100vw-2rem))] p-0"
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Primary navigation</SheetTitle>
+              <SheetDescription>
+                Project status and conversation controls
+              </SheetDescription>
+            </SheetHeader>
+            <NavigationContent
+              busy={busy}
+              hasMessages={hasMessages}
+              projectId={projectId}
+              reset={() => {
+                setNavigationOpen(false);
+                setResetOpen(true);
+              }}
+            />
+          </SheetContent>
+        </Sheet>
+      )}
+      {selected && !evidenceIsPanel && (
         <EvidenceDrawer
+          mode="drawer"
           answer={finalOf(selected)}
           citations={citationsOf(selected)}
-          onClose={() => setSelected(undefined)}
+          selectedCitationId={selectedCitationId}
+          onClose={closeEvidence}
         />
       )}
       {resetOpen && (
@@ -375,6 +501,59 @@ export function ChatWorkspace() {
       )}
     </div>
   );
+}
+
+function NavigationContent({
+  busy,
+  hasMessages,
+  projectId,
+  reset,
+}: {
+  busy: boolean;
+  hasMessages: boolean;
+  projectId: string;
+  reset: () => void;
+}) {
+  return (
+    <div className="flex min-h-full flex-col gap-6 p-5">
+      <div>
+        <p className="text-lg font-bold">Graphify</p>
+        <p className="text-sm text-slate-600">Knowledge workspace</p>
+      </div>
+      <nav aria-label="Workspace">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+          Current project
+        </p>
+        <p className="mt-2 break-all rounded-lg bg-slate-50 p-3 font-mono text-sm">
+          {projectId}
+        </p>
+      </nav>
+      <div className="mt-auto space-y-3">
+        <Button
+          aria-label="Reset conversation"
+          variant="outline"
+          disabled={!hasMessages || busy}
+          onClick={reset}
+          className="min-h-11 w-full justify-start"
+        >
+          <RotateCcw />
+          Reset conversation
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+  return matches;
 }
 
 function ConnectionStatus({
@@ -396,6 +575,7 @@ function ConnectionStatus({
       className="flex min-h-11 items-center gap-2 text-sm"
     >
       <span
+        aria-hidden="true"
         className={`h-2.5 w-2.5 rounded-full ${status === "connected" ? "bg-emerald-500" : status === "checking" ? "bg-amber-500" : "bg-red-500"}`}
       />
       <span>{label}</span>
@@ -448,7 +628,7 @@ function Message({
 }: {
   message: UIMessage;
   busy: boolean;
-  openEvidence: () => void;
+  openEvidence: (trigger: HTMLElement, citationId?: string) => void;
   retry: () => void;
 }) {
   const events = eventsOf(message),
@@ -486,7 +666,13 @@ function Message({
           )}
           {text && (
             <div className="prose max-w-none">
-              <ReactMarkdown skipHtml>{text}</ReactMarkdown>
+              <CitedAnswer
+                text={text}
+                citations={citations}
+                onCitation={(citationId, opener) =>
+                  openEvidence(opener, citationId)
+                }
+              />
             </div>
           )}
           {answer && !clarification && (
@@ -526,7 +712,7 @@ function Message({
               <Button
                 aria-label="View sources"
                 variant="outline"
-                onClick={openEvidence}
+                onClick={(event) => openEvidence(event.currentTarget)}
                 className="min-h-11"
               >
                 <Search />
@@ -542,7 +728,7 @@ function Message({
                 <Button
                   aria-label="View evidence"
                   variant="outline"
-                  onClick={openEvidence}
+                  onClick={(event) => openEvidence(event.currentTarget)}
                   className="min-h-11"
                 >
                   View evidence

@@ -64,6 +64,7 @@ describe("EvidenceDrawer", () => {
       screen.getByRole("heading", { name: "Sources (1)" }),
     ).toBeInTheDocument();
     expect(screen.getByText("[1] System notes")).toBeInTheDocument();
+    expect(screen.getByText("Direct evidence")).toBeInTheDocument();
     expect(screen.getByText("Ada designed the system.")).toBeInTheDocument();
     const relationships = screen.getByRole("heading", {
       name: "Relationships (1)",
@@ -110,20 +111,68 @@ describe("EvidenceDrawer", () => {
       />,
     );
 
-    expect(screen.getByText("Haystack passage")).toBeInTheDocument();
-    const disclosure = screen
-      .getByText("Show full retrieved passage")
-      .closest("details");
+    expect(screen.getByText("[1] Artículo 49, literal d)")).toBeInTheDocument();
+    expect(screen.getByText("Direct evidence")).toBeInTheDocument();
+    const disclosure = screen.getByText("Open full passage").closest("details");
     expect(disclosure).not.toHaveAttribute("open");
 
-    await user.click(screen.getByText("Show full retrieved passage"));
+    await user.click(screen.getByText("Open full passage"));
 
     expect(disclosure).toHaveAttribute("open");
     expect(screen.getByText(passage)).toBeInTheDocument();
-    expect(
-      screen.getByText("ley-2381-de-2024.md", { selector: "dd" }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Ley 2381 de 2024")).toBeInTheDocument();
     expect(screen.getByText("842–844")).toBeInTheDocument();
+  });
+
+  it("selects, expands, highlights, and scrolls an inline citation into view", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(
+      <EvidenceDrawer
+        mode="panel"
+        selectedCitationId="source:article-49-d"
+        citations={[
+          {
+            id: "source:article-49-d",
+            title: "ley-2381-de-2024.md — Artículo 49, d)",
+            source: "ley-2381-de-2024.md",
+            nodeId: null,
+            relationship: null,
+            provenance: "explicit",
+            excerpt: "Pasaje jurídico completo.",
+            document: "ley-2381-de-2024.md",
+            article: "49",
+            paragraph: "d)",
+            startLine: 844,
+            endLine: 844,
+          },
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByText("[1] Artículo 49, literal d)").closest("li");
+    expect(screen.getByRole("complementary")).toBeInTheDocument();
+    expect(card).toHaveAttribute("aria-current", "true");
+    expect(card).toHaveClass("ring-2");
+    expect(
+      screen.getByText("Open full passage").closest("details"),
+    ).toHaveAttribute("open");
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest",
+      behavior: "smooth",
+    });
+  });
+
+  it("keeps raw correlation and node identifiers under technical details", () => {
+    render(<EvidenceDrawer citations={answer.citations} onClose={vi.fn()} />);
+
+    const technical = screen
+      .getAllByText("Technical details")[0]
+      .closest("details");
+    expect(technical).not.toHaveAttribute("open");
+    expect(within(technical!).getByText("citation-1")).toBeInTheDocument();
+    expect(within(technical!).getByText("ada")).toBeInTheDocument();
   });
 
   it("is keyboard dismissible and moves focus to its heading", async () => {

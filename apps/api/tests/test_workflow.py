@@ -5,10 +5,11 @@ import asyncio
 import pytest
 from conftest import FakeGraph, FakeModel
 
-from app.agent.models import WorkflowLimits
+from app.agent.models import Citation, WorkflowLimits
 from app.agent.workflow import (
     INSUFFICIENT_ANSWER,
     KnowledgeWorkflow,
+    _numbered_citation_answer,
     retrieval_query_variants,
 )
 from app.integrations.llm.errors import ModelResponseError
@@ -59,6 +60,40 @@ def test_retrieval_query_variants_keep_law_identifiers_intact() -> None:
     )
     assert variants[0] == "¿Que establece la Ley 100 de 1993 sobre pensiones?"
     assert "Ley 100 de 1993" in variants
+
+
+def test_internal_source_ids_become_stable_numbered_references() -> None:
+    citations = [
+        Citation(
+            id="source:article-49-d",
+            title="Artículo 49, literal d)",
+            source="ley-2381-de-2024.md",
+            provenance="explicit",
+        ),
+        Citation(
+            id="source:article-49-e",
+            title="Artículo 49, literal e)",
+            source="ley-2381-de-2024.md",
+            provenance="explicit",
+        ),
+    ]
+
+    displayed = _numbered_citation_answer(
+        "Hijos [source:article-49-d]. Padres (source:article-49-e). "
+        "Hijos source:article-49-d.",
+        citations,
+        "es",
+    )
+
+    assert displayed == "Hijos [1]. Padres [2]. Hijos [1]."
+    assert "source:" not in displayed
+
+
+def test_unmatched_source_id_is_never_exposed_in_answer_text() -> None:
+    assert (
+        _numbered_citation_answer("Contenido (source:not-allowlisted).", [], "es")
+        == "Contenido fuente de respaldo."
+    )
 
 
 async def test_empty_primary_search_retries_with_focused_law_query() -> None:

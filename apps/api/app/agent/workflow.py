@@ -63,6 +63,31 @@ SOURCE_RETRIEVAL_UNAVAILABLE_WARNING = (
     "Source-text retrieval was unavailable; only graph evidence could be used."
 )
 
+
+def _numbered_citation_answer(
+    answer: str,
+    citations: list[Citation],
+    language: ResponseLanguage,
+) -> str:
+    """Replace internal correlation tokens with stable display references."""
+
+    numbered = {citation.id: index for index, citation in enumerate(citations, 1)}
+    rendered = answer
+    for citation_id in sorted(numbered, key=len, reverse=True):
+        escaped = re.escape(citation_id)
+        rendered = re.sub(
+            rf"(?:\[{escaped}\]|\({escaped}\)|{escaped})",
+            f"[{numbered[citation_id]}]",
+            rendered,
+        )
+    fallback = "fuente de respaldo" if language == "es" else "supporting source"
+    return re.sub(
+        r"(?:\[|\()?source:[A-Za-z0-9._:-]+(?:\]|\))?",
+        fallback,
+        rendered,
+    )
+
+
 _SPANISH_WORDS = frozenset(
     {
         "cual",
@@ -919,11 +944,14 @@ class KnowledgeWorkflow:
             for citation in state["evidence_citations"]
             if citation.id in selected
         ]
+        display_answer = _numbered_citation_answer(
+            state["draft_answer"], citations, state["response_language"]
+        )
         return {
             "answer": Answer(
                 request_id=state["request_id"],
                 conversation_id=state["conversation_id"],
-                answer=state["draft_answer"],
+                answer=display_answer,
                 response_type=state.get(
                     "response_type",
                     "insufficient"

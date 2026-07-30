@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/contracts/knowledge/graph-build-manifest.schema.json",
+  "title": "Graph Build Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "projectId",
+    "graphVersion",
+    "sourceVersion",
+    "status",
+    "createdAt",
+    "graphifyFormat",
+    "artifact",
+    "counts"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "projectId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "graphVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sourceVersion": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "status": { "const": "validated" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "graphifyFormat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "producerVersion"],
+      "properties": {
+        "artifactType": { "const": "graph.json" },
+        "producerVersion": { "type": "string", "minLength": 1 },
+        "formatVersion": { "type": ["string", "null"] }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "bytes"],
+      "properties": {
+        "relativePath": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+        },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "integer", "minimum": 0 },
+        "edges": { "type": "integer", "minimum": 0 },
+        "sources": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "maxItems": 100
+    }
+  }
+}

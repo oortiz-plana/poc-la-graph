@@ -1,0 +1,255 @@
+"""Versioned conversation routes and system probes."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import AsyncIterator
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request, Response, status
+from sse_starlette.sse import EventSourceResponse
+
+from app.agent.events import LifecycleEvent
+from app.agent.models import ConversationTurn
+from app.agent.workflow import KnowledgeWorkflow
+from app.config.settings import Settings
+from app.integrations.graphify import GraphifyConfigurationError, GraphifyError
+from app.models import (
+    Conversation,
+    CreateConversationRequest,
+    Health,
+    Readiness,
+    SendMessageRequest,
+)
+from app.store import ConversationStore
+
+from .dependencies import build_graph_client, get_app_settings, get_store, get_workflow
+from .errors import InvalidRequest
+
+api_router = APIRouter()
+
+
+@api_router.get("/health", response_model=Health, tags=["system"])
+async def health() -> Health:
+    return Health()
+
+
+@api_router.get(
+    "/ready",
+    response_model=Readiness,
+    responses={503: {"model": Readiness}},
+    tags=["system"],
+)
+async def readiness(request: Request, response: Response) -> Readiness:
+    initialized = bool(getattr(request.app.state, "initialized", False))
+    knowledge = getattr(request.app.state, "knowledge", None)
+    graph = knowledge.graph_status() if knowledge else {"status": "unavailable"}
+    settings = getattr(request.app.state, "settings", None)
+    deterministic = bool(settings and settings.graphify_runtime_mode == "synthetic")
+    graph_ready = graph["status"] == "ready" or deterministic
+    knowledge_graph_status = "synthetic" if deterministic else str(graph["status"])
+    graphify_status = await _graphify_readiness(
+        request,
+        settings,
+        graph_ready=graph_ready,
+        graph_version=graph.get("activeGraphVersion"),
+    )
+    ready = initialized and graph_ready and graphify_status in {"available", "mock"}
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    llm_status = (
+        "mock"
+        if settings and settings.llm_adapter == "mock"
+        else "configured"
+        if settings and settings.llm_model
+        else "unconfigured"
+    )
+    return Readiness(
+        ready=ready,
+        components={
+            "api": {"status": "running" if initialized else "starting"},
+            "conversationStore": {
+                "status": (
+                    "available"
+                    if getattr(
+                        request.app.state,
+                        "conversation_store_initialized",
+                        False,
+                    )
+                    else "unavailable"
+                )
+            },
+            "knowledgeGraph": {"status": knowledge_graph_status},
+            "graphifyMcp": {"status": graphify_status},
+            "llm": {"status": llm_status},
+        },
+    )
+
+
+async def _graphify_readiness(
+    request: Request,
+    settings: Settings | None,
+    *,
+    graph_ready: bool,
+    graph_version: object,
+) -> str:
+    if settings is None or not getattr(request.app.state, "initialized", False):
+        return "waiting"
+    if settings.graphify_adapter == "mock":
+        return "mock"
+    if settings.graphify_runtime_mode == "real" and not graph_ready:
+        return "waiting"
+    client = build_graph_client(
+        settings,
+        graph_version=graph_version if isinstance(graph_version, str) else None,
+    )
+    try:
+        await client.check_compatibility()
+    except GraphifyConfigurationError:
+        request.app.state.logger.error(
+            "graphify_mcp_incompatible",
+            extra={"error_type": "configuration"},
+        )
+        return "incompatible"
+    except GraphifyError as exc:
+        request.app.state.logger.warning(
+            "graphify_mcp_unavailable",
+            extra={"error_type": exc.category},
+        )
+        return "unavailable"
+    return "available"
+
+
+@api_router.post(
+    "/api/v1/conversations",
+    response_model=Conversation,
+    status_code=status.HTTP_201_CREATED,
+    tags=["conversations"],
+)
+async def create_conversation(
+    store: Annotated[ConversationStore, Depends(get_store)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    body: CreateConversationRequest | None = None,
+) -> Conversation:
+    requested = body.project_id if body else None
+    if requested is not None and requested != settings.graphify_project_id:
+        raise InvalidRequest(
+            "projectId must equal the server-configured Graphify project"
+        )
+    return await store.create(requested or settings.graphify_project_id)
+
+
+@api_router.get(
+    "/api/v1/conversations/{conversation_id}",
+    response_model=Conversation,
+    tags=["conversations"],
+)
+async def get_conversation(
+    conversation_id: str,
+    store: Annotated[ConversationStore, Depends(get_store)],
+) -> Conversation:
+    return await store.get(conversation_id)
+
+
+@api_router.delete(
+    "/api/v1/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["conversations"],
+)
+async def delete_conversation(
+    conversation_id: str,
+    store: Annotated[ConversationStore, Depends(get_store)],
+) -> Response:
+    await store.delete(conversation_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@api_router.post(
+    "/api/v1/conversations/{conversation_id}/messages",
+    response_class=EventSourceResponse,
+    responses={200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}}},
+    tags=["conversations"],
+)
+async def send_message(
+    conversation_id: str,
+    body: SendMessageRequest,
+    request: Request,
+    store: Annotated[ConversationStore, Depends(get_store)],
+    workflow: Annotated[KnowledgeWorkflow, Depends(get_workflow)],
+) -> EventSourceResponse:
+    correlation_id = str(request.state.request_id)
+    await store.acquire_request(conversation_id, correlation_id)
+    try:
+        history = await store.get_history(
+            conversation_id,
+            max_turns=request.app.state.settings.conversation_history_max_turns,
+            max_chars=request.app.state.settings.conversation_history_max_chars,
+        )
+        conversation_history = [
+            ConversationTurn(id=item.id, role=item.role, content=item.content)
+            for item in history
+        ]
+        await store.add_user_message(conversation_id, body.message.strip())
+    except Exception:
+        await store.release_request(conversation_id, correlation_id)
+        raise
+
+    async def events() -> AsyncIterator[dict[str, str]]:
+        terminal = False
+        try:
+            async for event in workflow.stream(
+                body.message.strip(),
+                correlation_id,
+                conversation_id,
+                history=conversation_history,
+            ):
+                if await request.is_disconnected():
+                    break
+                await _persist_terminal(store, conversation_id, event)
+                terminal = event.type in {"message.completed", "message.failed"}
+                yield {
+                    "event": event.type,
+                    "data": json.dumps(
+                        event.to_payload(),
+                        separators=(",", ":"),
+                    ),
+                }
+        finally:
+            if not terminal:
+                request.app.state.logger.warning(
+                    "stream_ended_without_terminal_event",
+                    extra={"request_id": correlation_id},
+                )
+                await store.add_assistant_message(
+                    conversation_id,
+                    "The response stream was interrupted.",
+                    "failed",
+                )
+            await store.release_request(conversation_id, correlation_id)
+
+    return EventSourceResponse(
+        events(),
+        headers={"X-Request-ID": correlation_id, "Cache-Control": "no-cache"},
+        ping=15,
+    )
+
+
+async def _persist_terminal(
+    store: ConversationStore,
+    conversation_id: str,
+    event: LifecycleEvent,
+) -> None:
+    if event.type == "message.completed" and event.result is not None:
+        await store.add_assistant_message(
+            conversation_id,
+            event.result.answer,
+            "completed",
+            event.result,
+        )
+    elif event.type == "message.failed":
+        message = (
+            str(event.error.get("message"))
+            if event.error
+            else "The request could not be completed."
+        )
+        await store.add_assistant_message(conversation_id, message, "failed")

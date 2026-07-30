@@ -1,0 +1,249 @@
+openapi: 3.1.0
+info:
+  title: Graphify Knowledge Agent API
+  version: 1.0.0-poc
+  description: Unauthenticated POC API. The message endpoint returns named SSE events.
+servers:
+  - url: http://localhost:8000
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Process liveness
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /ready:
+    get:
+      operationId: readiness
+      summary: Application initialization readiness
+      responses:
+        "200":
+          description: Ready to accept requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        "503":
+          description: Required application dependency is not initialized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+  /api/v1/conversations:
+    post:
+      operationId: createConversation
+      summary: Create a durable conversation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationRequest"
+      responses:
+        "201":
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/conversations/{conversation_id}:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      operationId: getConversation
+      summary: Get conversation history
+      responses:
+        "200":
+          description: Conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteConversation
+      summary: Reset by deleting the conversation
+      responses:
+        "204":
+          description: Conversation deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/conversations/{conversation_id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    post:
+      operationId: sendMessage
+      summary: Ask a question and stream the response
+      description: |
+        Returns `text/event-stream`. Each frame has `event` equal to its event
+        type and `data` containing the JSON event envelope. Successful ordering:
+        message.started, paired tool events, deltas/citations, message.completed.
+        Exactly one terminal event is emitted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "200":
+          description: Named SSE stream
+          headers:
+            X-Request-ID:
+              description: Correlation identifier used by all stream events
+              schema:
+                type: string
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Frames conform to contracts/events/sse-events.schema.json
+              examples:
+                started:
+                  value: |
+                    event: message.started
+                    data: {"type":"message.started","requestId":"req-1","conversationId":"conv-1","timestamp":"2026-07-28T12:00:00Z","messageId":"msg-1"}
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ConversationBusy"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+components:
+  parameters:
+    ConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ValidationError:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ConversationBusy:
+      description: This conversation already has an active request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          const: ok
+    Readiness:
+      type: object
+      additionalProperties: false
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ready, not_ready, not_checked]
+    CreateConversationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Must equal the server-configured project; defaults to it when omitted.
+    SendMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        includeGraphPaths:
+          type: boolean
+          default: true
+    Conversation:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, createdAt, updatedAt, messages]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+    Message:
+      type: object
+      additionalProperties: false
+      required: [id, role, content, status, createdAt]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        status:
+          type: string
+          enum: [pending, completed, failed]
+        createdAt:
+          type: string
+          format: date-time
+        result:
+          oneOf:
+            - $ref: "../schemas/answer.schema.json"
+            - type: "null"
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [requestId, code, message]
+      properties:
+        requestId:
+          type: string
+        code:
+          type: string
+          enum:
+            [
+              invalid_request,
+              conversation_not_found,
+              conversation_busy,
+              internal_error,
+            ]
+        message:
+          type: string

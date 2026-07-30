@@ -1,0 +1,19 @@
+{
+  "name": "graphify-agent-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test specs/chat.spec.ts",
+    "test:synthetic": "playwright test specs/chat.spec.ts",
+    "test:headed": "playwright test specs/chat.spec.ts --headed",
+    "test:recovery": "E2E_DEPENDENCY_CONTROL=1 playwright test specs/resilience.spec.ts",
+    "test:spanish": "E2E_REAL_GRAPHIFY=1 playwright test spanish/spanish.spec.ts",
+    "test:list": "playwright test --list",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,190 @@
+name: ${COMPOSE_PROJECT_NAME:-graphify-agent-poc}
+
+services:
+  knowledge-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "mkdir -p /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state && chown -R 10001:10001 /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state"]
+    volumes:
+      - graphify_knowledge:/knowledge
+      - ./knowledge/input:/knowledge/input:ro
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    network_mode: none
+    restart: "no"
+
+  knowledge-ingest:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: graphify-agent-poc-api:local
+    command: ["python", "-m", "app.knowledge.cli", "startup"]
+    environment:
+      GRAPHIFY_PACKAGE_VERSION: ${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
+      GRAPHIFY_EXTRACT_BACKEND: ${GRAPHIFY_EXTRACT_BACKEND:-openai}
+      GRAPHIFY_EXTRACT_MODEL: ${GRAPHIFY_EXTRACT_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      KNOWLEDGE_INPUT_DIR: /knowledge/input
+      KNOWLEDGE_STAGING_DIR: /knowledge/staging
+      KNOWLEDGE_GRAPH_DIR: /knowledge/graph
+      KNOWLEDGE_ARCHIVE_DIR: /knowledge/archive
+      KNOWLEDGE_FAILED_DIR: /knowledge/failed
+      KNOWLEDGE_MANIFEST_PATH: /knowledge/state/manifest.json
+      KNOWLEDGE_INGEST_ON_STARTUP: ${KNOWLEDGE_INGEST_ON_STARTUP:-true}
+      KNOWLEDGE_FORCE_REBUILD: ${KNOWLEDGE_FORCE_REBUILD:-false}
+      KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES: ${KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES:-2097152}
+      KNOWLEDGE_MAX_DOCUMENT_COUNT: ${KNOWLEDGE_MAX_DOCUMENT_COUNT:-100}
+      KNOWLEDGE_GRAPH_VERSIONS_TO_KEEP: ${KNOWLEDGE_GRAPH_VERSIONS_TO_KEEP:-2}
+      KNOWLEDGE_BUILD_TIMEOUT_SECONDS: ${KNOWLEDGE_BUILD_TIMEOUT_SECONDS:-1800}
+    volumes:
+      - graphify_knowledge:/knowledge
+      - ./knowledge/input:/knowledge/input:ro
+    depends_on:
+      knowledge-init:
+        condition: service_completed_successfully
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    networks: [app]
+
+  graphify:
+    build:
+      context: .
+      dockerfile: docker/graphify.Dockerfile
+      args:
+        GRAPHIFY_PACKAGE_VERSION: ${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
+    image: graphify-agent-poc-graphify:${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
+    environment:
+      GRAPHIFY_RUNTIME_MODE: ${GRAPHIFY_RUNTIME_MODE:-real}
+      GRAPHIFY_GRAPH_PATH: /knowledge/graph/active/graph.json
+    volumes:
+      - graphify_knowledge:/knowledge:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    expose:
+      - "8001"
+    healthcheck:
+      test: ["CMD", "python", "/opt/graphify/healthcheck.py"]
+      interval: 10s
+      timeout: 8s
+      retries: 18
+      start_period: 20s
+    depends_on:
+      knowledge-ingest:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [app]
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: graphify-agent-poc-api:local
+    environment:
+      LLM_ADAPTER: ${LLM_ADAPTER:-mock}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_BASE: ${LLM_API_BASE:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-45}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+      GRAPHIFY_ADAPTER: ${GRAPHIFY_ADAPTER:-mcp}
+      GRAPHIFY_RUNTIME_MODE: ${GRAPHIFY_RUNTIME_MODE:-real}
+      GRAPHIFY_PACKAGE_VERSION: ${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
+      GRAPHIFY_MCP_TRANSPORT: ${GRAPHIFY_MCP_TRANSPORT:-http}
+      GRAPHIFY_MCP_URL: ${GRAPHIFY_MCP_URL:-http://graphify:8001/mcp}
+      GRAPHIFY_PROJECT_ID: ${GRAPHIFY_PROJECT_ID:-sample-project}
+      GRAPHIFY_PROJECT_PATH: ${GRAPHIFY_PROJECT_PATH:-/knowledge/graph/active}
+      GRAPHIFY_KNOWLEDGE_ROOT: ${GRAPHIFY_KNOWLEDGE_ROOT:-/knowledge}
+      GRAPHIFY_REQUEST_TIMEOUT_SECONDS: ${GRAPHIFY_REQUEST_TIMEOUT_SECONDS:-20}
+      GRAPHIFY_SEARCH_TOOL: ${GRAPHIFY_SEARCH_TOOL:-query_graph}
+      GRAPHIFY_GET_NODE_TOOL: ${GRAPHIFY_GET_NODE_TOOL:-get_node}
+      GRAPHIFY_GET_NEIGHBORS_TOOL: ${GRAPHIFY_GET_NEIGHBORS_TOOL:-get_neighbors}
+      GRAPHIFY_SHORTEST_PATH_TOOL: ${GRAPHIFY_SHORTEST_PATH_TOOL:-shortest_path}
+      AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-60}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-4}
+      AGENT_MAX_TRAVERSAL_DEPTH: ${AGENT_MAX_TRAVERSAL_DEPTH:-2}
+      AGENT_MAX_NODES: ${AGENT_MAX_NODES:-100}
+      AGENT_MAX_EDGES: ${AGENT_MAX_EDGES:-200}
+      AGENT_MAX_EVIDENCE_BYTES: ${AGENT_MAX_EVIDENCE_BYTES:-65536}
+      AGENT_MAX_MODEL_ITERATIONS: ${AGENT_MAX_MODEL_ITERATIONS:-2}
+      CONVERSATION_DATABASE_URL: ${CONVERSATION_DATABASE_URL:-sqlite+aiosqlite:////knowledge/state/conversations.db}
+      CONVERSATION_RETENTION_DAYS: ${CONVERSATION_RETENTION_DAYS:-30}
+      CONVERSATION_MAX_TURNS: ${CONVERSATION_MAX_TURNS:-100}
+      CONVERSATION_HISTORY_MAX_TURNS: ${CONVERSATION_HISTORY_MAX_TURNS:-6}
+      CONVERSATION_HISTORY_MAX_CHARS: ${CONVERSATION_HISTORY_MAX_CHARS:-8000}
+      CONVERSATION_REQUEST_LEASE_SECONDS: ${CONVERSATION_REQUEST_LEASE_SECONDS:-300}
+      CONVERSATION_CLEANUP_INTERVAL_SECONDS: ${CONVERSATION_CLEANUP_INTERVAL_SECONDS:-3600}
+      CORS_ORIGINS: http://localhost:3000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      KNOWLEDGE_INPUT_DIR: /knowledge/input
+      KNOWLEDGE_STAGING_DIR: /knowledge/staging
+      KNOWLEDGE_GRAPH_DIR: /knowledge/graph
+      KNOWLEDGE_ARCHIVE_DIR: /knowledge/archive
+      KNOWLEDGE_FAILED_DIR: /knowledge/failed
+      KNOWLEDGE_MANIFEST_PATH: /knowledge/state/manifest.json
+      KNOWLEDGE_INGEST_ON_STARTUP: "false"
+      KNOWLEDGE_ADMIN_ENDPOINTS_ENABLED: ${KNOWLEDGE_ADMIN_ENDPOINTS_ENABLED:-true}
+      KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES: ${KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES:-2097152}
+      KNOWLEDGE_MAX_DOCUMENT_COUNT: ${KNOWLEDGE_MAX_DOCUMENT_COUNT:-100}
+      KNOWLEDGE_GRAPH_VERSIONS_TO_KEEP: ${KNOWLEDGE_GRAPH_VERSIONS_TO_KEEP:-2}
+      GRAPHIFY_EXTRACT_BACKEND: ${GRAPHIFY_EXTRACT_BACKEND:-openai}
+      GRAPHIFY_EXTRACT_MODEL: ${GRAPHIFY_EXTRACT_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - graphify_knowledge:/knowledge
+      - ./knowledge/input:/knowledge/input:ro
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      graphify:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    init: true
+    restart: unless-stopped
+    networks: [app]
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    image: graphify-agent-poc-web:local
+    environment:
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
+      GRAPHIFY_PROJECT_ID: ${GRAPHIFY_PROJECT_ID:-sample-project}
+    ports:
+      - "3000:3000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    init: true
+    restart: unless-stopped
+    networks: [app]
+
+volumes:
+  graphify_knowledge:
+
+networks:
+  app:
+    driver: bridge

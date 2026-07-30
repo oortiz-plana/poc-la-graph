@@ -1,0 +1,15 @@
+.git
+.env
+**/.next
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/coverage
+**/test-results
+**/playwright-report
+*.pyc
+*.pyo
+*.log
+

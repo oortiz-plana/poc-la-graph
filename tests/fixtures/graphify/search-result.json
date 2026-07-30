@@ -1,0 +1,53 @@
+{
+  "nodes": [
+    {
+      "id": "service-api",
+      "label": "Knowledge Agent API",
+      "type": "Service",
+      "properties": {"language": "Python"},
+      "source": "synthetic://architecture",
+      "excerpt": "The Knowledge Agent API queries Graphify through MCP.",
+      "provenance": "explicit"
+    },
+    {
+      "id": "service-graphify",
+      "label": "Graphify MCP",
+      "type": "Service",
+      "properties": {"transport": "streamable-http"},
+      "source": "synthetic://architecture",
+      "excerpt": "Graphify exposes graph knowledge as allowlisted MCP tools.",
+      "provenance": "explicit"
+    }
+  ],
+  "edges": [
+    {
+      "id": "api-queries-graphify",
+      "sourceNodeId": "service-api",
+      "targetNodeId": "service-graphify",
+      "relationship": "QUERIES",
+      "properties": {},
+      "provenance": "explicit"
+    }
+  ],
+  "paths": [
+    {
+      "id": "api-to-graphify",
+      "nodeIds": ["service-api", "service-graphify"],
+      "edgeIds": ["api-queries-graphify"]
+    }
+  ],
+  "citations": [
+    {
+      "id": "citation-api-graphify",
+      "title": "Synthetic architecture",
+      "source": "synthetic://architecture",
+      "nodeId": "service-api",
+      "relationship": "QUERIES",
+      "provenance": "explicit",
+      "excerpt": "The Knowledge Agent API queries Graphify through MCP."
+    }
+  ],
+  "graphVersion": "synthetic-v1",
+  "warnings": [],
+  "truncated": false
+}

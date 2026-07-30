@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/contracts/knowledge/active-pointer.schema.json",
+  "title": "Active Graph Pointer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "projectId",
+    "graphVersion",
+    "generation",
+    "activatedAt",
+    "activatedBy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "projectId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "graphVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "previousGraphVersion": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "generation": { "type": "integer", "minimum": 1 },
+    "activatedAt": { "type": "string", "format": "date-time" },
+    "activatedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "reason": { "type": ["string", "null"], "maxLength": 1000 }
+  }
+}

@@ -1,0 +1,5 @@
+Traversal: BFS depth=2 | Start: ['Ley 100 de 1993', 'Sistema General de Pensiones'] | 2 nodes found
+
+NODE Sistema General de Pensiones [src=ley-100-de-1993.md loc=L10 community=0]
+NODE Ley 100 de 1993 [src=ley-100-de-1993.md loc=L1 community=0]
+EDGE Ley 100 de 1993 --ESTABLECE [EXTRACTED context=Reforma pensional]--> Sistema General de Pensiones

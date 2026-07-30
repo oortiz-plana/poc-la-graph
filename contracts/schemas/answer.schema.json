@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/schemas/answer.schema.json",
+  "title": "Answer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requestId",
+    "conversationId",
+    "answer",
+    "status",
+    "responseType",
+    "confidence",
+    "graphVersion",
+    "citations",
+    "graphEvidence",
+    "warnings"
+  ],
+  "properties": {
+    "requestId": { "type": "string", "minLength": 1 },
+    "conversationId": { "type": "string", "minLength": 1 },
+    "answer": { "type": "string" },
+    "status": { "const": "completed" },
+    "responseType": {
+      "type": "string",
+      "enum": ["answer", "clarification", "insufficient"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low", "insufficient"]
+    },
+    "graphVersion": { "type": ["string", "null"] },
+    "citations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/citation" }
+    },
+    "graphEvidence": {
+      "$ref": "graph-evidence.schema.json"
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "source",
+        "nodeId",
+        "relationship",
+        "provenance",
+        "excerpt"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "nodeId": { "type": ["string", "null"] },
+        "relationship": { "type": ["string", "null"] },
+        "provenance": {
+          "type": "string",
+          "enum": ["explicit", "extracted", "inferred", "unknown"]
+        },
+        "excerpt": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

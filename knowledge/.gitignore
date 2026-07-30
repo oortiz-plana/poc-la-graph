@@ -1,0 +1,10 @@
+staging/*
+graph/*
+archive/*
+failed/*
+state/*
+!staging/.gitkeep
+!graph/.gitkeep
+!archive/.gitkeep
+!failed/.gitkeep
+!state/.gitkeep

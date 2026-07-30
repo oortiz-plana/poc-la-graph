@@ -1,0 +1,6 @@
+Node: Ley 100 de 1993
+  ID: ley-100
+  Source: ley-100-de-1993.md L1
+  Type: markdown
+  Community: 0
+  Degree: 1

@@ -1,0 +1,51 @@
+{
+  "graphVersion": "synthetic-2026-07-28",
+  "nodes": [
+    {
+      "id": "service-api",
+      "label": "Knowledge Agent API",
+      "type": "Service",
+      "properties": {"runtime": "Python 3.12", "framework": "FastAPI"},
+      "source": "synthetic://architecture/services",
+      "excerpt": "The Knowledge Agent API orchestrates graph retrieval and grounded answer generation.",
+      "provenance": "explicit"
+    },
+    {
+      "id": "service-graphify",
+      "label": "Graphify MCP Server",
+      "type": "Service",
+      "properties": {"protocol": "MCP", "transport": "streamable HTTP"},
+      "source": "synthetic://architecture/services",
+      "excerpt": "Graphify exposes graph search and traversal capabilities through MCP.",
+      "provenance": "explicit"
+    },
+    {
+      "id": "service-web",
+      "label": "Knowledge Chat Web",
+      "type": "Service",
+      "properties": {"framework": "Next.js"},
+      "source": "synthetic://architecture/services",
+      "excerpt": "The browser streams grounded answers from the API and displays citations.",
+      "provenance": "explicit"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-api-graphify",
+      "sourceNodeId": "service-api",
+      "targetNodeId": "service-graphify",
+      "relationship": "QUERIES_VIA_MCP",
+      "properties": {},
+      "provenance": "explicit"
+    },
+    {
+      "id": "edge-web-api",
+      "sourceNodeId": "service-web",
+      "targetNodeId": "service-api",
+      "relationship": "STREAMS_FROM",
+      "properties": {},
+      "provenance": "explicit"
+    }
+  ]
+}
+

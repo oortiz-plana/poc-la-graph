@@ -58,7 +58,9 @@
         "article",
         "paragraph",
         "startLine",
-        "endLine"
+        "endLine",
+        "pageNumber",
+        "sectionPath"
       ],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
@@ -75,7 +77,12 @@
         "article": { "type": ["string", "null"] },
         "paragraph": { "type": ["string", "null"] },
         "startLine": { "type": ["integer", "null"], "minimum": 1 },
-        "endLine": { "type": ["integer", "null"], "minimum": 1 }
+        "endLine": { "type": ["integer", "null"], "minimum": 1 },
+        "pageNumber": { "type": ["integer", "null"], "minimum": 1 },
+        "sectionPath": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        }
       }
     }
   }

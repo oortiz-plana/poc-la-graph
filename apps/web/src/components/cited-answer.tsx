@@ -44,11 +44,12 @@ export function citationMarkdown(text: string, citations: Citation[]) {
 
 export function citationPreview(citation: Citation) {
   const document = citation.document ?? citation.source;
-  const base = document.replace(/\.md$/i, "");
+  const base = document.replace(/\.(?:md|txt|html?|pdf|docx)$/i, "");
   const law = base.match(/^ley-(\d+)-de-(\d+)$/i);
+  const titleLabel = citation.title.split(/\s+[—·]\s+/)[0] || document;
   const documentLabel = law
     ? `Ley ${law[1]} de ${law[2]}`
-    : citation.title.split(/\s+[—·]\s+/)[0] || document;
+    : titleLabel.replace(/\.(?:md|txt|html?|pdf|docx)$/i, "");
   const article = citation.article
     ? `Artículo ${citation.article.replace(/^art[ií]culo\s+/i, "")}`
     : null;
@@ -56,7 +57,13 @@ export function citationPreview(citation: Citation) {
     citation.startLine && citation.endLine
       ? `líneas ${citation.startLine}–${citation.endLine}`
       : null;
-  return [documentLabel, article, lines].filter(Boolean).join(" · ");
+  const page = citation.pageNumber ? `página ${citation.pageNumber}` : null;
+  const section = citation.sectionPath?.length
+    ? citation.sectionPath.join(" › ")
+    : null;
+  return [documentLabel, article, page, section, lines]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function CitationLink({

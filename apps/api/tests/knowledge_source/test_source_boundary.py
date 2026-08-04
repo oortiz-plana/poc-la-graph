@@ -156,6 +156,50 @@ async def test_subprocess_isolated_from_stdio_cwd_and_process_environment(
     assert "LLM_API_KEY" not in environment
 
 
+async def test_graphify_staging_preserves_original_binary_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured = settings(tmp_path)
+    raw = b"%PDF-1.4\r\noriginal\x00bytes"
+    snapshot = SimpleNamespace(
+        source_version="source-binary",
+        total_bytes=len(raw),
+        documents=(
+            SimpleNamespace(
+                relative_path="source.pdf",
+                content="Normalized extracted text",
+                raw_bytes=raw,
+                sha256="a" * 64,
+                bytes=len(raw),
+                modified_at=datetime(2026, 1, 1, tzinfo=UTC),
+                media_type="application/pdf",
+                profile="generic",
+            ),
+        ),
+    )
+    service = KnowledgeIngestionService(
+        configured,
+        logging.getLogger("test"),
+        source=AsyncSource(snapshot),
+    )
+
+    async def failed(*args: object, **kwargs: object) -> FailedProcess:
+        del args, kwargs
+        return FailedProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", failed)
+    with pytest.raises(RuntimeError, match="Knowledge ingestion failed"):
+        await service.run_now(force=True)
+
+    staged = next(
+        Path(configured.knowledge_failed_dir).glob(  # noqa: ASYNC240
+            "*/source/source.pdf"
+        )
+    )
+    assert staged.read_bytes() == raw
+
+
 def test_change_set_classifies_paths_deterministically_without_host_paths() -> None:
     old = {
         "documents": [
@@ -226,11 +270,16 @@ def test_manifest_records_removed_path_and_keeps_document_checksums(
         "unchanged": ["same.md"],
         "removed": ["removed.md"],
     }
+    assert manifest["processingFingerprint"] == (
+        service.settings.knowledge_processing_fingerprint
+    )
     assert manifest["documents"] == [
         {
             "relativePath": "same.md",
             "sha256": "s" * 64,
             "sizeBytes": 4,
             "modifiedAt": "2026-01-01T00:00:00+00:00",
+            "mediaType": "text/markdown",
+            "profile": "generic",
         }
     ]

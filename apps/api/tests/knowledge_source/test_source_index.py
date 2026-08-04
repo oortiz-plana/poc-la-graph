@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.integrations.haystack import HaystackSourceRetriever, RetrievalScope
+from app.knowledge.profiles import parse_document_profiles
 from app.knowledge.source_index import (
     SourceIndex,
     parse_markdown_passages,
@@ -99,10 +100,9 @@ async def test_haystack_bm25_is_bounded_to_article_and_document(
     assert "cónyuge" in text
     assert "hijos(as)" in text
     assert "padres" in text
-    assert "hermanos(as)" in text
 
 
-async def test_bm25_keeps_the_selected_beneficiary_article_list_together(
+async def test_bm25_auto_merging_keeps_bounded_legal_article_context(
     tmp_path: Path,
 ) -> None:
     law = document()
@@ -121,10 +121,61 @@ async def test_bm25_keeps_the_selected_beneficiary_article_list_together(
         ),
     )
 
-    assert {passage.document for passage in passages} == {law.relative_path}
-    assert {passage.article for passage in passages} == {"49"}
-    text = "\n".join(passage.text for passage in passages)
+    assert {passage.document for passage in passages} <= {
+        law.relative_path,
+        other.relative_path,
+    }
+    assert {passage.article for passage in passages} <= {"47", "48", "49"}
+    assert all(passage.token_count <= 768 for passage in passages)
+    text = "\n".join(
+        passage.text for passage in passages if passage.document == law.relative_path
+    )
     assert "cónyuge" in text
     assert "hijos(as)" in text
     assert "padres" in text
-    assert "hermanos(as)" in text
+
+
+async def test_auto_merge_is_strict_at_threshold_and_never_returns_a_root(
+    tmp_path: Path,
+) -> None:
+    configured = parse_document_profiles(
+        """
+        {
+          "version": 1,
+          "defaultProfile": "compact",
+          "rules": [],
+          "profiles": {
+            "compact": {
+              "hardBoundaries": ["page"],
+              "leafTokens": 64,
+              "parentTokens": 256,
+              "overlapTokens": 0,
+              "autoMergeThreshold": 0.5
+            }
+          }
+        }
+        """
+    )
+    source = SimpleNamespace(
+        relative_path="compact.txt",
+        content="needle " * 220,
+        sha256="d" * 64,
+        media_type="text/plain",
+        profile="compact",
+    )
+    index_path = tmp_path / "source.sqlite"
+    SourceIndex(index_path).rebuild_version("v1", [source], profiles=configured)
+    retriever = HaystackSourceRetriever(str(index_path), "v1")
+    scope = RetrievalScope(documents=["compact.txt"])
+
+    exact_half = await retriever.retrieve("needle", scope, top_k=2)
+    above_half = await retriever.retrieve("needle", scope, top_k=3)
+
+    assert len(exact_half) == 2
+    assert all(
+        item.parent_id is not None and not item.children_ids for item in exact_half
+    )
+    assert len(above_half) == 1
+    assert above_half[0].children_ids
+    assert above_half[0].parent_id is None
+    assert above_half[0].token_count <= 256

@@ -1,45 +1,80 @@
 # Knowledge ingestion
 
-Each successful graph build also parses the original UTF-8 Markdown into
-article- and paragraph-aware passages and commits them to the versioned SQLite
-FTS5 index at `KNOWLEDGE_SOURCE_INDEX_PATH`. Rows carry the graph version and
-document checksum. The manifest's active graph version selects both graph and
-text evidence, so a staged rebuild or failed source-index transaction leaves
-the previous graph/text pair available.
+The ingestion service accepts `.md`, `.txt`, `.html`/`.htm`, `.pdf`, and
+`.docx` files. Discovery is deterministic, does not follow symlinks, applies
+count/per-file/aggregate byte limits, and calculates SHA-256 over each original
+file. Graphify receives a byte-for-byte staging copy. The source index receives
+normalized extracted text plus the source media type, structural profile, and
+converter provenance.
 
-The default stack uses the open-source `graphifyy==0.9.18` package and its
-native `graph.json` runtime. The four Spanish Markdown inputs live in
-`knowledge/input/`; their bytes are not rewritten.
+Markdown and text require strict UTF-8. HTML extraction is local and never
+fetches links or resources. PDFs require a valid, unencrypted embedded text
+layer; OCR is not performed. DOCX containers are checked for unsafe ZIP paths,
+duplicate entries, excessive expansion, and suspicious compression ratios.
+Malformed, empty, or over-limit conversions fail the complete build.
 
-## Lifecycle
+## Structural profiles
 
-`knowledge-ingest` discovers regular `.md` files without following symlinks,
-validates UTF-8 and configured size/count limits, calculates SHA-256 checksums,
-and creates an immutable staging copy. It invokes:
+`KNOWLEDGE_DOCUMENT_PROFILES_JSON` is trusted operator configuration. It has a
+versioned schema with ordered, case-sensitive POSIX path rules:
 
-```bash
-graphify extract /knowledge/staging/<id>/source \
-  --backend openai \
-  --out /knowledge/staging/<id>/output \
-  --no-cluster
+```json
+{
+  "version": 1,
+  "defaultProfile": "generic",
+  "rules": [{"glob": "ley-*.md", "profile": "legal-es"}],
+  "profiles": {
+    "generic": {
+      "hardBoundaries": ["page", "markdown_heading"],
+      "leafTokens": 256,
+      "parentTokens": 768,
+      "overlapTokens": 32,
+      "autoMergeThreshold": 0.5
+    },
+    "legal-es": {
+      "hardBoundaries": ["page", "legal_article", "markdown_heading"],
+      "leafTokens": 256,
+      "parentTokens": 768,
+      "overlapTokens": 32,
+      "autoMergeThreshold": 0.5
+    }
+  }
+}
 ```
 
-Graphify writes
-`output/graphify-out/graph.json`. The service validates a non-empty native
-node/edge artifact, publishes it at
-`/knowledge/graph/versions/<id>/graph.json`, then atomically replaces the
-`/knowledge/graph/active` symlink. The manifest is atomically persisted at
-`/knowledge/state/manifest.json`. At least two versions are retained.
+Only `page`, `markdown_heading`, and `legal_article` are accepted boundaries.
+The first matching rule wins. Profile references and unique rules are checked
+at process startup, with `64 <= leafTokens < parentTokens <= 4096`,
+`0 <= overlapTokens < leafTokens`, and `0 < autoMergeThreshold < 1`.
 
-A failed build is moved to `/knowledge/failed/<id>` and leaves the active
-graph untouched. A POSIX `flock` prevents concurrent builds.
-`/knowledge/archive` is reserved for a future retention job; the POC does not
-silently move or delete source documents after ingestion.
+Structural blocks never cross configured boundaries. Blocks within the leaf
+limit are standalone searchable leaves. Larger blocks become parents capped at
+the parent limit and overlapping searchable children capped at the leaf limit.
+Parents are durable but are not indexed in FTS5. Retrieval ranks only a
+document/article allowlisted slice, then Haystack `AutoMergingRetriever`
+reconstructs at most one bounded parent when the strict matched-child ratio is
+greater than the configured threshold.
 
-Graphify's Markdown extraction is semantic and requires a working provider
-credential. For the OpenAI backend set `OPENAI_API_KEY` and optionally
-`OPENAI_MODEL`/`OPENAI_BASE_URL`. Failure is explicit; there is no synthetic
-fallback.
+The processing fingerprint covers canonical profile JSON, the conversion and
+splitter schema, Haystack `2.31.0`, and the `o200k_base` tokenizer. It is stored
+in the ingestion manifest and index. A changed fingerprint prevents the
+unchanged-source skip path.
+
+## Atomic lifecycle
+
+The versioned SQLite index stores parents and leaves with deterministic IDs,
+normalized-text line and character offsets, token count, media type, profile,
+page, heading path, article, and paragraph metadata. Existing flat rows are
+migrated in place and remain readable.
+
+Graphify writes `output/graphify-out/graph.json`. The service validates the
+artifact and builds the source-index version before atomically replacing the
+`/knowledge/graph/active` symlink and manifest. Conversion, profile, graph, or
+index failures leave the previous graph/index version active.
+
+At least two graph versions are retained. Failed staging trees are moved to
+`/knowledge/failed/<id>`. A POSIX `flock` prevents concurrent ingestion and
+rollback.
 
 ## Commands
 
@@ -51,17 +86,7 @@ make test-graphify-real
 make smoke-spanish
 ```
 
-The unauthenticated `POST /api/v1/knowledge/ingestions` endpoint is strictly a
-development POC operation and disappears when
+Graphify extraction requires `OPENAI_API_KEY` and optionally
+`OPENAI_MODEL`/`OPENAI_BASE_URL`. The unauthenticated administration endpoint
+is a development-only POC operation and is disabled with
 `KNOWLEDGE_ADMIN_ENDPOINTS_ENABLED=false`.
-
-## Future upload boundary
-
-Build orchestration depends on `KnowledgeDocumentSource`; the current
-implementation is filesystem-only. A future authenticated source must enforce
-`knowledge:document:upload`, `knowledge:ingestion:execute`,
-`knowledge:ingestion:read`, and `knowledge:graph:activate`. No upload endpoint
-or upload UI exists in this POC.
-
-Synthetic MCP tests do not validate compatibility with the real Graphify
-runtime.

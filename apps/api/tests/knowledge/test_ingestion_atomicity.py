@@ -241,6 +241,45 @@ async def test_unchanged_inputs_skip_build_under_lock(
     assert isinstance(skipped.duration_ms, int)
 
 
+async def test_processing_fingerprint_change_forces_rebuild(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = configured(tmp_path)
+    service = KnowledgeIngestionService(settings, logging.getLogger("test"))
+    graph_root = Path(settings.knowledge_graph_dir)
+    current = create_version(graph_root, "v1")
+    service._activate(current)
+    snap = source_snapshot()
+    prior = service._manifest(
+        snap,
+        "old-job",
+        "completed",
+        datetime.now(UTC),
+        datetime.now(UTC),
+        None,
+        None,
+        active_version="v1",
+    )
+    prior["processingFingerprint"] = "0" * 64
+    service._write_manifest(prior)
+    monkeypatch.setattr(service, "_source", lambda: Source(snap))
+    called = False
+
+    async def failed(*args: object, **kwargs: object) -> Process:
+        nonlocal called
+        del args, kwargs
+        called = True
+        return Process(returncode=2)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", failed)
+    with pytest.raises(RuntimeError, match="Knowledge ingestion failed"):
+        await service.run_now()
+
+    assert called
+    assert os.readlink(graph_root / "active") == "versions/v1"
+
+
 def test_atomic_manifest_readers_never_observe_partial_json(tmp_path: Path) -> None:
     service = KnowledgeIngestionService(configured(tmp_path), logging.getLogger("test"))
     failures: list[Exception] = []

@@ -1,4 +1,4 @@
-"""Bridge between the durable SQLite index and Haystack BM25."""
+"""Bridge between durable scoped leaves and Haystack BM25/auto-merging."""
 
 from __future__ import annotations
 
@@ -47,6 +47,9 @@ class HaystackSourceRetriever:
         # boundary and graph-only requests can still run if Haystack is absent.
         os.environ.setdefault("HAYSTACK_TELEMETRY_ENABLED", "False")
         from haystack import Document
+        from haystack.components.retrievers.auto_merging_retriever import (
+            AutoMergingRetriever,
+        )
         from haystack.components.retrievers.in_memory import InMemoryBM25Retriever
         from haystack.document_stores.in_memory import InMemoryDocumentStore
 
@@ -67,6 +70,10 @@ class HaystackSourceRetriever:
                         "end_line": passage.end_line,
                         "checksum": passage.checksum,
                         "graph_version": passage.graph_version,
+                        "__parent_id": passage.parent_id,
+                        "__children_ids": list(passage.children_ids),
+                        "__level": passage.level,
+                        "__block_size": passage.token_count,
                     },
                 )
                 for passage in passages
@@ -79,12 +86,96 @@ class HaystackSourceRetriever:
             passage = by_id.get(document.id)
             if passage is not None:
                 selected.append(passage.model_copy(update={"score": document.score}))
-        beneficiary_article = _beneficiary_article_passages(
-            query, selected, passages, top_k
+        standalone = [passage for passage in selected if passage.standalone]
+        hierarchical = [
+            passage
+            for passage in selected
+            if not passage.standalone and passage.parent_id is not None
+        ]
+        if not hierarchical:
+            return standalone[:top_k]
+
+        parent_ids = sorted(
+            {passage.parent_id for passage in hierarchical if passage.parent_id}
         )
-        if beneficiary_article:
-            return beneficiary_article
-        return selected
+        parents = self.index.parents(
+            graph_version=self.graph_version, parent_ids=parent_ids
+        )
+        parent_by_id = {passage.id: passage for passage in parents}
+        unresolved = [
+            passage for passage in hierarchical if passage.parent_id not in parent_by_id
+        ]
+        leaf_by_id = {passage.id: passage for passage in hierarchical}
+        child_scores: dict[str, list[float]] = {}
+        for passage in hierarchical:
+            if passage.parent_id and passage.score is not None:
+                child_scores.setdefault(passage.parent_id, []).append(passage.score)
+
+        merged: list[SourcePassage] = []
+        thresholds = sorted({item.auto_merge_threshold for item in hierarchical})
+        for threshold in thresholds:
+            group = [
+                item
+                for item in hierarchical
+                if item.auto_merge_threshold == threshold
+                and item.parent_id in parent_by_id
+            ]
+            group_parent_ids = {item.parent_id for item in group}
+            parent_store = InMemoryDocumentStore()
+            parent_store.write_documents(
+                [
+                    Document(
+                        id=parent.id,
+                        content=parent.text,
+                        meta={
+                            "document": parent.document,
+                            "__parent_id": parent.parent_id,
+                            "__children_ids": list(parent.children_ids),
+                            "__level": parent.level,
+                            "__block_size": parent.token_count,
+                        },
+                    )
+                    for parent in parents
+                    if parent.id in group_parent_ids
+                ]
+            )
+            auto_merger = AutoMergingRetriever(
+                document_store=parent_store, threshold=threshold
+            )
+            result = auto_merger.run(
+                documents=[
+                    Document(
+                        id=item.id,
+                        content=item.text,
+                        score=item.score,
+                        meta={
+                            "__parent_id": item.parent_id,
+                            "__children_ids": [],
+                            "__level": item.level,
+                            "__block_size": item.token_count,
+                        },
+                    )
+                    for item in group
+                ]
+            )
+            for document in result["documents"]:
+                if document.id in parent_by_id:
+                    scores = child_scores.get(document.id, [])
+                    merged.append(
+                        parent_by_id[document.id].model_copy(
+                            update={"score": max(scores) if scores else None}
+                        )
+                    )
+                elif document.id in leaf_by_id:
+                    merged.append(leaf_by_id[document.id])
+
+        combined = standalone + unresolved + merged
+        deduplicated = {item.id: item for item in combined}
+        return sorted(
+            deduplicated.values(),
+            key=lambda item: (item.score is not None, item.score or 0.0, item.id),
+            reverse=True,
+        )[:top_k]
 
 
 def _fold(value: str) -> str:
@@ -92,33 +183,3 @@ def _fold(value: str) -> str:
     return "".join(
         character for character in normalized if not unicodedata.combining(character)
     )
-
-
-def _beneficiary_article_passages(
-    query: str,
-    ranked: list[SourcePassage],
-    candidates: list[SourcePassage],
-    top_k: int,
-) -> list[SourcePassage]:
-    """Keep beneficiary lists together after BM25 selects their best article."""
-    if "beneficiari" not in _fold(query).casefold():
-        return []
-    anchor = next(
-        (
-            passage
-            for passage in ranked
-            if passage.article
-            and "beneficiari" in _fold(passage.text).casefold()
-            and "muerte" in _fold(passage.text).casefold()
-        ),
-        None,
-    )
-    if anchor is None:
-        return []
-    article = [
-        passage
-        for passage in candidates
-        if passage.document == anchor.document and passage.article == anchor.article
-    ]
-    article.sort(key=lambda passage: passage.start_line)
-    return article[:top_k]

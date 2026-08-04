@@ -7,7 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .client import FollowUpRequest, ModelRequest
 from .errors import (
@@ -55,18 +55,31 @@ class LiteLLMClient:
 
     async def generate(self, request: ModelRequest) -> ModelResult:
         response = await self._complete(
-            request.messages, request.temperature, request.max_tokens
+            request.messages,
+            request.temperature,
+            request.max_tokens,
+            response_format=_strict_response_format(AnswerDraft, "answer_draft"),
         )
         return self._normalize(response)
 
     async def resolve_follow_up(self, request: FollowUpRequest) -> FollowUpResult:
         response = await self._complete(
-            request.messages, request.temperature, request.max_tokens
+            request.messages,
+            request.temperature,
+            request.max_tokens,
+            response_format=_strict_response_format(
+                FollowUpResolutionOutput, "follow_up_resolution"
+            ),
         )
         return self._normalize_follow_up(response)
 
     async def _complete(
-        self, messages: list[Any], temperature: float, max_tokens: int
+        self,
+        messages: list[Any],
+        temperature: float,
+        max_tokens: int,
+        *,
+        response_format: Mapping[str, Any],
     ) -> Any:
         try:
             from litellm import acompletion
@@ -80,7 +93,7 @@ class LiteLLMClient:
             "max_tokens": max_tokens,
             "timeout": self._timeout,
             "num_retries": self._retries,
-            "response_format": {"type": "json_object"},
+            "response_format": response_format,
         }
         if self._api_base:
             kwargs["api_base"] = self._api_base
@@ -176,6 +189,36 @@ def _first_choice(response: Any) -> Any:
     if not choices:
         raise IndexError("provider returned no choices")
     return choices[0]
+
+
+def _strict_response_format(model: type[BaseModel], name: str) -> dict[str, Any]:
+    """Build the strict JSON Schema accepted by OpenAI-compatible providers.
+
+    Pydantic omits defaulted fields from ``required`` even when they are part of
+    the declared response shape. Strict structured outputs require every object
+    property to be listed as required; nullable fields remain nullable through
+    their generated ``anyOf`` schema. The runtime Pydantic validation below is
+    retained as a second, provider-independent boundary.
+    """
+
+    schema = model.model_json_schema()
+
+    def require_all_properties(value: Any) -> None:
+        if isinstance(value, dict):
+            properties = value.get("properties")
+            if isinstance(properties, dict):
+                value["required"] = list(properties)
+            for nested in value.values():
+                require_all_properties(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                require_all_properties(nested)
+
+    require_all_properties(schema)
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": name, "strict": True, "schema": schema},
+    }
 
 
 def _json_object(content: Any) -> Mapping[str, Any]:

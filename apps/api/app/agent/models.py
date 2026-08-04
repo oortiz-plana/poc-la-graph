@@ -57,6 +57,17 @@ class Citation(BaseModel):
     end_line: int | None = Field(
         default=None, serialization_alias="endLine", validation_alias="endLine"
     )
+    page_number: int | None = Field(
+        default=None,
+        ge=1,
+        serialization_alias="pageNumber",
+        validation_alias="pageNumber",
+    )
+    section_path: list[str] | None = Field(
+        default=None,
+        serialization_alias="sectionPath",
+        validation_alias="sectionPath",
+    )
 
 
 class GraphNode(BaseModel):

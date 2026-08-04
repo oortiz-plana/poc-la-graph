@@ -23,6 +23,8 @@ export const citationSchema = z.object({
   paragraph: z.string().nullish(),
   startLine: z.number().int().positive().nullish(),
   endLine: z.number().int().positive().nullish(),
+  pageNumber: z.number().int().positive().nullish(),
+  sectionPath: z.array(z.string()).nullish(),
 });
 export const graphEvidenceSchema = z.object({
   nodes: z.array(

@@ -74,4 +74,20 @@ describe("CitedAnswer", () => {
       "Ley 2381 de 2024 · Artículo 49 · líneas 844–844",
     );
   });
+
+  it("prefers page and section locations for extracted binary documents", () => {
+    expect(
+      citationPreview({
+        ...citations[0],
+        title: "benefits-guide.pdf — Eligibility",
+        source: "benefits-guide.pdf",
+        document: "benefits-guide.pdf",
+        article: null,
+        pageNumber: 7,
+        sectionPath: ["Eligibility", "Dependants"],
+      }),
+    ).toBe(
+      "benefits-guide · página 7 · Eligibility › Dependants · líneas 844–844",
+    );
+  });
 });

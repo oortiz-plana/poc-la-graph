@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import builtins
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -22,9 +23,13 @@ class DomainModel(BaseModel):
 class KnowledgeDocument(DomainModel):
     relative_path: str = Field(alias="relativePath", pattern=SAFE_RELATIVE_PATH)
     content: str
+    raw_bytes: builtins.bytes = Field(alias="rawBytes", exclude=True)
     sha256: str = Field(pattern=SHA256_PATTERN)
     bytes: int = Field(gt=0)
     modified_at: datetime = Field(alias="modifiedAt")
+    media_type: str = Field(alias="mediaType", min_length=1)
+    profile: str = Field(min_length=1)
+    converter: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("relative_path")
     @classmethod

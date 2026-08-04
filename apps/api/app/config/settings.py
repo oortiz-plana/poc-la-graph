@@ -5,8 +5,14 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.knowledge.profiles import (
+    DEFAULT_DOCUMENT_PROFILES_JSON,
+    DocumentProfiles,
+    parse_document_profiles,
+)
 
 
 class Settings(BaseSettings):
@@ -74,6 +80,13 @@ class Settings(BaseSettings):
         default=2 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024
     )
     knowledge_max_document_count: int = Field(default=100, ge=1, le=10_000)
+    knowledge_max_total_source_bytes: int = Field(
+        default=32 * 1024 * 1024, ge=1024, le=1024 * 1024 * 1024
+    )
+    knowledge_max_extracted_document_bytes: int = Field(
+        default=8 * 1024 * 1024, ge=1024, le=256 * 1024 * 1024
+    )
+    knowledge_document_profiles_json: str = DEFAULT_DOCUMENT_PROFILES_JSON
     knowledge_graph_versions_to_keep: int = Field(default=2, ge=2, le=20)
     graphify_extract_backend: Literal["openai"] = "openai"
     graphify_extract_model: str | None = None
@@ -85,6 +98,24 @@ class Settings(BaseSettings):
     @classmethod
     def empty_to_none(cls, value: object) -> object:
         return None if value == "" else value
+
+    @field_validator("knowledge_document_profiles_json", mode="before")
+    @classmethod
+    def empty_profiles_to_default(cls, value: object) -> object:
+        return DEFAULT_DOCUMENT_PROFILES_JSON if value in (None, "") else value
+
+    @model_validator(mode="after")
+    def valid_document_profiles(self) -> Settings:
+        parse_document_profiles(self.knowledge_document_profiles_json)
+        return self
+
+    @property
+    def document_profiles(self) -> DocumentProfiles:
+        return parse_document_profiles(self.knowledge_document_profiles_json)
+
+    @property
+    def knowledge_processing_fingerprint(self) -> str:
+        return self.document_profiles.processing_fingerprint()
 
     @property
     def allowed_origins(self) -> list[str]:

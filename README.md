@@ -1,9 +1,9 @@
 # Graphify Knowledge Agent POC
 
 The default Compose stack now pins the actual open-source
-`graphifyy==0.9.18` runtime and `haystack-ai==2.31.0`. It discovers the four
-Spanish legal Markdown documents under `knowledge/input`, builds a native
-Graphify `graph.json`, indexes the original article and paragraph text in
+`graphifyy==0.9.18` runtime and `haystack-ai==2.31.0`. It discovers supported
+Markdown, text, HTML, PDF, and DOCX documents under `knowledge/input`, builds a
+native Graphify `graph.json`, indexes normalized structural source chunks in
 SQLite FTS5, starts Graphify's Streamable HTTP MCP server, and serves grounded
 hybrid-retrieval chat through FastAPI and Next.js.
 
@@ -150,10 +150,12 @@ graph or bounded source evidence retrieved for the current request.
 
 ### Source-text index
 
-Knowledge ingestion parses Markdown into article-aware paragraph and list
-passages while preserving the original UTF-8 text, filename, article and
-paragraph markers, line range, document checksum, and graph version. The
-default location is:
+Knowledge ingestion preserves original bytes and checksums for Graphify, then
+converts supported files into normalized text. Ordered structural profiles
+split on pages, Markdown headings, and legal articles before applying bounded
+`o200k_base` token chunks. SQLite stores leaf and parent hierarchy, media type,
+profile, normalized-text offsets, page/section/article metadata, checksum,
+processing fingerprint, and graph version. The default location is:
 
 ```env
 KNOWLEDGE_SOURCE_INDEX_PATH=/knowledge/state/source-index.sqlite
@@ -162,8 +164,9 @@ KNOWLEDGE_SOURCE_INDEX_PATH=/knowledge/state/source-index.sqlite
 Passages for multiple graph versions can coexist in SQLite. The active manifest
 version selects the matching graph and source rows, so staging or a failed index
 rebuild does not replace the previously active evidence. Unchanged input
-checksums continue to use the existing ingestion skip path. A rollback selects
-the prior graph version and its corresponding source passages.
+checksums and the processing fingerprint continue to use the ingestion skip
+path. A rollback selects the prior graph version and its corresponding source
+passages.
 
 SQLite uses FTS5 with Unicode diacritic handling, allowing accented and
 unaccented Spanish queries without an embedding model, vector database,

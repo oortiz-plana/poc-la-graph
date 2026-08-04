@@ -48,6 +48,43 @@ const answer: Answer = {
 };
 
 describe("EvidenceDrawer", () => {
+  it("keeps a complete sticky header in normal flow above the padded evidence body", () => {
+    render(
+      <EvidenceDrawer
+        answer={answer}
+        citations={answer.citations}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const header = screen.getByTestId("evidence-header");
+    const body = screen.getByTestId("evidence-body");
+    const close = screen.getByRole("button", { name: "Close evidence" });
+
+    expect(header).toHaveClass(
+      "sticky",
+      "top-0",
+      "z-20",
+      "grid",
+      "bg-white",
+      "px-5",
+      "py-5",
+    );
+    expect(header).toContainElement(screen.getByText("Grounding details"));
+    expect(header).toContainElement(
+      screen.getByRole("heading", { name: "Answer evidence" }),
+    );
+    expect(header).toContainElement(close);
+    expect(close).toHaveClass("shrink-0");
+    expect(header.className).not.toMatch(
+      /(?:^|\s)(?:absolute|fixed|-m[trblxy]?-\S+)/,
+    );
+    expect(body).toHaveClass("px-5", "pt-6", "pb-6");
+    expect(
+      header.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("presents normalized citations and graph evidence", () => {
     render(
       <EvidenceDrawer
@@ -105,6 +142,8 @@ describe("EvidenceDrawer", () => {
             paragraph: "d)",
             startLine: 842,
             endLine: 844,
+            pageNumber: 3,
+            sectionPath: ["Survivors", "Beneficiaries"],
           },
         ]}
         onClose={vi.fn()}
@@ -122,6 +161,8 @@ describe("EvidenceDrawer", () => {
     expect(screen.getByText(passage)).toBeInTheDocument();
     expect(screen.getByText("Ley 2381 de 2024")).toBeInTheDocument();
     expect(screen.getByText("842–844")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("Survivors › Beneficiaries")).toBeInTheDocument();
   });
 
   it("selects, expands, highlights, and scrolls an inline citation into view", () => {
@@ -159,7 +200,7 @@ describe("EvidenceDrawer", () => {
       screen.getByText("Open full passage").closest("details"),
     ).toHaveAttribute("open");
     expect(scrollIntoView).toHaveBeenCalledWith({
-      block: "nearest",
+      block: "center",
       behavior: "smooth",
     });
   });

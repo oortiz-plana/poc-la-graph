@@ -50,6 +50,11 @@ class KnowledgeIngestionService:
             self.settings.knowledge_input_dir,
             max_documents=self.settings.knowledge_max_document_count,
             max_document_bytes=self.settings.knowledge_max_document_size_bytes,
+            max_total_bytes=self.settings.knowledge_max_total_source_bytes,
+            max_extracted_document_bytes=(
+                self.settings.knowledge_max_extracted_document_bytes
+            ),
+            profiles=self.settings.document_profiles,
         )
         self._task: asyncio.Task[None] | None = None
         self._guard = asyncio.Lock()
@@ -103,6 +108,8 @@ class KnowledgeIngestionService:
             manifest is None
             or manifest.get("sourceVersion") != snapshot.source_version
             or manifest.get("graphifyVersion") != self.settings.graphify_package_version
+            or manifest.get("processingFingerprint")
+            != self.settings.knowledge_processing_fingerprint
             or not self._has_valid_active_graph()
             or not self._has_valid_active_source_index()
         )
@@ -214,7 +221,7 @@ class KnowledgeIngestionService:
         discover = getattr(source, "discover", None)
         if discover is None:
             raise TypeError("Knowledge document source does not implement snapshot")
-        return cast(KnowledgeSnapshot, await asyncio.to_thread(discover))
+        return cast(KnowledgeSnapshot, discover())
 
     def _acquire_process_lock(self) -> ProcessFileLock:
         lock = ProcessFileLock(
@@ -280,14 +287,25 @@ class KnowledgeIngestionService:
             and old
             and old.get("sourceVersion") == snapshot.source_version
             and old.get("graphifyVersion") == self.settings.graphify_package_version
+            and old.get("processingFingerprint")
+            == self.settings.knowledge_processing_fingerprint
             and self._has_valid_active_graph()
         ):
             active_version = str(old["activeGraphVersion"])
-            if not SourceIndex(self.source_index_path()).has_version(active_version):
+            if not SourceIndex(self.source_index_path()).has_version(
+                active_version, self.settings.knowledge_processing_fingerprint
+            ):
                 try:
                     passage_count = SourceIndex(
                         self.source_index_path()
-                    ).rebuild_version(active_version, snapshot.documents)
+                    ).rebuild_version(
+                        active_version,
+                        snapshot.documents,
+                        profiles=self.settings.document_profiles,
+                        processing_fingerprint=(
+                            self.settings.knowledge_processing_fingerprint
+                        ),
+                    )
                 except Exception:
                     failure = self._manifest(
                         snapshot,
@@ -356,7 +374,12 @@ class KnowledgeIngestionService:
             for document in snapshot.documents:
                 destination = source / document.relative_path
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_text(document.content, encoding="utf-8")
+                raw = getattr(document, "raw_bytes", None)
+                destination.write_bytes(
+                    raw
+                    if isinstance(raw, bytes)
+                    else str(document.content).encode("utf-8")
+                )
                 destination.chmod(0o400)
             subprocess_command = [
                 "graphify",
@@ -416,7 +439,12 @@ class KnowledgeIngestionService:
             ).hexdigest()
             try:
                 passage_count = SourceIndex(self.source_index_path()).rebuild_version(
-                    version, snapshot.documents
+                    version,
+                    snapshot.documents,
+                    profiles=self.settings.document_profiles,
+                    processing_fingerprint=(
+                        self.settings.knowledge_processing_fingerprint
+                    ),
                 )
             except Exception as exc:
                 raise RuntimeError("source_index_build_failed") from exc
@@ -692,7 +720,10 @@ class KnowledgeIngestionService:
         manifest = self.manifest()
         version = manifest.get("activeGraphVersion") if manifest else None
         return bool(
-            version and SourceIndex(self.source_index_path()).has_version(str(version))
+            version
+            and SourceIndex(self.source_index_path()).has_version(
+                str(version), self.settings.knowledge_processing_fingerprint
+            )
         )
 
     def _restore_active(self, target: str | None) -> None:
@@ -785,6 +816,7 @@ class KnowledgeIngestionService:
             if active_version
             else (old.get("previousGraphVersion") if old else None),
             "graphifyVersion": self.settings.graphify_package_version,
+            "processingFingerprint": self.settings.knowledge_processing_fingerprint,
             "generatedAt": (
                 completed.isoformat()
                 if active_version and completed
@@ -796,6 +828,10 @@ class KnowledgeIngestionService:
                     "sha256": item.sha256,
                     "sizeBytes": item.bytes,
                     "modifiedAt": item.modified_at.isoformat(),
+                    "mediaType": getattr(item, "media_type", "text/markdown"),
+                    "profile": self.settings.document_profiles.select(
+                        item.relative_path
+                    )[0],
                 }
                 for item in snapshot.documents
             ],

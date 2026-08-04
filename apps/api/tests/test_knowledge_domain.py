@@ -56,14 +56,18 @@ def test_filesystem_discovery_is_recursive_filtered_and_deterministic(
     write(tmp_path / "nested" / "a.MD", "héllo".encode())
     write(tmp_path / ".hidden.md", b"hidden")
     write(tmp_path / "draft.md~", b"temp")
-    write(tmp_path / "ignored.txt", b"text")
+    write(tmp_path / "included.txt", b"text")
     os.symlink(tmp_path / "z.md", tmp_path / "linked.md")
 
     first = FilesystemDocumentSource(tmp_path).discover()
     second = FilesystemDocumentSource(tmp_path).discover()
-    assert [item.relative_path for item in first.documents] == ["nested/a.MD", "z.md"]
+    assert [item.relative_path for item in first.documents] == [
+        "included.txt",
+        "nested/a.MD",
+        "z.md",
+    ]
     assert first.source_version == second.source_version
-    assert first.documents[0].content == "héllo"
+    assert first.documents[1].content == "héllo"
     assert all(len(item.sha256) == 64 for item in first.documents)
 
 

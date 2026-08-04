@@ -1,18 +1,27 @@
-"""Secure, deterministic Markdown discovery beneath a configured root."""
+"""Secure, deterministic mixed-format discovery beneath a configured root."""
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import os
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.knowledge.converters import (
+    MEDIA_TYPES,
+    DocumentConversionError,
+    convert_document,
+)
 from app.knowledge.domain import (
     IngestionCommand,
     KnowledgeDocument,
     KnowledgeSnapshot,
+)
+from app.knowledge.profiles import (
+    DEFAULT_DOCUMENT_PROFILES_JSON,
+    DocumentProfiles,
+    parse_document_profiles,
 )
 
 
@@ -32,12 +41,26 @@ class FilesystemDocumentSource:
         max_documents: int = 1_000,
         max_document_bytes: int = 2 * 1024 * 1024,
         max_total_bytes: int = 32 * 1024 * 1024,
+        max_extracted_document_bytes: int = 8 * 1024 * 1024,
+        profiles: DocumentProfiles | None = None,
     ) -> None:
         self.root = Path(root)
         self.max_documents = max_documents
         self.max_document_bytes = max_document_bytes
         self.max_total_bytes = max_total_bytes
-        if min(max_documents, max_document_bytes, max_total_bytes) < 1:
+        self.max_extracted_document_bytes = max_extracted_document_bytes
+        self.profiles = profiles or parse_document_profiles(
+            DEFAULT_DOCUMENT_PROFILES_JSON
+        )
+        if (
+            min(
+                max_documents,
+                max_document_bytes,
+                max_total_bytes,
+                max_extracted_document_bytes,
+            )
+            < 1
+        ):
             raise ValueError("Source limits must be positive")
 
     async def snapshot(self, command: IngestionCommand) -> KnowledgeSnapshot:
@@ -45,7 +68,9 @@ class FilesystemDocumentSource:
             raise SourceValidationError(
                 "Filesystem source cannot serve the requested source type"
             )
-        return await asyncio.to_thread(self.discover)
+        # Discovery performs bounded local I/O only. Keeping it in this call
+        # also avoids retaining raw document bytes in a worker-thread future.
+        return self.discover()
 
     def discover(self) -> KnowledgeSnapshot:
         root = self.root.resolve(strict=True)
@@ -67,20 +92,29 @@ class FilesystemDocumentSource:
                     "Knowledge source bytes exceed configured total limit"
                 )
             try:
-                content = raw.decode("utf-8")
-            except UnicodeDecodeError as exc:
+                converted = convert_document(
+                    relative,
+                    raw,
+                    max_extracted_bytes=self.max_extracted_document_bytes,
+                )
+            except DocumentConversionError as exc:
                 raise SourceValidationError(
-                    f"Knowledge document is not valid UTF-8: {relative}"
+                    f"Knowledge document conversion failed: {relative}"
                 ) from exc
+            profile_name, _ = self.profiles.select(relative)
             documents.append(
                 KnowledgeDocument(
                     relativePath=relative,
-                    content=content,
+                    content=converted.text,
+                    rawBytes=raw,
                     sha256=hashlib.sha256(raw).hexdigest(),
                     bytes=len(raw),
                     modifiedAt=datetime.fromtimestamp(
                         path.stat(follow_symlinks=False).st_mtime, tz=UTC
                     ),
+                    mediaType=converted.media_type,
+                    profile=profile_name,
+                    converter=converted.metadata,
                 )
             )
 
@@ -109,7 +143,10 @@ class FilesystemDocumentSource:
             self._assert_contained(path, root)
             if entry.is_dir(follow_symlinks=False):
                 found.extend(self._walk(path, root))
-            elif entry.is_file(follow_symlinks=False) and path.suffix.lower() == ".md":
+            elif (
+                entry.is_file(follow_symlinks=False)
+                and path.suffix.lower() in MEDIA_TYPES
+            ):
                 found.append(path)
                 if len(found) > self.max_documents:
                     raise SourceLimitError(

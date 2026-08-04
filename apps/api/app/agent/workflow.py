@@ -470,6 +470,8 @@ def _source_citations(passages: list[SourcePassage]) -> list[Citation]:
                 paragraph=passage.paragraph,
                 start_line=passage.start_line,
                 end_line=passage.end_line,
+                page_number=passage.page_number,
+                section_path=list(passage.section_path) or None,
                 excerpt=passage.text,
                 provenance="explicit",
             )
@@ -828,6 +830,8 @@ class KnowledgeWorkflow:
                 "paragraph": passage.paragraph,
                 "startLine": passage.start_line,
                 "endLine": passage.end_line,
+                "pageNumber": passage.page_number,
+                "sectionPath": list(passage.section_path) or None,
                 "excerpt": passage.text,
                 "provenance": "explicit",
             }

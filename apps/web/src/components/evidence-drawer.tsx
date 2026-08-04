@@ -99,6 +99,18 @@ function SourceCard({
           <dt className="sr-only">Source</dt>
           <dd className="font-medium">{documentLabel(citation)}</dd>
         </div>
+        {citation.pageNumber && (
+          <div>
+            <dt className="inline">Page </dt>
+            <dd className="inline">{citation.pageNumber}</dd>
+          </div>
+        )}
+        {citation.sectionPath?.length ? (
+          <div>
+            <dt className="inline">Section </dt>
+            <dd className="inline">{citation.sectionPath.join(" › ")}</dd>
+          </div>
+        ) : null}
         {citation.startLine && citation.endLine && (
           <div>
             <dt className="inline">Lines </dt>
@@ -182,14 +194,17 @@ function EvidenceContent({
     if (!selectedCitationId) return;
     cardRefs.current
       .get(selectedCitationId)
-      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [selectedCitationId]);
 
   return (
-    <>
-      <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b bg-white pb-4">
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
+      <header
+        data-testid="evidence-header"
+        className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b bg-white px-5 py-5"
+      >
         {mode === "drawer" ? (
-          <SheetHeader>
+          <SheetHeader className="min-w-0">
             <SheetDescription className="text-xs font-semibold uppercase tracking-widest text-sky-700">
               Grounding details
             </SheetDescription>
@@ -197,13 +212,13 @@ function EvidenceContent({
               id="evidence-heading"
               ref={titleRef}
               tabIndex={-1}
-              className="text-2xl font-bold"
+              className="break-words text-2xl font-bold"
             >
               Answer evidence
             </SheetTitle>
           </SheetHeader>
         ) : (
-          <div className="space-y-2 text-left">
+          <div className="min-w-0 space-y-2 text-left">
             <p className="text-xs font-semibold uppercase tracking-widest text-sky-700">
               Grounding details
             </p>
@@ -211,7 +226,7 @@ function EvidenceContent({
               id="evidence-heading"
               ref={titleRef}
               tabIndex={-1}
-              className="text-2xl font-bold"
+              className="break-words text-2xl font-bold"
             >
               Answer evidence
             </h2>
@@ -226,100 +241,106 @@ function EvidenceContent({
         >
           <X aria-hidden className="h-5 w-5" />
         </Button>
+      </header>
+      <div data-testid="evidence-body" className="px-5 pb-6 pt-6">
+        <section aria-labelledby="sources-heading">
+          <h3 id="sources-heading" className="text-lg font-semibold">
+            Sources ({citations.length})
+          </h3>
+          {citations.length ? (
+            <ol className="mt-3 space-y-3">
+              {citations.map((citation, index) => (
+                <SourceCard
+                  key={citation.id}
+                  citation={citation}
+                  index={index}
+                  selected={citation.id === selectedCitationId}
+                  register={(node) => {
+                    if (node) cardRefs.current.set(citation.id, node);
+                    else cardRefs.current.delete(citation.id);
+                  }}
+                />
+              ))}
+            </ol>
+          ) : (
+            <p className="mt-2 text-sm text-slate-600">
+              No citations were returned for this answer.
+            </p>
+          )}
+        </section>
+        <section
+          className="mt-8 border-t pt-6"
+          aria-labelledby="structure-heading"
+        >
+          <h3 id="structure-heading" className="text-lg font-semibold">
+            Graph structure
+          </h3>
+          {!evidence ||
+          (!evidence.nodes.length &&
+            !evidence.edges.length &&
+            !evidence.paths.length) ? (
+            <p className="mt-2 text-sm text-slate-600">
+              No graph structure was returned for this answer.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-5">
+              <div>
+                <h4 className="font-semibold">
+                  Nodes ({evidence.nodes.length})
+                </h4>
+                <ul className="mt-2 space-y-2 text-sm">
+                  {evidence.nodes.map((node) => (
+                    <li
+                      key={node.id}
+                      className="rounded-md border bg-slate-50 p-2"
+                    >
+                      <strong>{node.label}</strong>{" "}
+                      <span className="text-slate-500">({node.type})</span>{" "}
+                      <Badge variant="outline">{node.provenance}</Badge>
+                      <details className="mt-1 text-xs text-slate-600">
+                        <summary className="cursor-pointer">
+                          Technical details
+                        </summary>
+                        <span className="font-mono">{node.id}</span>
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold">
+                  Relationships ({evidence.edges.length})
+                </h4>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {evidence.edges.map((edge) => (
+                    <li key={edge.id}>
+                      {nodeName.get(edge.sourceNodeId) ?? "Unknown node"} →{" "}
+                      <strong>{edge.relationship}</strong> →{" "}
+                      {nodeName.get(edge.targetNodeId) ?? "Unknown node"}{" "}
+                      <Badge variant="outline">{edge.provenance}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold">
+                  Paths ({evidence.paths.length})
+                </h4>
+                <ol className="mt-2 space-y-1 text-sm">
+                  {evidence.paths.map((path) => (
+                    <li key={path.id}>
+                      {path.nodeIds
+                        .map((id) => nodeName.get(id) ?? "Unknown node")
+                        .join(" → ")}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
-      <section aria-labelledby="sources-heading" className="mt-6">
-        <h3 id="sources-heading" className="text-lg font-semibold">
-          Sources ({citations.length})
-        </h3>
-        {citations.length ? (
-          <ol className="mt-3 space-y-3">
-            {citations.map((citation, index) => (
-              <SourceCard
-                key={citation.id}
-                citation={citation}
-                index={index}
-                selected={citation.id === selectedCitationId}
-                register={(node) => {
-                  if (node) cardRefs.current.set(citation.id, node);
-                  else cardRefs.current.delete(citation.id);
-                }}
-              />
-            ))}
-          </ol>
-        ) : (
-          <p className="mt-2 text-sm text-slate-600">
-            No citations were returned for this answer.
-          </p>
-        )}
-      </section>
-      <section
-        className="mt-8 border-t pt-6"
-        aria-labelledby="structure-heading"
-      >
-        <h3 id="structure-heading" className="text-lg font-semibold">
-          Graph structure
-        </h3>
-        {!evidence ||
-        (!evidence.nodes.length &&
-          !evidence.edges.length &&
-          !evidence.paths.length) ? (
-          <p className="mt-2 text-sm text-slate-600">
-            No graph structure was returned for this answer.
-          </p>
-        ) : (
-          <div className="mt-3 space-y-5">
-            <div>
-              <h4 className="font-semibold">Nodes ({evidence.nodes.length})</h4>
-              <ul className="mt-2 space-y-2 text-sm">
-                {evidence.nodes.map((node) => (
-                  <li
-                    key={node.id}
-                    className="rounded-md border bg-slate-50 p-2"
-                  >
-                    <strong>{node.label}</strong>{" "}
-                    <span className="text-slate-500">({node.type})</span>{" "}
-                    <Badge variant="outline">{node.provenance}</Badge>
-                    <details className="mt-1 text-xs text-slate-600">
-                      <summary className="cursor-pointer">
-                        Technical details
-                      </summary>
-                      <span className="font-mono">{node.id}</span>
-                    </details>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold">
-                Relationships ({evidence.edges.length})
-              </h4>
-              <ul className="mt-2 space-y-1 text-sm">
-                {evidence.edges.map((edge) => (
-                  <li key={edge.id}>
-                    {nodeName.get(edge.sourceNodeId) ?? "Unknown node"} →{" "}
-                    <strong>{edge.relationship}</strong> →{" "}
-                    {nodeName.get(edge.targetNodeId) ?? "Unknown node"}{" "}
-                    <Badge variant="outline">{edge.provenance}</Badge>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold">Paths ({evidence.paths.length})</h4>
-              <ol className="mt-2 space-y-1 text-sm">
-                {evidence.paths.map((path) => (
-                  <li key={path.id}>
-                    {path.nodeIds
-                      .map((id) => nodeName.get(id) ?? "Unknown node")
-                      .join(" → ")}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
-        )}
-      </section>
-    </>
+    </div>
   );
 }
 
@@ -327,7 +348,7 @@ function Panel({ children }: { children: ReactNode }) {
   return (
     <aside
       aria-labelledby="evidence-heading"
-      className="h-full min-h-0 w-80 shrink-0 overflow-y-auto border-l bg-white p-5 lg:w-96 2xl:w-[28rem]"
+      className="h-full min-h-0 w-80 shrink-0 overflow-hidden border-l bg-white lg:w-96 2xl:w-[28rem]"
     >
       {children}
     </aside>
@@ -368,7 +389,7 @@ export function EvidenceDrawer({
         hideClose
         side="right"
         aria-labelledby="evidence-heading"
-        className="w-[min(100%,36rem)] overflow-y-auto"
+        className="w-[min(100%,36rem)] gap-0 overflow-hidden p-0"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           heading.current?.focus();

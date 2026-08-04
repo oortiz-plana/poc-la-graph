@@ -4,14 +4,18 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import {
   ArrowLeft,
+  Archive,
   BookOpen,
   CircleAlert,
   LoaderCircle,
   Menu,
-  RotateCcw,
+  Pencil,
+  Plus,
   Search,
   Send,
   Square,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -35,14 +39,20 @@ import {
 import {
   checkHealth,
   createConversation,
-  deleteConversation,
+  archiveConversation,
   getRuntimeConfig,
+  listConversations,
   loadConversation,
+  purgeConversation,
+  renameConversation,
+  restoreConversation,
 } from "@/lib/api";
 import { authorizationHeaders } from "@/lib/auth-token";
 import {
   type Answer,
   type Citation,
+  type Conversation,
+  type ConversationSummary,
   type UIEvent,
   uiEventSchema,
 } from "@/lib/contracts";
@@ -105,6 +115,15 @@ export function ChatWorkspace({
   const [selectedCitationId, setSelectedCitationId] = useState<string>();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [activeConversations, setActiveConversations] = useState<
+    ConversationSummary[]
+  >([]);
+  const [archivedConversations, setArchivedConversations] = useState<
+    ConversationSummary[]
+  >([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [activeCursor, setActiveCursor] = useState<string | null>(null);
+  const [archivedCursor, setArchivedCursor] = useState<string | null>(null);
   const [lastQuestion, setLastQuestion] = useState("");
   const composer = useRef<HTMLTextAreaElement>(null);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
@@ -135,29 +154,8 @@ export function ChatWorkspace({
   } = useChat({ transport });
   const busy = status === "submitted" || status === "streaming";
 
-  const initialize = useCallback(async () => {
-    setConnection("checking");
-    setInitError(undefined);
-    if (!(await checkHealth())) {
-      setConnection("unavailable");
-      return;
-    }
-    try {
-      const configuredProjectId =
-        selectedProjectId ??
-        ((await getRuntimeConfig()) as unknown as { projectId: string })
-          .projectId;
-      setProjectId(configuredProjectId);
-      const stored = localStorage.getItem(conversationKey);
-      let conversation = stored ? await loadConversation(stored) : null;
-      if (!conversation || conversation.projectId !== configuredProjectId) {
-        conversation = await createConversation(configuredProjectId);
-        if (stored) {
-          setContinuityNotice(
-            "Your previous conversation expired, so a new conversation was started.",
-          );
-        }
-      }
+  const displayConversation = useCallback(
+    (conversation: Conversation) => {
       localStorage.setItem(conversationKey, conversation.id);
       setConversationId(conversation.id);
       setMessages(
@@ -180,6 +178,55 @@ export function ChatWorkspace({
           ],
         })),
       );
+      setSelected(undefined);
+      setSelectedCitationId(undefined);
+    },
+    [conversationKey, setMessages],
+  );
+
+  const refreshConversationLists = useCallback(
+    async (configuredProjectId = projectId) => {
+      const [active, archived] = await Promise.all([
+        listConversations(configuredProjectId, "active"),
+        listConversations(configuredProjectId, "archived"),
+      ]);
+      setActiveConversations(active.items);
+      setArchivedConversations(archived.items);
+      setActiveCursor(active.nextCursor);
+      setArchivedCursor(archived.nextCursor);
+      return active.items;
+    },
+    [projectId],
+  );
+
+  const initialize = useCallback(async () => {
+    setConnection("checking");
+    setInitError(undefined);
+    if (!(await checkHealth())) {
+      setConnection("unavailable");
+      return;
+    }
+    try {
+      const configuredProjectId =
+        selectedProjectId ??
+        ((await getRuntimeConfig()) as unknown as { projectId: string })
+          .projectId;
+      setProjectId(configuredProjectId);
+      const stored = localStorage.getItem(conversationKey);
+      const active = await refreshConversationLists(configuredProjectId);
+      let target = active[0];
+      if (stored && !active.some((item) => item.id === stored)) {
+        setContinuityNotice(
+          "Your previous selection is no longer active. The most recent conversation was opened.",
+        );
+      }
+      let conversation = target ? await loadConversation(target.id) : null;
+      if (!conversation) {
+        conversation = await createConversation(configuredProjectId);
+        target = conversation;
+        setActiveConversations([conversation]);
+      }
+      displayConversation(conversation);
       setConnection("connected");
     } catch {
       setConnection("unavailable");
@@ -187,7 +234,12 @@ export function ChatWorkspace({
         "The API is reachable, but a conversation could not be started.",
       );
     }
-  }, [conversationKey, selectedProjectId, setMessages]);
+  }, [
+    conversationKey,
+    displayConversation,
+    refreshConversationLists,
+    selectedProjectId,
+  ]);
   useEffect(() => {
     void initialize();
   }, [initialize]);
@@ -196,6 +248,11 @@ export function ChatWorkspace({
     const timer = window.setInterval(() => void initialize(), 15_000);
     return () => window.clearInterval(timer);
   }, [connection, initialize]);
+  useEffect(() => {
+    if (connection === "connected" && status === "ready") {
+      void refreshConversationLists();
+    }
+  }, [connection, refreshConversationLists, status]);
   useEffect(() => {
     if (selected || !pendingEvidenceFocus.current) return;
     const pending = pendingEvidenceFocus.current;
@@ -256,25 +313,99 @@ export function ChatWorkspace({
     setDraft("");
     await sendMessage({ text: value }, { body: { conversationId } });
   }
-  async function reset() {
+  async function selectConversation(id: string) {
+    if (busy || id === conversationId) return;
+    const conversation = await loadConversation(id);
+    if (!conversation || conversation.projectId !== projectId) {
+      await initialize();
+      return;
+    }
+    displayConversation(conversation);
+    setNavigationOpen(false);
+  }
+  async function startNewConversation() {
+    if (busy) return;
+    try {
+      const fresh = await createConversation(projectId);
+      setActiveConversations((items) => [fresh, ...items]);
+      displayConversation(fresh);
+      setShowArchived(false);
+      setNavigationOpen(false);
+      window.setTimeout(() => composer.current?.focus(), 0);
+    } catch {
+      setInitError("A new conversation could not be started.");
+    }
+  }
+  async function archiveCurrent() {
     if (!conversationId) return;
     try {
-      await deleteConversation(conversationId);
+      await archiveConversation(conversationId);
       localStorage.removeItem(conversationKey);
       setMessages([]);
       setSelected(undefined);
       setSelectedCitationId(undefined);
       setContinuityNotice(undefined);
       setResetOpen(false);
-      const fresh = await createConversation(projectId);
-      localStorage.setItem(conversationKey, fresh.id);
-      setConversationId(fresh.id);
+      const remaining = await refreshConversationLists();
+      const next = remaining[0]
+        ? await loadConversation(remaining[0].id)
+        : await createConversation(projectId);
+      if (!next) throw new Error("Missing fallback conversation");
+      if (!remaining.length) setActiveConversations([next]);
+      displayConversation(next);
       window.setTimeout(() => composer.current?.focus(), 0);
     } catch {
       setInitError(
-        "The conversation could not be reset. Your history is unchanged.",
+        "The conversation could not be archived. Your history is unchanged.",
       );
       setResetOpen(false);
+    }
+  }
+  async function saveName(id: string, name: string) {
+    if (busy) return;
+    try {
+      await renameConversation(id, name.trim());
+      await refreshConversationLists();
+    } catch {
+      setInitError("The conversation could not be renamed.");
+    }
+  }
+  async function restoreArchived(id: string) {
+    if (busy) return;
+    try {
+      const restored = await restoreConversation(id);
+      await refreshConversationLists();
+      setShowArchived(false);
+      displayConversation(restored);
+    } catch {
+      setInitError("The conversation could not be restored.");
+    }
+  }
+  async function permanentlyDelete(id: string) {
+    if (busy || !window.confirm("Permanently delete this conversation?"))
+      return;
+    try {
+      await purgeConversation(id);
+      await refreshConversationLists();
+    } catch {
+      setInitError("The conversation could not be permanently deleted.");
+    }
+  }
+  async function loadMoreConversations(state: "active" | "archived") {
+    if (busy) return;
+    const cursor = state === "active" ? activeCursor : archivedCursor;
+    if (!cursor) return;
+    try {
+      const page = await listConversations(projectId, state, cursor);
+      if (state === "active") {
+        setActiveConversations((items) => [...items, ...page.items]);
+        setActiveCursor(page.nextCursor);
+      } else {
+        setArchivedConversations((items) => [...items, ...page.items]);
+        setArchivedCursor(page.nextCursor);
+      }
+    } catch {
+      setInitError("More conversations could not be loaded.");
     }
   }
   const closeNavigation = useCallback(() => {
@@ -306,12 +437,24 @@ export function ChatWorkspace({
         className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r bg-white xl:flex"
       >
         <NavigationContent
+          active={activeConversations}
+          archived={archivedConversations}
+          activeCursor={activeCursor}
+          archivedCursor={archivedCursor}
           busy={busy}
-          hasMessages={hasMessages}
+          conversationId={conversationId}
           projectId={projectId}
           projectName={projectName}
+          showArchived={showArchived}
           onBack={onBack}
-          reset={() => setResetOpen(true)}
+          archive={() => setResetOpen(true)}
+          create={() => void startNewConversation()}
+          loadMore={(state) => void loadMoreConversations(state)}
+          purge={(id) => void permanentlyDelete(id)}
+          rename={(id, name) => void saveName(id, name)}
+          restore={(id) => void restoreArchived(id)}
+          select={(id) => void selectConversation(id)}
+          setShowArchived={setShowArchived}
         />
       </aside>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -503,15 +646,27 @@ export function ChatWorkspace({
               </SheetDescription>
             </SheetHeader>
             <NavigationContent
+              active={activeConversations}
+              archived={archivedConversations}
+              activeCursor={activeCursor}
+              archivedCursor={archivedCursor}
               busy={busy}
-              hasMessages={hasMessages}
+              conversationId={conversationId}
               projectId={projectId}
               projectName={projectName}
+              showArchived={showArchived}
               onBack={onBack}
-              reset={() => {
+              archive={() => {
                 setNavigationOpen(false);
                 setResetOpen(true);
               }}
+              create={() => void startNewConversation()}
+              loadMore={(state) => void loadMoreConversations(state)}
+              purge={(id) => void permanentlyDelete(id)}
+              rename={(id, name) => void saveName(id, name)}
+              restore={(id) => void restoreArchived(id)}
+              select={(id) => void selectConversation(id)}
+              setShowArchived={setShowArchived}
             />
           </SheetContent>
         </Sheet>
@@ -528,7 +683,7 @@ export function ChatWorkspace({
       {resetOpen && (
         <ConfirmReset
           cancel={() => setResetOpen(false)}
-          confirm={() => void reset()}
+          confirm={() => void archiveCurrent()}
         />
       )}
     </div>
@@ -536,22 +691,46 @@ export function ChatWorkspace({
 }
 
 function NavigationContent({
+  active,
+  archived,
+  activeCursor,
+  archivedCursor,
   busy,
-  hasMessages,
+  conversationId,
   projectId,
   projectName,
+  showArchived,
   onBack,
-  reset,
+  archive,
+  create,
+  loadMore,
+  purge,
+  rename,
+  restore,
+  select,
+  setShowArchived,
 }: {
+  active: ConversationSummary[];
+  archived: ConversationSummary[];
+  activeCursor: string | null;
+  archivedCursor: string | null;
   busy: boolean;
-  hasMessages: boolean;
+  conversationId?: string;
   projectId: string;
   projectName?: string;
+  showArchived: boolean;
   onBack?: () => void;
-  reset: () => void;
+  archive: () => void;
+  create: () => void;
+  loadMore: (state: "active" | "archived") => void;
+  purge: (id: string) => void;
+  rename: (id: string, name: string) => void;
+  restore: (id: string) => void;
+  select: (id: string) => void;
+  setShowArchived: (value: boolean) => void;
 }) {
   return (
-    <div className="flex min-h-full flex-col gap-6 p-5">
+    <div className="flex min-h-full flex-col gap-5 p-5">
       {onBack && (
         <Button
           type="button"
@@ -567,7 +746,7 @@ function NavigationContent({
         <p className="text-lg font-bold">Graphify</p>
         <p className="text-sm text-slate-600">Knowledge workspace</p>
       </div>
-      <nav aria-label="Workspace">
+      <nav aria-label="Workspace" className="min-h-0 flex-1">
         <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
           Current project
         </p>
@@ -577,20 +756,218 @@ function NavigationContent({
         >
           {projectName ?? projectId}
         </p>
+        <Button
+          type="button"
+          disabled={busy}
+          onClick={create}
+          className="mt-3 min-h-11 w-full justify-start"
+        >
+          <Plus aria-hidden /> New conversation
+        </Button>
+        <div
+          className="mt-4 flex gap-2"
+          role="group"
+          aria-label="Conversation state"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={showArchived ? "outline" : "secondary"}
+            onClick={() => setShowArchived(false)}
+            disabled={busy}
+          >
+            Active
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={showArchived ? "secondary" : "outline"}
+            onClick={() => setShowArchived(true)}
+            disabled={busy}
+          >
+            Archived ({archived.length})
+          </Button>
+        </div>
+        <ul
+          className="mt-3 space-y-2"
+          aria-label={
+            showArchived ? "Archived conversations" : "Active conversations"
+          }
+        >
+          {(showArchived ? archived : active).map((conversation) => (
+            <ConversationNavigationItem
+              key={conversation.id}
+              conversation={conversation}
+              selected={!showArchived && conversation.id === conversationId}
+              archived={showArchived}
+              busy={busy}
+              onSelect={() => select(conversation.id)}
+              onRename={(name) => rename(conversation.id, name)}
+              onRestore={() => restore(conversation.id)}
+              onPurge={() => purge(conversation.id)}
+            />
+          ))}
+        </ul>
+        {(showArchived ? archived : active).length === 0 && (
+          <p className="mt-3 text-sm text-slate-500">
+            {showArchived
+              ? "No archived conversations."
+              : "No active conversations."}
+          </p>
+        )}
+        {(showArchived ? archivedCursor : activeCursor) && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => loadMore(showArchived ? "archived" : "active")}
+            className="mt-3 min-h-11 w-full"
+          >
+            Load more
+          </Button>
+        )}
       </nav>
       <div className="mt-auto space-y-3">
         <Button
-          aria-label="Reset conversation"
+          aria-label="Archive conversation"
           variant="outline"
-          disabled={!hasMessages || busy}
-          onClick={reset}
+          disabled={!conversationId || busy}
+          onClick={archive}
           className="min-h-11 w-full justify-start"
         >
-          <RotateCcw />
-          Reset conversation
+          <Archive aria-hidden />
+          Archive conversation
         </Button>
       </div>
     </div>
+  );
+}
+
+function ConversationNavigationItem({
+  conversation,
+  selected,
+  archived,
+  busy,
+  onSelect,
+  onRename,
+  onRestore,
+  onPurge,
+}: {
+  conversation: ConversationSummary;
+  selected: boolean;
+  archived: boolean;
+  busy: boolean;
+  onSelect: () => void;
+  onRename: (name: string) => void;
+  onRestore: () => void;
+  onPurge: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(conversation.name);
+  if (editing) {
+    return (
+      <li>
+        <form
+          className="rounded-lg border p-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const normalized = name.trim();
+            if (!normalized) return;
+            onRename(normalized);
+            setEditing(false);
+          }}
+        >
+          <label className="sr-only" htmlFor={`rename-${conversation.id}`}>
+            Conversation name
+          </label>
+          <input
+            id={`rename-${conversation.id}`}
+            autoFocus
+            value={name}
+            maxLength={120}
+            disabled={busy}
+            onChange={(event) => setName(event.target.value)}
+            className="min-h-11 w-full rounded-md border px-2 text-sm"
+          />
+          <div className="mt-2 flex gap-2">
+            <Button type="submit" size="sm" disabled={busy || !name.trim()}>
+              Save
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </li>
+    );
+  }
+  return (
+    <li
+      className={`rounded-lg border p-2 ${selected ? "border-sky-500 bg-sky-50" : "bg-white"}`}
+    >
+      {!archived && (
+        <button
+          type="button"
+          disabled={busy}
+          aria-current={selected ? "page" : undefined}
+          onClick={onSelect}
+          className="min-h-11 w-full break-words text-left text-sm font-medium disabled:opacity-50"
+        >
+          {conversation.name}
+        </button>
+      )}
+      {archived && (
+        <p className="break-words px-1 py-2 text-sm font-medium">
+          {conversation.name}
+        </p>
+      )}
+      <div className="flex gap-1">
+        {!archived && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            disabled={busy}
+            aria-label={`Rename ${conversation.name}`}
+            onClick={() => setEditing(true)}
+            className="min-h-11 min-w-11"
+          >
+            <Pencil aria-hidden />
+          </Button>
+        )}
+        {archived && (
+          <>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              disabled={busy}
+              aria-label={`Restore ${conversation.name}`}
+              onClick={onRestore}
+              className="min-h-11 min-w-11"
+            >
+              <Undo2 aria-hidden />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              disabled={busy}
+              aria-label={`Permanently delete ${conversation.name}`}
+              onClick={onPurge}
+              className="min-h-11 min-w-11 text-red-700"
+            >
+              <Trash2 aria-hidden />
+            </Button>
+          </>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -819,9 +1196,10 @@ function ConfirmReset({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Reset conversation?</DialogTitle>
+          <DialogTitle>Archive conversation?</DialogTitle>
           <DialogDescription>
-            Reset this conversation? This cannot be restored.
+            Archive this conversation? You can restore it from the Archived
+            view.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -834,7 +1212,7 @@ function ConfirmReset({
             Cancel
           </Button>
           <Button variant="destructive" onClick={confirm} className="min-h-11">
-            Reset conversation
+            Archive conversation
           </Button>
         </DialogFooter>
       </DialogContent>

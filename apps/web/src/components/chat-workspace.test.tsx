@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
@@ -13,7 +13,11 @@ const mocks = vi.hoisted(() => ({
   getRuntimeConfig: vi.fn(),
   createConversation: vi.fn(),
   loadConversation: vi.fn(),
-  deleteConversation: vi.fn(),
+  listConversations: vi.fn(),
+  archiveConversation: vi.fn(),
+  renameConversation: vi.fn(),
+  restoreConversation: vi.fn(),
+  purgeConversation: vi.fn(),
   chat: {
     messages: [] as UIMessage[],
     status: "ready",
@@ -44,7 +48,11 @@ vi.mock("@/lib/api", () => ({
   getRuntimeConfig: mocks.getRuntimeConfig,
   createConversation: mocks.createConversation,
   loadConversation: mocks.loadConversation,
-  deleteConversation: mocks.deleteConversation,
+  listConversations: mocks.listConversations,
+  archiveConversation: mocks.archiveConversation,
+  renameConversation: mocks.renameConversation,
+  restoreConversation: mocks.restoreConversation,
+  purgeConversation: mocks.purgeConversation,
 }));
 
 import { ChatWorkspace } from "./chat-workspace";
@@ -52,8 +60,10 @@ import { ChatWorkspace } from "./chat-workspace";
 const conversation = {
   id: "conv-1",
   projectId: "sample-project",
+  name: "New conversation",
   createdAt: "2026-07-28T00:00:00Z",
   updatedAt: "2026-07-28T00:00:00Z",
+  archivedAt: null,
   messages: [],
 };
 const answer: Answer = {
@@ -106,7 +116,11 @@ describe("ChatWorkspace", () => {
     mocks.getRuntimeConfig.mockResolvedValue({ projectId: "sample-project" });
     mocks.createConversation.mockResolvedValue(conversation);
     mocks.loadConversation.mockResolvedValue(null);
-    mocks.deleteConversation.mockResolvedValue(undefined);
+    mocks.listConversations.mockResolvedValue({ items: [], nextCursor: null });
+    mocks.archiveConversation.mockResolvedValue(undefined);
+    mocks.renameConversation.mockResolvedValue(conversation);
+    mocks.restoreConversation.mockResolvedValue(conversation);
+    mocks.purgeConversation.mockResolvedValue(undefined);
     window.matchMedia = vi
       .fn()
       .mockImplementation((query: string): MediaQueryList => ({
@@ -151,8 +165,18 @@ describe("ChatWorkspace", () => {
     expect(localStorage.getItem("graphify-conversation-id")).toBe("conv-1");
   });
 
-  it("restores a durable conversation ID from local storage", async () => {
+  it("resumes the most recently updated server conversation", async () => {
     localStorage.setItem("graphify-conversation-id", "saved-conversation");
+    mocks.listConversations.mockImplementation(
+      (_projectId: string, state: "active" | "archived") =>
+        Promise.resolve({
+          items:
+            state === "active"
+              ? [{ ...conversation, id: "saved-conversation" }]
+              : [],
+          nextCursor: null,
+        }),
+    );
     mocks.loadConversation.mockResolvedValue({
       ...conversation,
       id: "saved-conversation",
@@ -179,18 +203,104 @@ describe("ChatWorkspace", () => {
     );
   });
 
-  it("replaces an expired stored conversation and explains the continuity reset", async () => {
+  it("recovers from a stale local selection using the server list", async () => {
     localStorage.setItem("graphify-conversation-id", "expired-conversation");
     mocks.loadConversation.mockResolvedValue(null);
 
     render(<ChatWorkspace />);
 
     await screen.findByText("API connected");
-    expect(mocks.loadConversation).toHaveBeenCalledWith("expired-conversation");
+    expect(mocks.loadConversation).not.toHaveBeenCalledWith(
+      "expired-conversation",
+    );
     expect(localStorage.getItem("graphify-conversation-id")).toBe("conv-1");
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Your previous conversation expired",
+      "Your previous selection is no longer active",
     );
+  });
+
+  it("keeps server ordering and supports inline rename", async () => {
+    const newest = { ...conversation, id: "newest", name: "Newest" };
+    const older = { ...conversation, id: "older", name: "Older" };
+    mocks.listConversations.mockImplementation(
+      (_projectId: string, state: "active" | "archived") =>
+        Promise.resolve({
+          items: state === "active" ? [newest, older] : [],
+          nextCursor: null,
+        }),
+    );
+    mocks.loadConversation.mockResolvedValue(newest);
+    render(<ChatWorkspace />);
+    await screen.findByText("API connected");
+
+    expect(mocks.loadConversation).toHaveBeenCalledWith("newest");
+    const list = screen.getAllByRole("list", {
+      name: "Active conversations",
+    })[0];
+    expect(
+      within(list).getAllByRole("button", { name: /Newest|Older/ })[0],
+    ).toHaveTextContent("Newest");
+    await userEvent.click(
+      within(list).getByRole("button", { name: "Rename Newest" }),
+    );
+    const input = within(list).getByLabelText("Conversation name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed conversation");
+    await userEvent.click(within(list).getByRole("button", { name: "Save" }));
+    expect(mocks.renameConversation).toHaveBeenCalledWith(
+      "newest",
+      "Renamed conversation",
+    );
+  });
+
+  it("restores and permanently deletes conversations from Archived", async () => {
+    const archived = {
+      ...conversation,
+      id: "archived",
+      name: "Archived research",
+      archivedAt: "2026-08-04T00:00:00Z",
+    };
+    mocks.listConversations.mockImplementation(
+      (_projectId: string, state: "active" | "archived") =>
+        Promise.resolve({
+          items: state === "active" ? [conversation] : [archived],
+          nextCursor: null,
+        }),
+    );
+    mocks.loadConversation.mockResolvedValue(conversation);
+    mocks.restoreConversation.mockResolvedValue({
+      ...archived,
+      archivedAt: null,
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<ChatWorkspace />);
+    await screen.findByText("API connected");
+
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /Archived \(1\)/ })[0],
+    );
+    let archivedList = screen.getAllByRole("list", {
+      name: "Archived conversations",
+    })[0];
+    await userEvent.click(
+      within(archivedList).getByRole("button", {
+        name: "Restore Archived research",
+      }),
+    );
+    expect(mocks.restoreConversation).toHaveBeenCalledWith("archived");
+
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /Archived \(1\)/ })[0],
+    );
+    archivedList = screen.getAllByRole("list", {
+      name: "Archived conversations",
+    })[0];
+    await userEvent.click(
+      within(archivedList).getByRole("button", {
+        name: "Permanently delete Archived research",
+      }),
+    );
+    expect(mocks.purgeConversation).toHaveBeenCalledWith("archived");
   });
 
   it("keeps Shift+Enter as a newline and exposes accessible controls", async () => {
@@ -289,7 +399,7 @@ describe("ChatWorkspace", () => {
     await user.click(citation);
 
     expect(
-      screen.getByRole("complementary", { name: "Answer evidence" }),
+      await screen.findByRole("complementary", { name: "Answer evidence" }),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close evidence" }));
     await waitFor(() =>
@@ -420,7 +530,7 @@ describe("ChatWorkspace", () => {
     expect(mocks.checkHealth).toHaveBeenCalledTimes(2);
   });
 
-  it("confirms reset, deletes history, creates a fresh conversation, and focuses composer", async () => {
+  it("confirms archive, selects a fallback conversation, and focuses composer", async () => {
     mocks.chat.messages = [
       { id: "u1", role: "user", parts: [{ type: "text", text: "Hello" }] },
     ];
@@ -430,17 +540,17 @@ describe("ChatWorkspace", () => {
     render(<ChatWorkspace />);
     await screen.findByText("API connected");
     await userEvent.click(
-      screen.getByRole("button", { name: "Reset conversation" }),
+      screen.getByRole("button", { name: "Archive conversation" }),
     );
     expect(
-      screen.getByRole("alertdialog", { name: "Reset conversation?" }),
+      screen.getByRole("alertdialog", { name: "Archive conversation?" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
     await userEvent.click(
-      screen.getAllByRole("button", { name: "Reset conversation" }).at(-1)!,
+      screen.getAllByRole("button", { name: "Archive conversation" }).at(-1)!,
     );
     await waitFor(() =>
-      expect(mocks.deleteConversation).toHaveBeenCalledWith("conv-1"),
+      expect(mocks.archiveConversation).toHaveBeenCalledWith("conv-1"),
     );
     expect(mocks.setMessages).toHaveBeenCalledWith([]);
     expect(localStorage.getItem("graphify-conversation-id")).toBe("conv-2");

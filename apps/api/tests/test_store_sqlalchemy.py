@@ -119,22 +119,81 @@ async def test_prunes_oldest_complete_exchanges_and_bounds_history(
     assert [message.content for message in history] == ["question-2", "answer-2"]
 
 
-async def test_cleanup_deletes_expired_conversations(tmp_path: Path) -> None:
+async def test_cleanup_only_deletes_expired_archived_conversations(
+    tmp_path: Path,
+) -> None:
     store = SQLAlchemyConversationStore(
         f"sqlite+aiosqlite:///{tmp_path}/cleanup.db", retention_days=30
     )
     await store.initialize()
-    conversation = await store.create("project")
+    active = await store.create("project")
+    archived = await store.create("project")
+    await store.archive(archived.id)
     async with store._sessions.begin() as session:
         await session.execute(
             update(ConversationRow)
-            .where(ConversationRow.id == conversation.id)
-            .values(updated_at=datetime.now(UTC) - timedelta(days=31))
+            .where(ConversationRow.id.in_([active.id, archived.id]))
+            .values(
+                updated_at=datetime.now(UTC) - timedelta(days=31),
+                archived_at=datetime.now(UTC) - timedelta(days=31),
+            )
+        )
+        await session.execute(
+            update(ConversationRow)
+            .where(ConversationRow.id == active.id)
+            .values(archived_at=None)
         )
 
     assert await store.cleanup() == 1
+    assert (await store.get(active.id)).id == active.id
     with pytest.raises(ConversationNotFound):
-        await store.get(conversation.id)
+        await store.get(archived.id)
+    await store.close()
+
+
+async def test_private_lists_naming_archive_restore_and_stable_cursor(
+    tmp_path: Path,
+) -> None:
+    store = SQLAlchemyConversationStore(
+        f"sqlite+aiosqlite:///{tmp_path}/private-list.db"
+    )
+    await store.initialize()
+    first = await store.create("project", created_by="alice")
+    second = await store.create("project", created_by="alice")
+    await store.create("project", created_by="bob")
+    tied = datetime.now(UTC).replace(microsecond=0)
+    async with store._sessions.begin() as session:
+        await session.execute(
+            update(ConversationRow)
+            .where(ConversationRow.id.in_([first.id, second.id]))
+            .values(updated_at=tied)
+        )
+
+    page_one = await store.list_conversations("project", "alice", limit=1)
+    page_two = await store.list_conversations(
+        "project", "alice", limit=1, cursor=page_one.next_cursor
+    )
+    assert [*page_one.items, *page_two.items]
+    assert {page_one.items[0].id, page_two.items[0].id} == {first.id, second.id}
+
+    question = "  What   does the first clause say?  More detail follows. "
+    await store.add_user_message(first.id, question, "alice")
+    named = await store.get(first.id, "alice")
+    assert named.name == "What does the first clause say?"
+    with pytest.raises(ConversationNotFound):
+        await store.get(first.id, "bob")
+
+    renamed = await store.rename(first.id, "Renamed", "alice")
+    assert renamed.name == "Renamed"
+    await store.archive(first.id, "alice")
+    with pytest.raises(ConversationNotFound):
+        await store.get(first.id, "alice")
+    with pytest.raises(ConversationNotFound):
+        await store.add_user_message(first.id, "Cannot continue", "alice")
+    archived_page = await store.list_conversations("project", "alice", state="archived")
+    assert [item.id for item in archived_page.items] == [first.id]
+    restored = await store.restore(first.id, "alice")
+    assert restored.archived_at is None
     await store.close()
 
 
@@ -142,7 +201,7 @@ async def test_delete_unknown_conversation_raises(tmp_path: Path) -> None:
     store = SQLAlchemyConversationStore(f"sqlite+aiosqlite:///{tmp_path}/missing.db")
     await store.initialize()
     with pytest.raises(ConversationNotFound):
-        await store.delete("missing")
+        await store.purge("missing")
     with pytest.raises(ConversationNotFound):
         await store.acquire_request("missing", "request")
     await store.close()

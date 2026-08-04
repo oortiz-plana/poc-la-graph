@@ -2,7 +2,10 @@
 
 ## Scope and experience principles
 
-This POC is a single-project, unauthenticated conversational workspace. The UI talks only to the Agent API; it never connects to Graphify or an LLM provider. Conversation state lasts for the current browser session and may be lost when either the page session or in-memory API store is reset.
+This POC is an authenticated, multi-project conversational workspace. The UI
+talks only to the Agent API; it never connects to Graphify or an LLM provider.
+Project evidence is shared, while server-backed conversation histories are
+private to the authenticated user.
 
 Design priorities:
 
@@ -17,7 +20,9 @@ Design priorities:
 
 The page has four persistent regions:
 
-- **Application header:** product name, backend connection status, and Reset conversation action.
+- **Conversation navigation:** project name, New conversation, active history,
+  Archived view, and archive/restore/delete controls.
+- **Application header:** product name and backend connection status.
 - **Project context bar:** read-only configured project name or ID and a short “Answers use this knowledge graph” description.
 - **Conversation panel:** ordered user and assistant messages, activity, errors, citations, and an empty-state prompt.
 - **Composer:** multiline question input, Send/Stop control, and concise keyboard hint.
@@ -163,4 +168,3 @@ No critical feature may depend on hover. Test at 320px CSS width and at 200% bro
 - Screen-reader announcements are useful but do not repeat token deltas.
 - Evidence remains understandable with color, animation, and visualization disabled.
 - At 320px width and 200% zoom, no primary action is clipped.
-

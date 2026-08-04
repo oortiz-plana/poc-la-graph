@@ -27,6 +27,10 @@ class SendMessageRequest(ApiModel):
     include_graph_paths: bool = Field(default=True, alias="includeGraphPaths")
 
 
+class UpdateConversationRequest(ApiModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
 class Message(ApiModel):
     id: str
     role: Literal["user", "assistant"]
@@ -39,6 +43,22 @@ class Message(ApiModel):
 class Conversation(ApiModel):
     id: str
     project_id: str = Field(alias="projectId")
+    name: str
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
+    archived_at: datetime | None = Field(alias="archivedAt")
     messages: list[Message] = Field(default_factory=list)
+
+
+class ConversationSummary(ApiModel):
+    id: str
+    project_id: str = Field(alias="projectId")
+    name: str
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    archived_at: datetime | None = Field(alias="archivedAt")
+
+
+class ConversationList(ApiModel):
+    items: list[ConversationSummary] = Field(max_length=100)
+    next_cursor: str | None = Field(alias="nextCursor")

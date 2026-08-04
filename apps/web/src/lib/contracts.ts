@@ -78,8 +78,10 @@ export const answerSchema = z.object({
 export const conversationSchema = z.object({
   id: z.string(),
   projectId: z.string(),
+  name: z.string().min(1),
   createdAt: z.string(),
   updatedAt: z.string(),
+  archivedAt: z.string().nullable(),
   messages: z.array(
     z.object({
       id: z.string(),
@@ -90,6 +92,13 @@ export const conversationSchema = z.object({
       result: answerSchema.nullable().optional(),
     }),
   ),
+});
+export const conversationSummarySchema = conversationSchema.omit({
+  messages: true,
+});
+export const conversationListSchema = z.object({
+  items: z.array(conversationSummarySchema).max(100),
+  nextCursor: z.string().nullable(),
 });
 const base = {
   requestId: z.string(),
@@ -161,6 +170,8 @@ export type Citation = z.infer<typeof citationSchema>;
 export type Answer = z.infer<typeof answerSchema>;
 export type GraphEvidence = z.infer<typeof graphEvidenceSchema>;
 export type Conversation = z.infer<typeof conversationSchema>;
+export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+export type ConversationList = z.infer<typeof conversationListSchema>;
 export type UIEvent = z.infer<typeof uiEventSchema>;
 
 export const buildSummarySchema = z.object({

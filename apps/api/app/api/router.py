@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sse_starlette.sse import EventSourceResponse
 
 from app.agent.events import LifecycleEvent
@@ -17,10 +17,12 @@ from app.config.settings import Settings
 from app.integrations.graphify import GraphifyConfigurationError, GraphifyError
 from app.models import (
     Conversation,
+    ConversationList,
     CreateConversationRequest,
     Health,
     Readiness,
     SendMessageRequest,
+    UpdateConversationRequest,
 )
 from app.projects import ProjectRepository
 from app.projects.repository import ProjectConflict
@@ -143,7 +145,6 @@ async def create_conversation(
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
     body: CreateConversationRequest | None = None,
 ) -> Conversation:
-    del principal
     requested = body.project_id if body else None
     if not settings.auth_enabled:
         if requested is not None and requested != settings.graphify_project_id:
@@ -155,15 +156,47 @@ async def create_conversation(
                 raise InvalidRequest("Unknown project") from exc
             if project.state != "ready" or not project.active_graph_version:
                 raise ProjectConflict("The project is not ready")
-            return await store.create(project.id, project.active_graph_version)
-        return await store.create(requested or settings.graphify_project_id)
+            return await store.create(
+                project.id, project.active_graph_version, principal.subject
+            )
+        return await store.create(
+            requested or settings.graphify_project_id,
+            created_by=principal.subject,
+        )
     if requested is None:
         raise InvalidRequest("projectId is required")
     projects = cast(ProjectRepository, request.app.state.projects)
     project = await projects.get_project(requested, include_archived=False)
     if project.state != "ready" or not project.active_graph_version:
         raise ProjectConflict("The project is not ready")
-    return await store.create(project.id, project.active_graph_version)
+    return await store.create(
+        project.id, project.active_graph_version, principal.subject
+    )
+
+
+@api_router.get(
+    "/api/v1/projects/{project_id}/conversations",
+    response_model=ConversationList,
+    tags=["conversations"],
+)
+async def list_conversations(
+    project_id: str,
+    store: Annotated[ConversationStore, Depends(get_store)],
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    state: Literal["active", "archived"] = Query(default="active"),
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=1024),
+) -> ConversationList:
+    try:
+        return await store.list_conversations(
+            project_id,
+            principal.subject,
+            state=state,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise InvalidRequest("Invalid cursor") from exc
 
 
 @api_router.get(
@@ -176,8 +209,24 @@ async def get_conversation(
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Conversation:
-    del principal
-    return await store.get(conversation_id)
+    return await store.get(conversation_id, principal.subject)
+
+
+@api_router.patch(
+    "/api/v1/conversations/{conversation_id}",
+    response_model=Conversation,
+    tags=["conversations"],
+)
+async def rename_conversation(
+    conversation_id: str,
+    body: UpdateConversationRequest,
+    store: Annotated[ConversationStore, Depends(get_store)],
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+) -> Conversation:
+    name = body.name.strip()
+    if not name:
+        raise InvalidRequest("Conversation name is empty")
+    return await store.rename(conversation_id, name, principal.subject)
 
 
 @api_router.delete(
@@ -190,8 +239,34 @@ async def delete_conversation(
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Response:
-    del principal
-    await store.delete(conversation_id)
+    await store.archive(conversation_id, principal.subject)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@api_router.post(
+    "/api/v1/conversations/{conversation_id}/restore",
+    response_model=Conversation,
+    tags=["conversations"],
+)
+async def restore_conversation(
+    conversation_id: str,
+    store: Annotated[ConversationStore, Depends(get_store)],
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+) -> Conversation:
+    return await store.restore(conversation_id, principal.subject)
+
+
+@api_router.delete(
+    "/api/v1/conversations/{conversation_id}/purge",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["conversations"],
+)
+async def purge_conversation(
+    conversation_id: str,
+    store: Annotated[ConversationStore, Depends(get_store)],
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+) -> Response:
+    await store.purge(conversation_id, principal.subject)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -209,29 +284,31 @@ async def send_message(
     workflow: Annotated[KnowledgeWorkflow, Depends(get_workflow)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> EventSourceResponse:
-    del principal
     correlation_id = str(request.state.request_id)
-    scope = await store.get_scope(conversation_id)
+    scope = await store.get_scope(conversation_id, principal.subject)
     if request.app.state.settings.auth_enabled:
         project = await request.app.state.projects.get_project(
             scope.project_id, include_archived=True
         )
         if project.state == "archived":
             raise ProjectConflict("Archived projects cannot receive messages")
-    await store.acquire_request(conversation_id, correlation_id)
+    await store.acquire_request(conversation_id, correlation_id, principal.subject)
     try:
         history = await store.get_history(
             conversation_id,
             max_turns=request.app.state.settings.conversation_history_max_turns,
             max_chars=request.app.state.settings.conversation_history_max_chars,
+            created_by=principal.subject,
         )
         conversation_history = [
             ConversationTurn(id=item.id, role=item.role, content=item.content)
             for item in history
         ]
-        await store.add_user_message(conversation_id, body.message.strip())
+        await store.add_user_message(
+            conversation_id, body.message.strip(), principal.subject
+        )
     except Exception:
-        await store.release_request(conversation_id, correlation_id)
+        await store.release_request(conversation_id, correlation_id, principal.subject)
         raise
 
     async def events() -> AsyncIterator[dict[str, str]]:
@@ -245,7 +322,9 @@ async def send_message(
             ):
                 if await request.is_disconnected():
                     break
-                await _persist_terminal(store, conversation_id, event)
+                await _persist_terminal(
+                    store, conversation_id, event, principal.subject
+                )
                 terminal = event.type in {"message.completed", "message.failed"}
                 yield {
                     "event": event.type,
@@ -264,8 +343,11 @@ async def send_message(
                     conversation_id,
                     "The response stream was interrupted.",
                     "failed",
+                    created_by=principal.subject,
                 )
-            await store.release_request(conversation_id, correlation_id)
+            await store.release_request(
+                conversation_id, correlation_id, principal.subject
+            )
 
     return EventSourceResponse(
         events(),
@@ -278,6 +360,7 @@ async def _persist_terminal(
     store: ConversationStore,
     conversation_id: str,
     event: LifecycleEvent,
+    created_by: str,
 ) -> None:
     if event.type == "message.completed" and event.result is not None:
         await store.add_assistant_message(
@@ -285,6 +368,7 @@ async def _persist_terminal(
             event.result.answer,
             "completed",
             event.result,
+            created_by,
         )
     elif event.type == "message.failed":
         message = (
@@ -292,4 +376,6 @@ async def _persist_terminal(
             if event.error
             else "The request could not be completed."
         )
-        await store.add_assistant_message(conversation_id, message, "failed")
+        await store.add_assistant_message(
+            conversation_id, message, "failed", created_by=created_by
+        )

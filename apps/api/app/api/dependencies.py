@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Annotated, cast
 
-from fastapi import Request
+from fastapi import Depends, Request
 
 from app.agent.models import WorkflowLimits
 from app.agent.workflow import KnowledgeWorkflow
+from app.auth import AuthPrincipal
+from app.auth.dependencies import current_principal
 from app.config.settings import Settings
 from app.integrations.graphify import (
     GraphifyMCPConfig,
@@ -78,11 +80,14 @@ def build_graph_client(
     )
 
 
-async def get_workflow(request: Request) -> KnowledgeWorkflow:
+async def get_workflow(
+    request: Request,
+    principal: Annotated[AuthPrincipal, Depends(current_principal)],
+) -> KnowledgeWorkflow:
     settings = get_app_settings(request)
     model = cast(LanguageModel, request.app.state.model)
     conversation_id = str(request.path_params.get("conversation_id", ""))
-    scope = await get_store(request).get_scope(conversation_id)
+    scope = await get_store(request).get_scope(conversation_id, principal.subject)
     if settings.auth_enabled:
         project = await request.app.state.projects.get_project(
             scope.project_id, include_archived=True

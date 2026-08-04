@@ -221,3 +221,69 @@ Update documentation when behavior, configuration, contracts, supported source
 formats, commands, or operational guarantees change. Keep examples free of real
 credentials and proprietary content. State clearly whether evidence came from a
 synthetic fixture, a package contract test, or a real ingested graph.
+
+## Python, TypeScript, React, and Next.js Guidelines
+
+### Dependency Reuse
+
+* Prefer established external libraries over custom implementations.
+* Reuse dependencies already present in the repository before adding new ones.
+* Select widely adopted, actively maintained, and well-documented libraries.
+* Use Context7 to verify current APIs, recommended usage, compatibility, and examples.
+* Do not introduce a new library without first confirming it with the user.
+* When proposing a dependency, state:
+
+  * Its purpose.
+  * Why existing dependencies are insufficient.
+  * Maintenance and security considerations.
+  * The specific version or version range.
+
+### General Design
+
+* Apply DRY principles, but avoid premature or excessive abstraction.
+* Prefer small, focused functions and reusable utility modules.
+* Prefer composition over inheritance.
+* Prefer utility files and plain functions over utility classes.
+* Use classes only when they represent stateful domain behavior, lifecycle management, framework requirements, or a clearly applicable design pattern.
+* Keep business logic independent from frameworks, UI components, and infrastructure integrations.
+* Avoid duplicating validation, error handling, configuration, types, constants, and API contracts.
+
+### Python
+
+* Use type hints for public functions, methods, and data structures.
+* Prefer standard-library functionality before introducing dependencies.
+* Use dataclasses, typed dictionaries, protocols, or Pydantic models instead of generic dictionaries when structure matters.
+* Prefer pure functions and modules over static-method utility classes.
+* Use dependency injection at integration boundaries.
+* Keep I/O, infrastructure, and business logic separated.
+* Use asynchronous code only for genuinely asynchronous I/O workloads.
+
+### TypeScript
+
+* Enable and preserve strict TypeScript settings.
+* Avoid `any`; prefer explicit types, generics, `unknown`, and type guards.
+* Reuse shared types and schemas instead of redefining equivalent interfaces.
+* Prefer discriminated unions over complex inheritance hierarchies.
+* Keep runtime validation separate from compile-time typing, while deriving types from schemas when supported.
+* Place reusable, side-effect-free logic in focused utility modules.
+
+### React
+
+* Prefer functional components and hooks.
+* Keep components small and focused on a single responsibility.
+* Extract reusable business or stateful behavior into custom hooks.
+* Extract framework-independent transformations into utility files, not hooks or components.
+* Avoid unnecessary global state and premature memoization.
+* Prefer established component, form, data-fetching, and validation libraries already used by the project.
+* Do not introduce custom state-management abstractions when React or an existing library already solves the requirement.
+
+### Next.js
+
+* Follow the conventions of the installed Next.js version.
+* Use Context7 before relying on version-sensitive Next.js APIs.
+* Prefer Server Components by default when using the App Router.
+* Add `"use client"` only when browser APIs, event handlers, or client-side state are required.
+* Keep server-only code, secrets, database access, and privileged operations outside client bundles.
+* Use Next.js routing, metadata, caching, loading, error, and data-fetching mechanisms before creating custom alternatives.
+* Avoid duplicating logic between route handlers, server actions, and application services.
+* Confirm before adding authentication, state-management, ORM, UI, form, validation, or data-fetching libraries.

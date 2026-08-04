@@ -4,7 +4,8 @@ Use shadcn/ui primitives where they fit (Button, Badge, Card, Sheet/Dialog, Aler
 
 | Product component | Responsibility | Key inputs / states | Accessibility notes |
 |---|---|---|---|
-| `AppHeader` | Product identity, connection status, reset action | API status, `hasMessages`, reset callback | Header landmark; status is text, not color alone |
+| `AppHeader` | Product identity and connection status | API status | Header landmark; status is text, not color alone |
+| `ConversationNavigation` | Server-ordered active/archived lists and lifecycle actions | summaries, selection, busy state, cursors | Named lists; inline rename is labeled; practical 44px controls |
 | `ConnectionStatus` | Shows checking, connected, unavailable | status, optional retry | Polite live announcement only on meaningful transition |
 | `ProjectIndicator` | Shows configured Graphify project | project ID/name | Read-only; full accessible value if visually truncated |
 | `ConversationPanel` | Ordered messages and empty state | messages, request state | Named region; stable DOM order |
@@ -23,7 +24,7 @@ Use shadcn/ui primitives where they fit (Button, Badge, Card, Sheet/Dialog, Aler
 | `InsufficientEvidence` | Completed non-error response | answer, warnings, any partial citations | Distinguish from service failure |
 | `Composer` | Question input and submit/stop action | draft, busy, availability | Labeled textarea; IME-safe shortcuts |
 | `ErrorNotice` | Normalized user-safe failure and recovery | error category, retry availability | `role="alert"`; no internals |
-| `ResetConversationDialog` | Confirms destructive local reset | open, message count | Initial focus on Cancel; restores focus |
+| `ArchiveConversationDialog` | Confirms reversible archive | open, selected conversation | Initial focus on Cancel; restores focus |
 
 ## Recommended hierarchy
 
@@ -31,7 +32,7 @@ Use shadcn/ui primitives where they fit (Button, Badge, Card, Sheet/Dialog, Aler
 Page
 ├── AppHeader
 │   ├── ConnectionStatus
-│   └── ResetConversationDialog
+│   └── ConversationNavigation / ArchiveConversationDialog
 ├── ProjectIndicator
 └── Main
     ├── ConversationPanel
@@ -54,4 +55,3 @@ Page
 - `AssistantAnswer` renders answer content only; tool activity and errors remain explicit sibling states.
 - `GraphEvidenceView` is optional enhancement. `EvidenceTextView` is the source-of-truth presentation.
 - A failed request retains the user message and draft/retry context.
-

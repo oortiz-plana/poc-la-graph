@@ -19,6 +19,7 @@ from app.api.errors import (
     authentication_error_handler,
     authorization_error_handler,
     conflict_handler,
+    conversation_state_conflict_handler,
     invalid_request_handler,
     not_found_handler,
     project_conflict_handler,
@@ -41,6 +42,7 @@ from app.projects.storage import ProjectStorage, UploadValidationError
 from app.store import (
     ConversationNotFound,
     ConversationRequestConflict,
+    ConversationStateConflict,
     create_conversation_store,
 )
 
@@ -159,6 +161,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ConversationRequestConflict, cast(Any, conflict_handler)
     )
     application.add_exception_handler(
+        ConversationStateConflict, cast(Any, conversation_state_conflict_handler)
+    )
+    application.add_exception_handler(
         InvalidRequest, cast(Any, invalid_request_handler)
     )
     application.add_exception_handler(
@@ -206,7 +211,7 @@ async def _cleanup_conversations(application: FastAPI) -> None:
             await application.state.project_storage.purge_project(project_id)
         if removed:
             application.state.logger.info(
-                "expired_conversations_removed",
+                "expired_archived_conversations_removed",
                 extra={"conversation_count": removed},
             )
 

@@ -65,6 +65,63 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/projects/{project_id}/conversations:
+    get:
+      tags:
+      - conversations
+      summary: List Conversations
+      operationId: list_conversations_api_v1_projects__project_id__conversations_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: state
+        in: query
+        required: false
+        schema:
+          enum:
+          - active
+          - archived
+          type: string
+          default: active
+          title: State
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 1024
+          - type: 'null'
+          title: Cursor
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/conversations/{conversation_id}:
     get:
       tags:
@@ -93,11 +150,96 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - conversations
+      summary: Rename Conversation
+      operationId: rename_conversation_api_v1_conversations__conversation_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConversationRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
       - conversations
       summary: Delete Conversation
       operationId: delete_conversation_api_v1_conversations__conversation_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conversation_id}/restore:
+    post:
+      tags:
+      - conversations
+      summary: Restore Conversation
+      operationId: restore_conversation_api_v1_conversations__conversation_id__restore_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conversation_id}/purge:
+    delete:
+      tags:
+      - conversations
+      summary: Purge Conversation
+      operationId: purge_conversation_api_v1_conversations__conversation_id__purge_delete
       security:
       - HTTPBearer: []
       parameters:
@@ -856,6 +998,9 @@ components:
         projectId:
           type: string
           title: Projectid
+        name:
+          type: string
+          title: Name
         createdAt:
           type: string
           format: date-time
@@ -864,6 +1009,12 @@ components:
           type: string
           format: date-time
           title: Updatedat
+        archivedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Archivedat
         messages:
           items:
             $ref: '#/components/schemas/Message'
@@ -874,9 +1025,65 @@ components:
       required:
       - id
       - projectId
+      - name
       - createdAt
       - updatedAt
+      - archivedAt
       title: Conversation
+    ConversationList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ConversationSummary'
+          type: array
+          maxItems: 100
+          title: Items
+        nextCursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Nextcursor
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - nextCursor
+      title: ConversationList
+    ConversationSummary:
+      properties:
+        id:
+          type: string
+          title: Id
+        projectId:
+          type: string
+          title: Projectid
+        name:
+          type: string
+          title: Name
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        updatedAt:
+          type: string
+          format: date-time
+          title: Updatedat
+        archivedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Archivedat
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - projectId
+      - name
+      - createdAt
+      - updatedAt
+      - archivedAt
+      title: ConversationSummary
     CreateConversationRequest:
       properties:
         projectId:
@@ -1332,6 +1539,18 @@ components:
       - size
       - sha256
       title: SnapshotFile
+    UpdateConversationRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: UpdateConversationRequest
     UploadFileDeclaration:
       properties:
         filename:

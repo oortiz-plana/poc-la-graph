@@ -23,6 +23,7 @@ def _settings(database: Path) -> Settings:
         conversation_database_url=f"sqlite+aiosqlite:///{database}",
         conversation_retention_days=1,
         conversation_cleanup_interval_seconds=3600,
+        project_storage_root=str(database.parent / "projects"),
     )
 
 
@@ -74,7 +75,7 @@ async def test_conversation_and_history_survive_application_restart(
     ]
 
 
-async def test_expired_conversation_is_removed_and_client_can_recover(
+async def test_expired_archived_conversation_is_removed_and_client_can_recover(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "expiry.db"
@@ -87,13 +88,17 @@ async def test_expired_conversation_is_removed_and_client_can_recover(
             base_url="http://test",
         ) as client:
             expired = (await client.post("/api/v1/conversations")).json()
+            await client.delete(f"/api/v1/conversations/{expired['id']}")
 
     engine = create_async_engine(settings.conversation_database_url)
     async with engine.begin() as connection:
         await connection.execute(
             update(ConversationRow)
             .where(ConversationRow.id == expired["id"])
-            .values(updated_at=datetime.now(UTC) - timedelta(days=2))
+            .values(
+                updated_at=datetime.now(UTC) - timedelta(days=2),
+                archived_at=datetime.now(UTC) - timedelta(days=2),
+            )
         )
     await engine.dispose()
 

@@ -144,9 +144,11 @@ the tested PostgreSQL backend instead:
 docker compose -f docker-compose.yml -f compose/postgres.yml up --build
 ```
 
-The selected project and one conversation UUID per project are kept in browser
-`localStorage`. Previous
-turn text is bounded and sanitized before it is supplied to follow-up
+Each project has server-backed active and archived conversation lists. Histories
+are private to the authenticated subject even though project files are shared.
+The browser keeps the selected project and conversation UUID only as convenience
+hints and validates them against the server. Previous turn text is bounded and
+sanitized before it is supplied to follow-up
 resolution. It is never accepted as knowledge evidence: citations must match
 graph or bounded source evidence retrieved for the current request.
 
@@ -207,11 +209,11 @@ for direct test commands.
 ## Scope and limitations
 
 - The bundled Keycloak `start-dev` service is for local development only.
-- Conversations expire after 30 days and retain at most 100 complete exchanges
-  by default; both limits are configurable.
+- Active conversations are retained indefinitely. Archived conversations expire
+  after 30 days by default, and histories retain at most 100 complete exchanges.
 - The browser stores only project selection and one conversation ID per project
   in `localStorage`; access tokens remain in memory.
-- There is no account-level conversation list or cross-device synchronization.
+- Conversation lists and independent histories synchronize through the API.
 - All authenticated users share project visibility; invitations and ownership
   ACLs are out of scope.
 - Uploaded bytes use the local Docker volume; object storage is out of scope.

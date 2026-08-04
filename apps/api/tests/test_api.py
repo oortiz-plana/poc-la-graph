@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
 
+from app.agent.workflow import KnowledgeWorkflow
+from app.api.dependencies import get_workflow
+from app.auth import AuthPrincipal
+from app.auth.dependencies import current_principal
 from app.config.settings import Settings
 from app.main import create_app
 
@@ -106,6 +111,53 @@ async def test_invalid_input_and_unknown_conversation(
     assert invalid.json()["code"] == "invalid_request"
 
 
+async def test_conversation_list_name_and_archive_lifecycle(
+    api_client: httpx.AsyncClient,
+) -> None:
+    older = (await api_client.post("/api/v1/conversations")).json()
+    newer = (await api_client.post("/api/v1/conversations")).json()
+    assert older["name"] == "New conversation"
+    assert older["archivedAt"] is None
+    assert older["updatedAt"]
+
+    await api_client.post(
+        f"/api/v1/conversations/{older['id']}/messages",
+        json={"message": "  What   is Graphify? Additional context."},
+    )
+    active = (
+        await api_client.get(
+            f"/api/v1/projects/{older['projectId']}/conversations?state=active"
+        )
+    ).json()
+    assert active["items"][0]["id"] == older["id"]
+    assert active["items"][0]["name"] == "What is Graphify?"
+    assert active["nextCursor"] is None
+
+    renamed = await api_client.patch(
+        f"/api/v1/conversations/{newer['id']}", json={"name": "  Research  "}
+    )
+    assert renamed.json()["name"] == "Research"
+    assert (
+        await api_client.delete(f"/api/v1/conversations/{older['id']}")
+    ).status_code == 204
+    assert (
+        await api_client.get(f"/api/v1/conversations/{older['id']}")
+    ).status_code == 404
+    archived = (
+        await api_client.get(
+            f"/api/v1/projects/{older['projectId']}/conversations?state=archived"
+        )
+    ).json()
+    assert archived["items"][0]["id"] == older["id"]
+    restored = await api_client.post(f"/api/v1/conversations/{older['id']}/restore")
+    assert restored.status_code == 200
+    assert restored.json()["archivedAt"] is None
+    await api_client.delete(f"/api/v1/conversations/{older['id']}")
+    assert (
+        await api_client.delete(f"/api/v1/conversations/{older['id']}/purge")
+    ).status_code == 204
+
+
 async def test_real_mode_without_an_active_graph_is_not_ready() -> None:
     app = create_app(
         Settings(
@@ -127,3 +179,48 @@ async def test_real_mode_without_an_active_graph_is_not_ready() -> None:
     assert response.json()["components"]["knowledgeGraph"]["status"] == "unavailable"
     assert response.json()["components"]["graphifyMcp"]["status"] == "mock"
     assert response.json()["components"]["llm"]["status"] == "mock"
+
+
+async def test_synthetic_users_have_independent_private_histories(
+    tmp_path: Path, workflow: KnowledgeWorkflow
+) -> None:
+    app = create_app(
+        Settings(
+            llm_adapter="mock",
+            graphify_adapter="mock",
+            graphify_runtime_mode="synthetic",
+            graphify_project_id="sample-project",
+            conversation_database_url=(
+                f"sqlite+aiosqlite:///{tmp_path / 'private-users.db'}"
+            ),
+            project_storage_root=str(tmp_path / "projects"),
+        )
+    )
+    principal = {"value": AuthPrincipal("alice", "Alice", frozenset({"viewer"}))}
+    app.dependency_overrides[current_principal] = lambda: principal["value"]
+    app.dependency_overrides[get_workflow] = lambda: workflow
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            alice = (await client.post("/api/v1/conversations")).json()
+            await client.post(
+                f"/api/v1/conversations/{alice['id']}/messages",
+                json={"message": "Alice private question"},
+            )
+
+            principal["value"] = AuthPrincipal("bob", "Bob", frozenset({"viewer"}))
+            assert (
+                await client.get(f"/api/v1/conversations/{alice['id']}")
+            ).status_code == 404
+            bob_list = await client.get("/api/v1/projects/sample-project/conversations")
+            assert bob_list.json()["items"] == []
+            bob = (await client.post("/api/v1/conversations")).json()
+
+            principal["value"] = AuthPrincipal("alice", "Alice", frozenset({"viewer"}))
+            alice_list = await client.get(
+                "/api/v1/projects/sample-project/conversations"
+            )
+            assert [item["id"] for item in alice_list.json()["items"]] == [alice["id"]]
+            assert bob["id"] not in alice_list.text

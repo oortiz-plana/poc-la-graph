@@ -143,14 +143,17 @@ Never show exception classes, stack traces, internal URLs, Graphify paths, crede
 - On completion updates, merge evidence without resetting drawer scroll or focus.
 - Empty graph evidence shows “No graph structure was returned for this answer,” not an empty canvas.
 
-### Reset
+### Archive and deletion
 
-- If messages exist, open a confirmation dialog: “Reset this browser-session conversation? This cannot be restored.”
+- Archiving opens a confirmation dialog and explains that the conversation can
+  be restored from Archived.
 - Default focus is Cancel. Escape cancels.
-- On confirm, call the delete endpoint, clear local conversation ID/history after success, create a fresh conversation, close evidence, and focus the composer.
-- If delete returns not found, clear local state and create a fresh conversation because the intended end state is already satisfied.
-- If reset fails for another reason, retain history and show an error; do not silently clear it.
-- Reset is unavailable while a stream is active unless the implementation first stops that stream and clearly confirms the combined action.
+- On success, select the next server-ordered active conversation or create a
+  blank conversation when none remains.
+- Restoring moves an item back to Active and selects it. Permanent deletion is
+  separately confirmed and is available only in Archived.
+- Switching, renaming, archiving, restoring, and permanent deletion are disabled
+  while a stream is active.
 
 ### Backend disconnected
 
@@ -180,4 +183,3 @@ Never show exception classes, stack traces, internal URLs, Graphify paths, crede
 7. Evidence is fully understandable through text with visualization disabled.
 8. Reset failure retains history; successful reset produces a fresh empty conversation.
 9. Disconnect preserves messages and draft and never auto-submits after recovery.
-

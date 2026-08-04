@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
 from uuid import uuid4
@@ -14,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    and_,
     delete,
     func,
     or_,
@@ -30,12 +35,13 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.agent.models import Answer
-from app.models import Conversation, Message
+from app.models import Conversation, ConversationList, ConversationSummary, Message
 
 from .protocol import (
     ConversationNotFound,
     ConversationRequestConflict,
     ConversationScope,
+    ConversationStateConflict,
     MessageStatus,
 )
 
@@ -46,15 +52,30 @@ class Base(DeclarativeBase):
 
 class ConversationRow(Base):
     __tablename__ = "conversations"
+    __table_args__ = (
+        Index(
+            "ix_conversations_owner_project_archive_updated_id",
+            "created_by",
+            "project_id",
+            "archived_at",
+            "updated_at",
+            "id",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(String(128), nullable=False)
     graph_version: Mapped[str | None] = mapped_column(String(128))
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
     )
     active_request_id: Mapped[str | None] = mapped_column(String(128))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -129,18 +150,25 @@ class SQLAlchemyConversationStore:
         cutoff = datetime.now(UTC) - timedelta(days=self._retention_days)
         async with self._sessions.begin() as session:
             result = await session.execute(
-                delete(ConversationRow).where(ConversationRow.updated_at < cutoff)
+                delete(ConversationRow).where(
+                    ConversationRow.archived_at.is_not(None),
+                    ConversationRow.archived_at < cutoff,
+                )
             )
             return _rowcount(result)
 
     async def create(
-        self, project_id: str, graph_version: str | None = None
+        self,
+        project_id: str,
+        graph_version: str | None = None,
+        created_by: str = "development-user",
     ) -> Conversation:
         now = datetime.now(UTC)
         row = ConversationRow(
             id=str(uuid4()),
             project_id=project_id,
             graph_version=graph_version,
+            created_by=created_by,
             created_at=now,
             updated_at=now,
         )
@@ -148,23 +176,116 @@ class SQLAlchemyConversationStore:
             session.add(row)
         return _conversation_model(row, [])
 
-    async def get(self, conversation_id: str) -> Conversation:
+    async def get(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> Conversation:
         async with self._sessions() as session:
-            row = await _get_row(session, conversation_id)
+            row = await _get_row(session, conversation_id, created_by)
             return _conversation_model(row, row.messages)
 
-    async def get_scope(self, conversation_id: str) -> ConversationScope:
+    async def list_conversations(
+        self,
+        project_id: str,
+        created_by: str = "development-user",
+        *,
+        state: Literal["active", "archived"] = "active",
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> ConversationList:
+        boundary = _decode_cursor(cursor) if cursor else None
+        archived = (
+            ConversationRow.archived_at.is_(None)
+            if state == "active"
+            else ConversationRow.archived_at.is_not(None)
+        )
+        statement = select(ConversationRow).where(
+            ConversationRow.project_id == project_id,
+            ConversationRow.created_by == created_by,
+            archived,
+        )
+        if boundary:
+            updated_at, identifier = boundary
+            statement = statement.where(
+                or_(
+                    ConversationRow.updated_at < updated_at,
+                    and_(
+                        ConversationRow.updated_at == updated_at,
+                        ConversationRow.id < identifier,
+                    ),
+                )
+            )
+        statement = statement.order_by(
+            ConversationRow.updated_at.desc(), ConversationRow.id.desc()
+        ).limit(limit + 1)
         async with self._sessions() as session:
-            row = await _get_row(session, conversation_id)
+            rows = list((await session.scalars(statement)).all())
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        next_cursor = (
+            _encode_cursor(page[-1].updated_at, page[-1].id)
+            if has_more and page
+            else None
+        )
+        return ConversationList(
+            items=[_summary_model(row) for row in page], next_cursor=next_cursor
+        )
+
+    async def get_scope(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> ConversationScope:
+        async with self._sessions() as session:
+            row = await _get_row(session, conversation_id, created_by)
             return ConversationScope(row.project_id, row.graph_version)
 
-    async def delete(self, conversation_id: str) -> None:
+    async def rename(
+        self, conversation_id: str, name: str, created_by: str = "development-user"
+    ) -> Conversation:
+        normalized = name.strip()
+        now = datetime.now(UTC)
         async with self._sessions.begin() as session:
-            result = await session.execute(
-                delete(ConversationRow).where(ConversationRow.id == conversation_id)
+            row = await _get_row(session, conversation_id, created_by)
+            _reject_active_lease(row, now)
+            row.name = normalized
+            row.updated_at = now
+        return _conversation_model(row, row.messages)
+
+    async def archive(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> None:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            row = await _get_row(session, conversation_id, created_by)
+            _reject_active_lease(row, now)
+            row.archived_at = now
+            row.updated_at = now
+
+    async def restore(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> Conversation:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            row = await _get_row(
+                session, conversation_id, created_by, active_only=False
             )
-            if not _rowcount(result):
+            if row.archived_at is None:
                 raise ConversationNotFound(conversation_id)
+            _reject_active_lease(row, now)
+            row.archived_at = None
+            row.updated_at = now
+        return _conversation_model(row, row.messages)
+
+    async def purge(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> None:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            row = await _get_row(
+                session, conversation_id, created_by, active_only=False
+            )
+            if row.archived_at is None:
+                raise ConversationStateConflict(conversation_id)
+            _reject_active_lease(row, now)
+            await session.delete(row)
 
     async def delete_project(self, project_id: str) -> int:
         async with self._sessions.begin() as session:
@@ -173,8 +294,15 @@ class SQLAlchemyConversationStore:
             )
             return _rowcount(result)
 
-    async def add_user_message(self, conversation_id: str, content: str) -> Message:
-        return await self._append(conversation_id, "user", content, "completed", None)
+    async def add_user_message(
+        self,
+        conversation_id: str,
+        content: str,
+        created_by: str = "development-user",
+    ) -> Message:
+        return await self._append(
+            conversation_id, "user", content, "completed", None, created_by
+        )
 
     async def add_assistant_message(
         self,
@@ -182,9 +310,10 @@ class SQLAlchemyConversationStore:
         content: str,
         status: MessageStatus,
         result: Answer | None = None,
+        created_by: str = "development-user",
     ) -> Message:
         message = await self._append(
-            conversation_id, "assistant", content, status, result
+            conversation_id, "assistant", content, status, result, created_by
         )
         await self._prune(conversation_id)
         return message
@@ -196,14 +325,11 @@ class SQLAlchemyConversationStore:
         content: str,
         status: MessageStatus,
         result: Answer | None,
+        created_by: str,
     ) -> Message:
         now = datetime.now(UTC)
         async with self._sessions.begin() as session:
-            exists = await session.scalar(
-                select(ConversationRow.id).where(ConversationRow.id == conversation_id)
-            )
-            if exists is None:
-                raise ConversationNotFound(conversation_id)
+            conversation = await _get_row(session, conversation_id, created_by)
             ordinal = (
                 await session.scalar(
                     select(func.coalesce(func.max(MessageRow.ordinal), 0)).where(
@@ -223,14 +349,17 @@ class SQLAlchemyConversationStore:
                 result=result.model_dump(mode="json") if result else None,
             )
             session.add(row)
-            await session.execute(
-                update(ConversationRow)
-                .where(ConversationRow.id == conversation_id)
-                .values(updated_at=now)
-            )
+            conversation.updated_at = now
+            if role == "user" and conversation.name is None:
+                conversation.name = _derive_name(content)
         return _message_model(row)
 
-    async def acquire_request(self, conversation_id: str, request_id: str) -> None:
+    async def acquire_request(
+        self,
+        conversation_id: str,
+        request_id: str,
+        created_by: str = "development-user",
+    ) -> None:
         now = datetime.now(UTC)
         expires_at = now + timedelta(seconds=self._lease_seconds)
         async with self._sessions.begin() as session:
@@ -238,6 +367,8 @@ class SQLAlchemyConversationStore:
                 update(ConversationRow)
                 .where(
                     ConversationRow.id == conversation_id,
+                    ConversationRow.created_by == created_by,
+                    ConversationRow.archived_at.is_(None),
                     or_(
                         ConversationRow.active_request_id.is_(None),
                         ConversationRow.lease_expires_at.is_(None),
@@ -251,19 +382,27 @@ class SQLAlchemyConversationStore:
                 return
             active_request_id = await session.scalar(
                 select(ConversationRow.active_request_id).where(
-                    ConversationRow.id == conversation_id
+                    ConversationRow.id == conversation_id,
+                    ConversationRow.created_by == created_by,
+                    ConversationRow.archived_at.is_(None),
                 )
             )
             if active_request_id is None:
                 raise ConversationNotFound(conversation_id)
             raise ConversationRequestConflict(conversation_id, active_request_id)
 
-    async def release_request(self, conversation_id: str, request_id: str) -> None:
+    async def release_request(
+        self,
+        conversation_id: str,
+        request_id: str,
+        created_by: str = "development-user",
+    ) -> None:
         async with self._sessions.begin() as session:
             result = await session.execute(
                 update(ConversationRow)
                 .where(
                     ConversationRow.id == conversation_id,
+                    ConversationRow.created_by == created_by,
                     ConversationRow.active_request_id == request_id,
                 )
                 .values(active_request_id=None, lease_expires_at=None)
@@ -271,7 +410,10 @@ class SQLAlchemyConversationStore:
             if _rowcount(result):
                 return
             exists = await session.scalar(
-                select(ConversationRow.id).where(ConversationRow.id == conversation_id)
+                select(ConversationRow.id).where(
+                    ConversationRow.id == conversation_id,
+                    ConversationRow.created_by == created_by,
+                )
             )
             if exists is None:
                 raise ConversationNotFound(conversation_id)
@@ -281,8 +423,9 @@ class SQLAlchemyConversationStore:
         conversation_id: str,
         max_turns: int,
         max_chars: int,
+        created_by: str = "development-user",
     ) -> list[Message]:
-        conversation = await self.get(conversation_id)
+        conversation = await self.get(conversation_id, created_by)
         exchanges = _complete_exchanges(conversation.messages)
         selected: list[tuple[Message, Message]] = []
         used_chars = 0
@@ -334,10 +477,20 @@ def create_conversation_store(
     )
 
 
-async def _get_row(session: AsyncSession, conversation_id: str) -> ConversationRow:
-    row = await session.scalar(
-        select(ConversationRow).where(ConversationRow.id == conversation_id)
-    )
+async def _get_row(
+    session: AsyncSession,
+    conversation_id: str,
+    created_by: str,
+    *,
+    active_only: bool = True,
+) -> ConversationRow:
+    filters = [
+        ConversationRow.id == conversation_id,
+        ConversationRow.created_by == created_by,
+    ]
+    if active_only:
+        filters.append(ConversationRow.archived_at.is_(None))
+    row = await session.scalar(select(ConversationRow).where(*filters))
     if row is None:
         raise ConversationNotFound(conversation_id)
     return row
@@ -368,11 +521,72 @@ def _conversation_model(
         {
             "id": row.id,
             "project_id": row.project_id,
+            "name": row.name or "New conversation",
             "created_at": _aware(row.created_at),
             "updated_at": _aware(row.updated_at),
+            "archived_at": _aware(row.archived_at) if row.archived_at else None,
             "messages": [_message_model(message) for message in messages],
         }
     )
+
+
+def _summary_model(row: ConversationRow) -> ConversationSummary:
+    return ConversationSummary.model_validate(
+        {
+            "id": row.id,
+            "project_id": row.project_id,
+            "name": row.name or "New conversation",
+            "created_at": _aware(row.created_at),
+            "updated_at": _aware(row.updated_at),
+            "archived_at": _aware(row.archived_at) if row.archived_at else None,
+        }
+    )
+
+
+def _derive_name(content: str) -> str:
+    normalized = " ".join(content.split())
+    match = re.search(r"[.!?;:](?:\s|$)", normalized)
+    candidate = normalized[: match.end()].strip() if match else normalized
+    if len(candidate) <= 80:
+        return candidate
+    prefix = candidate[:79].rstrip()
+    boundary = prefix.rfind(" ")
+    if boundary > 0:
+        prefix = prefix[:boundary]
+    return f"{prefix.rstrip()}…"
+
+
+def _reject_active_lease(row: ConversationRow, now: datetime) -> None:
+    if (
+        row.active_request_id is not None
+        and row.lease_expires_at is not None
+        and _aware(row.lease_expires_at) > now
+    ):
+        raise ConversationRequestConflict(row.id, row.active_request_id)
+
+
+def _encode_cursor(updated_at: datetime, identifier: str) -> str:
+    payload = json.dumps(
+        [_aware(updated_at).isoformat(), identifier], separators=(",", ":")
+    ).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, str]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        value = json.loads(base64.urlsafe_b64decode(cursor + padding))
+        if not isinstance(value, list) or len(value) != 2:
+            raise ValueError
+        timestamp, identifier = value
+        if not isinstance(timestamp, str) or not isinstance(identifier, str):
+            raise ValueError
+        parsed = datetime.fromisoformat(timestamp)
+        if parsed.tzinfo is None or not identifier:
+            raise ValueError
+        return parsed, identifier
+    except (ValueError, TypeError, json.JSONDecodeError, binascii.Error) as exc:
+        raise ValueError("Invalid conversation cursor") from exc
 
 
 def _rowcount(result: object) -> int:

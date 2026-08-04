@@ -12,7 +12,11 @@ from app.models import Problem
 from app.projects import ProjectConflict, ProjectNotFound
 from app.projects.repository import UploadNotFound
 from app.projects.storage import UploadValidationError
-from app.store import ConversationNotFound, ConversationRequestConflict
+from app.store import (
+    ConversationNotFound,
+    ConversationRequestConflict,
+    ConversationStateConflict,
+)
 
 
 class InvalidRequest(ValueError):
@@ -121,6 +125,18 @@ async def conflict_handler(
             code="conversation_busy",
             message="This conversation is already processing another request.",
         ).model_dump(),
+    )
+
+
+async def conversation_state_conflict_handler(
+    request: Request, exc: ConversationStateConflict
+) -> JSONResponse:
+    del exc
+    return _problem(
+        request,
+        409,
+        "conversation_state_conflict",
+        "The conversation state does not allow this action.",
     )
 
 

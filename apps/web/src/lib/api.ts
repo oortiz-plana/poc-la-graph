@@ -4,11 +4,13 @@ import { authorizationHeaders } from "./auth-token";
 import {
   buildSummarySchema,
   conversationSchema,
+  conversationListSchema,
   projectSchema,
   snapshotFileSchema,
   uploadSessionSchema,
   type BuildSummary,
   type Conversation,
+  type ConversationList,
   type Project,
   type SnapshotFile,
 } from "./contracts";
@@ -113,13 +115,55 @@ export async function loadConversation(
   if (!response.ok) throw new Error("Could not restore the conversation.");
   return conversationSchema.parse(await response.json());
 }
-export async function deleteConversation(id: string): Promise<void> {
+export async function listConversations(
+  projectId: string,
+  state: "active" | "archived" = "active",
+  cursor?: string,
+): Promise<ConversationList> {
+  const query = new URLSearchParams({ state, limit: "100" });
+  if (cursor) query.set("cursor", cursor);
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/conversations?${query}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error("Could not load conversations.");
+  return conversationListSchema.parse(await response.json());
+}
+export async function renameConversation(
+  id: string,
+  name: string,
+): Promise<Conversation> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/conversations/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
+  if (!response.ok) throw new Error("Could not rename the conversation.");
+  return conversationSchema.parse(await response.json());
+}
+export async function archiveConversation(id: string): Promise<void> {
   const response = await safeFetch(
     `/api/backend/api/v1/conversations/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   );
   if (!response.ok && response.status !== 404)
-    throw new Error("Could not reset the conversation.");
+    throw new Error("Could not archive the conversation.");
+}
+export const deleteConversation = archiveConversation;
+export async function restoreConversation(id: string): Promise<Conversation> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/conversations/${encodeURIComponent(id)}/restore`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw new Error("Could not restore the conversation.");
+  return conversationSchema.parse(await response.json());
+}
+export async function purgeConversation(id: string): Promise<void> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/conversations/${encodeURIComponent(id)}/purge`,
+    { method: "DELETE" },
+  );
+  if (!response.ok && response.status !== 404)
+    throw new Error("Could not permanently delete the conversation.");
 }
 
 function idempotencyKey() {

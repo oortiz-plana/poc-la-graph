@@ -1,16 +1,20 @@
 # Contract Freeze
 
-The authenticated project-workspace contract is frozen as of 2026-08-03 and is
-governed by [ADR 0008](../adr/0008-authenticated-multi-project-workspace.md).
+The authenticated project-workspace contract is frozen as of 2026-08-04 and is
+governed by [ADR 0008](../adr/0008-authenticated-multi-project-workspace.md) and
+[ADR 0009](../adr/0009-private-project-conversations.md).
 All `/api/v1/projects`, `/api/v1/knowledge`, and `/api/v1/conversations`
 operations require bearer authentication. `/health`, `/ready`, and the Next.js
 `/api/config` runtime configuration remain public.
 
 Project creation, upload-session creation/finalization, and build submission
 require `Idempotency-Key`. Upload part URLs accept raw bytes with `PUT`.
-Conversation creation requires `projectId`. Each message pins the then-active
-immutable graph and source-index version before retrieval. Existing answer and
-SSE shapes remain unchanged.
+Conversation creation requires `projectId`. Conversation operations are scoped
+to the authenticated subject; lists use server-defined `updatedAt` descending
+ordering and opaque cursors. `DELETE` archives, restore reverses archival, and a
+separate purge endpoint permanently deletes archived history. Each message pins
+the then-active immutable graph and source-index version before retrieval.
+Existing answer and SSE shapes remain unchanged.
 
 The initial POC contract is frozen as of 2026-07-28.
 

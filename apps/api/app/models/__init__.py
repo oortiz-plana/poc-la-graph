@@ -2,9 +2,12 @@
 
 from .conversation import (
     Conversation,
+    ConversationList,
+    ConversationSummary,
     CreateConversationRequest,
     Message,
     SendMessageRequest,
+    UpdateConversationRequest,
 )
 from .knowledge import (
     IngestionAccepted,
@@ -25,6 +28,8 @@ from .system import Health, Problem, Readiness
 
 __all__ = [
     "Conversation",
+    "ConversationList",
+    "ConversationSummary",
     "CreateConversationRequest",
     "Health",
     "IngestionAccepted",
@@ -35,6 +40,7 @@ __all__ = [
     "Problem",
     "Readiness",
     "SendMessageRequest",
+    "UpdateConversationRequest",
     "BuildAccepted",
     "BuildSummary",
     "CreateProjectRequest",

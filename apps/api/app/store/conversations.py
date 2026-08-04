@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
+import re
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from app.agent.models import Answer
-from app.models import Conversation, Message
+from app.models import Conversation, ConversationList, ConversationSummary, Message
 
 from .protocol import (
     ConversationNotFound,
     ConversationRequestConflict,
     ConversationScope,
+    ConversationStateConflict,
     MessageStatus,
 )
 
@@ -30,6 +34,7 @@ class InMemoryConversationStore:
         self._items: dict[str, Conversation] = {}
         self._leases: dict[str, tuple[str, datetime]] = {}
         self._versions: dict[str, str | None] = {}
+        self._owners: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._retention_days = retention_days
         self._max_turns = max_turns
@@ -47,53 +52,149 @@ class InMemoryConversationStore:
             expired = [
                 conversation_id
                 for conversation_id, conversation in self._items.items()
-                if conversation.updated_at < cutoff
+                if conversation.archived_at is not None
+                and conversation.archived_at < cutoff
             ]
             for conversation_id in expired:
                 del self._items[conversation_id]
                 self._leases.pop(conversation_id, None)
                 self._versions.pop(conversation_id, None)
+                self._owners.pop(conversation_id, None)
         return len(expired)
 
     async def create(
-        self, project_id: str, graph_version: str | None = None
+        self,
+        project_id: str,
+        graph_version: str | None = None,
+        created_by: str = "development-user",
     ) -> Conversation:
         now = datetime.now(UTC)
         conversation = Conversation.model_validate(
             {
                 "id": str(uuid4()),
                 "project_id": project_id,
+                "name": "New conversation",
                 "created_at": now,
                 "updated_at": now,
+                "archived_at": None,
                 "messages": [],
             }
         )
         async with self._lock:
             self._items[conversation.id] = conversation
             self._versions[conversation.id] = graph_version
+            self._owners[conversation.id] = created_by
         return conversation.model_copy(deep=True)
 
-    async def get(self, conversation_id: str) -> Conversation:
+    async def get(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> Conversation:
         async with self._lock:
             item = self._items.get(conversation_id)
-            if item is None:
+            if (
+                item is None
+                or self._owners.get(conversation_id) != created_by
+                or item.archived_at is not None
+            ):
                 raise ConversationNotFound(conversation_id)
             return item.model_copy(deep=True)
 
-    async def get_scope(self, conversation_id: str) -> ConversationScope:
+    async def list_conversations(
+        self,
+        project_id: str,
+        created_by: str = "development-user",
+        *,
+        state: str = "active",
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> ConversationList:
+        boundary = _decode_cursor(cursor) if cursor else None
+        async with self._lock:
+            rows = [
+                item
+                for identifier, item in self._items.items()
+                if item.project_id == project_id
+                and self._owners.get(identifier) == created_by
+                and (item.archived_at is None) == (state == "active")
+                and (boundary is None or (item.updated_at, item.id) < boundary)
+            ]
+            rows.sort(key=lambda item: (item.updated_at, item.id), reverse=True)
+            page = rows[: limit + 1]
+        has_more = len(page) > limit
+        page = page[:limit]
+        return ConversationList(
+            items=[
+                ConversationSummary.model_validate(
+                    item.model_dump(exclude={"messages"})
+                )
+                for item in page
+            ],
+            next_cursor=(
+                _encode_cursor(page[-1].updated_at, page[-1].id)
+                if has_more and page
+                else None
+            ),
+        )
+
+    async def get_scope(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> ConversationScope:
         async with self._lock:
             item = self._items.get(conversation_id)
-            if item is None:
+            if (
+                item is None
+                or self._owners.get(conversation_id) != created_by
+                or item.archived_at is not None
+            ):
                 raise ConversationNotFound(conversation_id)
             return ConversationScope(
                 item.project_id, self._versions.get(conversation_id)
             )
 
-    async def delete(self, conversation_id: str) -> None:
+    async def rename(
+        self, conversation_id: str, name: str, created_by: str = "development-user"
+    ) -> Conversation:
         async with self._lock:
-            if self._items.pop(conversation_id, None) is None:
+            item = self._owned(conversation_id, created_by)
+            self._reject_lease(conversation_id)
+            item.name = name.strip()
+            item.updated_at = datetime.now(UTC)
+            return item.model_copy(deep=True)
+
+    async def archive(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> None:
+        async with self._lock:
+            item = self._owned(conversation_id, created_by)
+            self._reject_lease(conversation_id)
+            now = datetime.now(UTC)
+            item.archived_at = now
+            item.updated_at = now
+
+    async def restore(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> Conversation:
+        async with self._lock:
+            item = self._owned(conversation_id, created_by, active_only=False)
+            if item.archived_at is None:
                 raise ConversationNotFound(conversation_id)
+            self._reject_lease(conversation_id)
+            item.archived_at = None
+            item.updated_at = datetime.now(UTC)
+            return item.model_copy(deep=True)
+
+    async def purge(
+        self, conversation_id: str, created_by: str = "development-user"
+    ) -> None:
+        async with self._lock:
+            item = self._owned(conversation_id, created_by, active_only=False)
+            if item.archived_at is None:
+                raise ConversationStateConflict(conversation_id)
+            self._reject_lease(conversation_id)
+            self._items.pop(conversation_id)
             self._versions.pop(conversation_id, None)
+            self._owners.pop(conversation_id, None)
+            self._leases.pop(conversation_id, None)
 
     async def delete_project(self, project_id: str) -> int:
         async with self._lock:
@@ -105,11 +206,19 @@ class InMemoryConversationStore:
             for identifier in identifiers:
                 self._items.pop(identifier, None)
                 self._versions.pop(identifier, None)
+                self._owners.pop(identifier, None)
                 self._leases.pop(identifier, None)
             return len(identifiers)
 
-    async def add_user_message(self, conversation_id: str, content: str) -> Message:
-        return await self._append(conversation_id, "user", content, "completed")
+    async def add_user_message(
+        self,
+        conversation_id: str,
+        content: str,
+        created_by: str = "development-user",
+    ) -> Message:
+        return await self._append(
+            conversation_id, "user", content, "completed", created_by=created_by
+        )
 
     async def add_assistant_message(
         self,
@@ -117,9 +226,10 @@ class InMemoryConversationStore:
         content: str,
         status: MessageStatus,
         result: Answer | None = None,
+        created_by: str = "development-user",
     ) -> Message:
         message = await self._append(
-            conversation_id, "assistant", content, status, result
+            conversation_id, "assistant", content, status, result, created_by
         )
         await self._prune(conversation_id)
         return message
@@ -131,6 +241,7 @@ class InMemoryConversationStore:
         content: str,
         status: MessageStatus,
         result: Answer | None = None,
+        created_by: str = "development-user",
     ) -> Message:
         message = Message.model_validate(
             {
@@ -144,16 +255,32 @@ class InMemoryConversationStore:
         )
         async with self._lock:
             item = self._items.get(conversation_id)
-            if item is None:
+            if (
+                item is None
+                or self._owners.get(conversation_id) != created_by
+                or item.archived_at is not None
+            ):
                 raise ConversationNotFound(conversation_id)
             item.messages.append(message)
             item.updated_at = datetime.now(UTC)
+            if role == "user" and item.name == "New conversation":
+                item.name = _derive_name(content)
         return message.model_copy(deep=True)
 
-    async def acquire_request(self, conversation_id: str, request_id: str) -> None:
+    async def acquire_request(
+        self,
+        conversation_id: str,
+        request_id: str,
+        created_by: str = "development-user",
+    ) -> None:
         now = datetime.now(UTC)
         async with self._lock:
-            if conversation_id not in self._items:
+            item = self._items.get(conversation_id)
+            if (
+                item is None
+                or self._owners.get(conversation_id) != created_by
+                or item.archived_at is not None
+            ):
                 raise ConversationNotFound(conversation_id)
             lease = self._leases.get(conversation_id)
             if lease and lease[0] != request_id and lease[1] > now:
@@ -163,9 +290,17 @@ class InMemoryConversationStore:
                 now + timedelta(seconds=self._lease_seconds),
             )
 
-    async def release_request(self, conversation_id: str, request_id: str) -> None:
+    async def release_request(
+        self,
+        conversation_id: str,
+        request_id: str,
+        created_by: str = "development-user",
+    ) -> None:
         async with self._lock:
-            if conversation_id not in self._items:
+            if (
+                conversation_id not in self._items
+                or self._owners.get(conversation_id) != created_by
+            ):
                 raise ConversationNotFound(conversation_id)
             lease = self._leases.get(conversation_id)
             if lease and lease[0] == request_id:
@@ -176,8 +311,9 @@ class InMemoryConversationStore:
         conversation_id: str,
         max_turns: int,
         max_chars: int,
+        created_by: str = "development-user",
     ) -> list[Message]:
-        conversation = await self.get(conversation_id)
+        conversation = await self.get(conversation_id, created_by)
         exchanges = _complete_exchanges(conversation.messages)
         selected: list[tuple[Message, Message]] = []
         used_chars = 0
@@ -213,6 +349,23 @@ class InMemoryConversationStore:
                 if message.id not in remove_ids
             ]
 
+    def _owned(
+        self, conversation_id: str, created_by: str, *, active_only: bool = True
+    ) -> Conversation:
+        item = self._items.get(conversation_id)
+        if (
+            item is None
+            or self._owners.get(conversation_id) != created_by
+            or (active_only and item.archived_at is not None)
+        ):
+            raise ConversationNotFound(conversation_id)
+        return item
+
+    def _reject_lease(self, conversation_id: str) -> None:
+        lease = self._leases.get(conversation_id)
+        if lease and lease[1] > datetime.now(UTC):
+            raise ConversationRequestConflict(conversation_id, lease[0])
+
 
 def _complete_exchanges(messages: list[Message]) -> list[tuple[Message, Message]]:
     exchanges: list[tuple[Message, Message]] = []
@@ -228,3 +381,33 @@ def _complete_exchanges(messages: list[Message]) -> list[tuple[Message, Message]
             exchanges.append((pending_user, message))
             pending_user = None
     return exchanges
+
+
+def _derive_name(content: str) -> str:
+    normalized = " ".join(content.split())
+    match = re.search(r"[.!?;:](?:\s|$)", normalized)
+    candidate = normalized[: match.end()].strip() if match else normalized
+    if len(candidate) <= 80:
+        return candidate
+    prefix = candidate[:79].rstrip()
+    boundary = prefix.rfind(" ")
+    if boundary > 0:
+        prefix = prefix[:boundary]
+    return f"{prefix.rstrip()}…"
+
+
+def _encode_cursor(updated_at: datetime, identifier: str) -> str:
+    payload = json.dumps([updated_at.isoformat(), identifier]).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, str]:
+    try:
+        value = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+        timestamp, identifier = value
+        parsed = datetime.fromisoformat(timestamp)
+        if parsed.tzinfo is None or not identifier:
+            raise ValueError
+        return parsed, identifier
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid conversation cursor") from exc

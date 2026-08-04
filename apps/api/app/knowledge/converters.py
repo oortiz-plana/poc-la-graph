@@ -7,7 +7,7 @@ import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 
 class DocumentConversionError(ValueError):
@@ -108,7 +108,7 @@ def _html(raw: bytes, relative_path: str) -> str:
         raise DocumentConversionError("HTML conversion failed") from exc
     if extracted is None:
         raise DocumentConversionError("HTML conversion produced no text")
-    return extracted
+    return cast(str, extracted)
 
 
 def _pdf(raw: bytes) -> str:

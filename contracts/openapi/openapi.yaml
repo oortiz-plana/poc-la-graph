@@ -1,249 +1,1431 @@
 openapi: 3.1.0
 info:
   title: Graphify Knowledge Agent API
+  description: Authenticated multi-project API with named SSE conversation streams.
   version: 1.0.0-poc
-  description: Unauthenticated POC API. The message endpoint returns named SSE events.
-servers:
-  - url: http://localhost:8000
 paths:
   /health:
     get:
-      operationId: health
-      summary: Process liveness
+      tags:
+      - system
+      summary: Health
+      operationId: health_health_get
       responses:
-        "200":
-          description: Process is alive
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Health"
+                $ref: '#/components/schemas/Health'
   /ready:
     get:
-      operationId: readiness
-      summary: Application initialization readiness
+      tags:
+      - system
+      summary: Readiness
+      operationId: readiness_ready_get
       responses:
-        "200":
-          description: Ready to accept requests
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Readiness"
-        "503":
-          description: Required application dependency is not initialized
+                $ref: '#/components/schemas/Readiness'
+        '503':
+          description: Service Unavailable
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Readiness"
+                $ref: '#/components/schemas/Readiness'
   /api/v1/conversations:
     post:
-      operationId: createConversation
-      summary: Create a durable conversation
+      tags:
+      - conversations
+      summary: Create Conversation
+      operationId: create_conversation_api_v1_conversations_post
       requestBody:
-        required: false
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateConversationRequest"
+              anyOf:
+              - $ref: '#/components/schemas/CreateConversationRequest'
+              - type: 'null'
+              title: Body
       responses:
-        "201":
-          description: Conversation created
+        '201':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Conversation"
-        "422":
-          $ref: "#/components/responses/ValidationError"
+                $ref: '#/components/schemas/Conversation'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/conversations/{conversation_id}:
-    parameters:
-      - $ref: "#/components/parameters/ConversationId"
     get:
-      operationId: getConversation
-      summary: Get conversation history
+      tags:
+      - conversations
+      summary: Get Conversation
+      operationId: get_conversation_api_v1_conversations__conversation_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
       responses:
-        "200":
-          description: Conversation
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Conversation"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: '#/components/schemas/Conversation'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
-      operationId: deleteConversation
-      summary: Reset by deleting the conversation
+      tags:
+      - conversations
+      summary: Delete Conversation
+      operationId: delete_conversation_api_v1_conversations__conversation_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
       responses:
-        "204":
-          description: Conversation deleted
-        "404":
-          $ref: "#/components/responses/NotFound"
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/conversations/{conversation_id}/messages:
-    parameters:
-      - $ref: "#/components/parameters/ConversationId"
     post:
-      operationId: sendMessage
-      summary: Ask a question and stream the response
-      description: |
-        Returns `text/event-stream`. Each frame has `event` equal to its event
-        type and `data` containing the JSON event envelope. Successful ordering:
-        message.started, paired tool events, deltas/citations, message.completed.
-        Exactly one terminal event is emitted.
+      tags:
+      - conversations
+      summary: Send Message
+      operationId: send_message_api_v1_conversations__conversation_id__messages_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Conversation Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SendMessageRequest"
+              $ref: '#/components/schemas/SendMessageRequest'
       responses:
-        "200":
-          description: Named SSE stream
-          headers:
-            X-Request-ID:
-              description: Correlation identifier used by all stream events
-              schema:
-                type: string
+        '200':
+          description: Successful Response
           content:
             text/event-stream:
               schema:
                 type: string
-                description: Frames conform to contracts/events/sse-events.schema.json
-              examples:
-                started:
-                  value: |
-                    event: message.started
-                    data: {"type":"message.started","requestId":"req-1","conversationId":"conv-1","timestamp":"2026-07-28T12:00:00Z","messageId":"msg-1"}
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/ConversationBusy"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-components:
-  parameters:
-    ConversationId:
-      name: conversation_id
-      in: path
-      required: true
-      schema:
-        type: string
-        minLength: 1
-        maxLength: 128
-  responses:
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    ValidationError:
-      description: Invalid input
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-    ConversationBusy:
-      description: This conversation already has an active request
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Problem"
-  schemas:
-    Health:
-      type: object
-      additionalProperties: false
-      required: [status]
-      properties:
-        status:
-          const: ok
-    Readiness:
-      type: object
-      additionalProperties: false
-      required: [status, checks]
-      properties:
-        status:
-          type: string
-          enum: [ready, not_ready]
-        checks:
-          type: object
-          additionalProperties:
-            type: string
-            enum: [ready, not_ready, not_checked]
-    CreateConversationRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        projectId:
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects:
+    get:
+      tags:
+      - projects
+      summary: List Projects
+      operationId: list_projects_api_v1_projects_get
+      security:
+      - HTTPBearer: []
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+                title: Response List Projects Api V1 Projects Get
+    post:
+      tags:
+      - projects
+      summary: Create Project
+      operationId: create_project_api_v1_projects_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
           type: string
           minLength: 1
-          maxLength: 128
-          description: Must equal the server-configured project; defaults to it when omitted.
-    SendMessageRequest:
-      type: object
-      additionalProperties: false
-      required: [message]
-      properties:
-        message:
-          type: string
-          minLength: 1
-          maxLength: 4000
-        includeGraphPaths:
-          type: boolean
-          default: true
-    Conversation:
-      type: object
-      additionalProperties: false
-      required: [id, projectId, createdAt, updatedAt, messages]
-      properties:
-        id:
-          type: string
-        projectId:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        messages:
-          type: array
-          items:
-            $ref: "#/components/schemas/Message"
-    Message:
-      type: object
-      additionalProperties: false
-      required: [id, role, content, status, createdAt]
-      properties:
-        id:
-          type: string
-        role:
-          type: string
-          enum: [user, assistant]
+          maxLength: 255
+          title: Idempotency-Key
+      requestBody:
+        required: true
         content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}:
+    delete:
+      tags:
+      - projects
+      summary: Purge Project
+      operationId: purge_project_api_v1_projects__project_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
           type: string
-        status:
+          title: Project Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - projects
+      summary: Get Project
+      operationId: get_project_api_v1_projects__project_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
           type: string
-          enum: [pending, completed, failed]
-        createdAt:
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/archive:
+    post:
+      tags:
+      - projects
+      summary: Archive Project
+      operationId: archive_project_api_v1_projects__project_id__archive_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
           type: string
-          format: date-time
-        result:
-          oneOf:
-            - $ref: "../schemas/answer.schema.json"
-            - type: "null"
-    Problem:
-      type: object
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/restore:
+    post:
+      tags:
+      - projects
+      summary: Restore Project
+      operationId: restore_project_api_v1_projects__project_id__restore_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/upload-sessions:
+    post:
+      tags:
+      - projects
+      summary: Create Upload Session
+      operationId: create_upload_session_api_v1_projects__project_id__upload_sessions_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUploadSessionRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/upload-sessions/{session_id}/parts/{part_id}:
+    put:
+      tags:
+      - projects
+      summary: Upload Part
+      operationId: upload_part_api_v1_projects__project_id__upload_sessions__session_id__parts__part_id__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: part_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Part Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/upload-sessions/{session_id}/finalize:
+    post:
+      tags:
+      - projects
+      summary: Finalize Upload
+      operationId: finalize_upload_api_v1_projects__project_id__upload_sessions__session_id__finalize_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+          title: Idempotency-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SnapshotFile'
+                title: Response Finalize Upload Api V1 Projects  Project Id  Upload
+                  Sessions  Session Id  Finalize Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/files:
+    get:
+      tags:
+      - projects
+      summary: List Files
+      operationId: list_files_api_v1_projects__project_id__files_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SnapshotFile'
+                title: Response List Files Api V1 Projects  Project Id  Files Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/files/{file_id}:
+    delete:
+      tags:
+      - projects
+      summary: Delete File
+      operationId: delete_file_api_v1_projects__project_id__files__file_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: file_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: File Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/builds:
+    post:
+      tags:
+      - projects
+      summary: Create Build
+      operationId: create_build_api_v1_projects__project_id__builds_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+          title: Idempotency-Key
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildAccepted'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/builds/{build_id}:
+    get:
+      tags:
+      - projects
+      summary: Get Build
+      operationId: get_build_api_v1_projects__project_id__builds__build_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: build_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Build Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildSummary'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/knowledge/ingestions:
+    post:
+      tags:
+      - knowledge administration
+      summary: Start a development-only graph rebuild
+      operationId: create_ingestion_api_v1_knowledge_ingestions_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestionRequest'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestionAccepted'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/knowledge/ingestions/current:
+    get:
+      tags:
+      - knowledge administration
+      summary: Current Ingestion
+      operationId: current_ingestion_api_v1_knowledge_ingestions_current_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestionStatus'
+      security:
+      - HTTPBearer: []
+  /api/v1/knowledge/graph:
+    get:
+      tags:
+      - knowledge administration
+      summary: Graph Status
+      operationId: graph_status_api_v1_knowledge_graph_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeGraphStatus'
+      security:
+      - HTTPBearer: []
+components:
+  schemas:
+    AllowedActions:
+      properties:
+        createConversation:
+          type: boolean
+          title: Createconversation
+        editDraft:
+          type: boolean
+          title: Editdraft
+        build:
+          type: boolean
+          title: Build
+        archive:
+          type: boolean
+          title: Archive
+        restore:
+          type: boolean
+          title: Restore
+        purge:
+          type: boolean
+          title: Purge
       additionalProperties: false
-      required: [requestId, code, message]
+      type: object
+      required:
+      - createConversation
+      - editDraft
+      - build
+      - archive
+      - restore
+      - purge
+      title: AllowedActions
+    Answer:
       properties:
         requestId:
           type: string
-        code:
+          title: Requestid
+        conversationId:
+          type: string
+          title: Conversationid
+        answer:
+          type: string
+          title: Answer
+        status:
+          type: string
+          const: completed
+          title: Status
+          default: completed
+        responseType:
           type: string
           enum:
-            [
-              invalid_request,
-              conversation_not_found,
-              conversation_busy,
-              internal_error,
-            ]
+          - answer
+          - clarification
+          - insufficient
+          title: Responsetype
+          default: answer
+        confidence:
+          type: string
+          enum:
+          - high
+          - medium
+          - low
+          - insufficient
+          title: Confidence
+        graphVersion:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Graphversion
+        citations:
+          items:
+            $ref: '#/components/schemas/Citation'
+          type: array
+          title: Citations
+        graphEvidence:
+          $ref: '#/components/schemas/GraphEvidence'
+        warnings:
+          items:
+            type: string
+          type: array
+          title: Warnings
+      additionalProperties: false
+      type: object
+      required:
+      - requestId
+      - conversationId
+      - answer
+      - confidence
+      - graphEvidence
+      title: Answer
+    BuildAccepted:
+      properties:
+        buildId:
+          type: string
+          title: Buildid
+        status:
+          type: string
+          const: queued
+          title: Status
+          default: queued
+      additionalProperties: false
+      type: object
+      required:
+      - buildId
+      title: BuildAccepted
+    BuildSummary:
+      properties:
+        id:
+          type: string
+          title: Id
+        status:
+          type: string
+          enum:
+          - queued
+          - building
+          - ready
+          - failed
+          title: Status
+        errorCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Errorcode
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        startedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Startedat
+        completedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completedat
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - status
+      - createdAt
+      title: BuildSummary
+    Citation:
+      properties:
+        id:
+          type: string
+          title: Id
+        title:
+          type: string
+          title: Title
+        source:
+          type: string
+          title: Source
+        nodeId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Nodeid
+        relationship:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Relationship
+        provenance:
+          type: string
+          enum:
+          - explicit
+          - extracted
+          - inferred
+          - unknown
+          title: Provenance
+          default: unknown
+        excerpt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Excerpt
+        document:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Document
+        article:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Article
+        paragraph:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Paragraph
+        startLine:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Startline
+        endLine:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Endline
+        pageNumber:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Pagenumber
+        sectionPath:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Sectionpath
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - title
+      - source
+      title: Citation
+    Conversation:
+      properties:
+        id:
+          type: string
+          title: Id
+        projectId:
+          type: string
+          title: Projectid
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        updatedAt:
+          type: string
+          format: date-time
+          title: Updatedat
+        messages:
+          items:
+            $ref: '#/components/schemas/Message'
+          type: array
+          title: Messages
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - projectId
+      - createdAt
+      - updatedAt
+      title: Conversation
+    CreateConversationRequest:
+      properties:
+        projectId:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 1
+          - type: 'null'
+          title: Projectid
+      additionalProperties: false
+      type: object
+      title: CreateConversationRequest
+    CreateProjectRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Description
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: CreateProjectRequest
+    CreateUploadSessionRequest:
+      properties:
+        files:
+          items:
+            $ref: '#/components/schemas/UploadFileDeclaration'
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: Files
+      additionalProperties: false
+      type: object
+      required:
+      - files
+      title: CreateUploadSessionRequest
+    GraphEdge:
+      properties:
+        id:
+          type: string
+          title: Id
+        sourceNodeId:
+          type: string
+          title: Sourcenodeid
+        targetNodeId:
+          type: string
+          title: Targetnodeid
+        relationship:
+          type: string
+          title: Relationship
+        properties:
+          additionalProperties:
+            anyOf:
+            - type: string
+            - type: integer
+            - type: number
+            - type: boolean
+            - type: 'null'
+          type: object
+          title: Properties
+        provenance:
+          type: string
+          enum:
+          - explicit
+          - extracted
+          - inferred
+          - unknown
+          title: Provenance
+          default: unknown
+      type: object
+      required:
+      - id
+      - sourceNodeId
+      - targetNodeId
+      - relationship
+      title: GraphEdge
+    GraphEvidence:
+      properties:
+        nodes:
+          items:
+            $ref: '#/components/schemas/GraphNode'
+          type: array
+          title: Nodes
+        edges:
+          items:
+            $ref: '#/components/schemas/GraphEdge'
+          type: array
+          title: Edges
+        paths:
+          items:
+            $ref: '#/components/schemas/GraphPath'
+          type: array
+          title: Paths
+      type: object
+      title: GraphEvidence
+    GraphNode:
+      properties:
+        id:
+          type: string
+          title: Id
+        label:
+          type: string
+          title: Label
+        type:
+          type: string
+          title: Type
+          default: entity
+        properties:
+          additionalProperties:
+            anyOf:
+            - type: string
+            - type: integer
+            - type: number
+            - type: boolean
+            - type: 'null'
+          type: object
+          title: Properties
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+        excerpt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Excerpt
+        provenance:
+          type: string
+          enum:
+          - explicit
+          - extracted
+          - inferred
+          - unknown
+          title: Provenance
+          default: unknown
+      type: object
+      required:
+      - id
+      - label
+      title: GraphNode
+    GraphPath:
+      properties:
+        id:
+          type: string
+          title: Id
+        nodeIds:
+          items:
+            type: string
+          type: array
+          title: Nodeids
+        edgeIds:
+          items:
+            type: string
+          type: array
+          title: Edgeids
+      type: object
+      required:
+      - id
+      - nodeIds
+      title: GraphPath
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    Health:
+      properties:
+        status:
+          type: string
+          const: ok
+          title: Status
+          default: ok
+      additionalProperties: false
+      type: object
+      title: Health
+    IngestionAccepted:
+      properties:
+        ingestionId:
+          type: string
+          title: Ingestionid
+        status:
+          type: string
+          const: accepted
+          title: Status
+          default: accepted
+      additionalProperties: false
+      type: object
+      required:
+      - ingestionId
+      title: IngestionAccepted
+    IngestionRequest:
+      properties:
+        force:
+          type: boolean
+          title: Force
+          default: false
+      additionalProperties: false
+      type: object
+      title: IngestionRequest
+    IngestionStatus:
+      properties:
+        ingestionId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ingestionid
+        status:
+          type: string
+          enum:
+          - idle
+          - running
+          - completed
+          - failed
+          title: Status
+        startedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Startedat
+        completedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Completedat
+        errorCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Errorcode
+      additionalProperties: false
+      type: object
+      required:
+      - ingestionId
+      - status
+      title: IngestionStatus
+    KnowledgeGraphStatus:
+      properties:
+        status:
+          type: string
+          enum:
+          - ready
+          - building
+          - unavailable
+          title: Status
+        activeGraphVersion:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Activegraphversion
+        graphifyVersion:
+          type: string
+          title: Graphifyversion
+        generatedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Generatedat
+        documentCount:
+          type: integer
+          title: Documentcount
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - activeGraphVersion
+      - graphifyVersion
+      - generatedAt
+      - documentCount
+      title: KnowledgeGraphStatus
+    Message:
+      properties:
+        id:
+          type: string
+          title: Id
+        role:
+          type: string
+          enum:
+          - user
+          - assistant
+          title: Role
+        content:
+          type: string
+          title: Content
+        status:
+          type: string
+          enum:
+          - pending
+          - completed
+          - failed
+          title: Status
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/Answer'
+          - type: 'null'
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - role
+      - content
+      - status
+      - createdAt
+      title: Message
+    Project:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        state:
+          type: string
+          enum:
+          - draft
+          - queued
+          - building
+          - ready
+          - failed
+          - archived
+          title: State
+        creator:
+          type: string
+          title: Creator
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        updatedAt:
+          type: string
+          format: date-time
+          title: Updatedat
+        archivedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Archivedat
+        activeGraphVersion:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Activegraphversion
+        draftFileCount:
+          type: integer
+          title: Draftfilecount
+        activeDocumentCount:
+          type: integer
+          title: Activedocumentcount
+        currentBuild:
+          anyOf:
+          - $ref: '#/components/schemas/BuildSummary'
+          - type: 'null'
+        lastBuild:
+          anyOf:
+          - $ref: '#/components/schemas/BuildSummary'
+          - type: 'null'
+        allowedActions:
+          $ref: '#/components/schemas/AllowedActions'
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - name
+      - description
+      - state
+      - creator
+      - createdAt
+      - updatedAt
+      - draftFileCount
+      - activeDocumentCount
+      - allowedActions
+      title: Project
+    Readiness:
+      properties:
+        ready:
+          type: boolean
+          title: Ready
+        components:
+          additionalProperties:
+            additionalProperties:
+              type: string
+            type: object
+          type: object
+          title: Components
+      additionalProperties: false
+      type: object
+      required:
+      - ready
+      - components
+      title: Readiness
+    SendMessageRequest:
+      properties:
         message:
           type: string
+          maxLength: 4000
+          minLength: 1
+          title: Message
+        includeGraphPaths:
+          type: boolean
+          title: Includegraphpaths
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - message
+      title: SendMessageRequest
+    SnapshotFile:
+      properties:
+        id:
+          type: string
+          title: Id
+        filename:
+          type: string
+          title: Filename
+        mediaType:
+          type: string
+          title: Mediatype
+        size:
+          type: integer
+          title: Size
+        sha256:
+          type: string
+          title: Sha256
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - filename
+      - mediaType
+      - size
+      - sha256
+      title: SnapshotFile
+    UploadFileDeclaration:
+      properties:
+        filename:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Filename
+        mediaType:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Mediatype
+        size:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Size
+        sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          title: Sha256
+      additionalProperties: false
+      type: object
+      required:
+      - filename
+      - mediaType
+      - size
+      - sha256
+      title: UploadFileDeclaration
+    UploadPart:
+      properties:
+        id:
+          type: string
+          title: Id
+        filename:
+          type: string
+          title: Filename
+        uploadUrl:
+          type: string
+          title: Uploadurl
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - filename
+      - uploadUrl
+      title: UploadPart
+    UploadSession:
+      properties:
+        id:
+          type: string
+          title: Id
+        expiresAt:
+          type: string
+          format: date-time
+          title: Expiresat
+        parts:
+          items:
+            $ref: '#/components/schemas/UploadPart'
+          type: array
+          title: Parts
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - expiresAt
+      - parts
+      title: UploadSession
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer

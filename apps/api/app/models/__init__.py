@@ -12,6 +12,15 @@ from .knowledge import (
     IngestionStatus,
     KnowledgeGraphStatus,
 )
+from .project import (
+    BuildAccepted,
+    BuildSummary,
+    CreateProjectRequest,
+    CreateUploadSessionRequest,
+    Project,
+    SnapshotFile,
+    UploadSession,
+)
 from .system import Health, Problem, Readiness
 
 __all__ = [
@@ -26,4 +35,11 @@ __all__ = [
     "Problem",
     "Readiness",
     "SendMessageRequest",
+    "BuildAccepted",
+    "BuildSummary",
+    "CreateProjectRequest",
+    "CreateUploadSessionRequest",
+    "Project",
+    "SnapshotFile",
+    "UploadSession",
 ]

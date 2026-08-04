@@ -10,6 +10,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from app.projects.repository import ProjectsBase
 from app.store.sqlalchemy import Base
 
 config = context.config
@@ -20,7 +21,7 @@ database_url = os.getenv("CONVERSATION_DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
-target_metadata = Base.metadata
+target_metadata = [Base.metadata, ProjectsBase.metadata]
 
 
 def run_migrations_offline() -> None:

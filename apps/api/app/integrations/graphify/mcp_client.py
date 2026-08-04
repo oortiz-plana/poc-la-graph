@@ -195,9 +195,7 @@ class MCPGraphKnowledgeClient:
     def _project_arguments(self) -> dict[str, str]:
         # These values can only originate in trusted process configuration.
         if self.config.runtime_mode == "real":
-            # The real runtime is started with one immutable active graph. Omitting
-            # project_path prevents callers from switching corpus paths.
-            return {}
+            return {"project_path": self.config.project_path}
         return {
             "project_id": self.config.project_id,
             "project_path": self.config.project_path,
@@ -615,8 +613,8 @@ class MCPGraphKnowledgeClient:
             )
         return GraphPath(
             id=self._node_id(text),
-            nodeIds=[self._register_native_label(label) for label in labels],
-            edgeIds=[],
+            node_ids=[self._register_native_label(label) for label in labels],
+            edge_ids=[],
         )
 
     def _normalize_search(self, payload: dict[str, Any]) -> GraphSearchResult:

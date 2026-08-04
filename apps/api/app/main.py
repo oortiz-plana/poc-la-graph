@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any, cast
 from uuid import uuid4
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,16 +16,28 @@ from app.api import api_router
 from app.api.dependencies import build_model
 from app.api.errors import (
     InvalidRequest,
+    authentication_error_handler,
+    authorization_error_handler,
     conflict_handler,
     invalid_request_handler,
     not_found_handler,
+    project_conflict_handler,
+    project_not_found_handler,
     unhandled_error_handler,
+    upload_validation_handler,
     validation_error_handler,
 )
 from app.api.routes.knowledge import router as knowledge_router
+from app.api.routes.projects import router as projects_router
+from app.auth import TokenVerifier, require_admin
+from app.auth.dependencies import AuthorizationError
+from app.auth.verifier import AuthenticationError
 from app.config.settings import Settings, get_settings
 from app.knowledge.service import KnowledgeIngestionService
 from app.observability import configure_logging
+from app.projects import ProjectConflict, ProjectNotFound, ProjectRepository
+from app.projects.repository import UploadNotFound
+from app.projects.storage import ProjectStorage, UploadValidationError
 from app.store import (
     ConversationNotFound,
     ConversationRequestConflict,
@@ -48,6 +60,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             lease_seconds=configured.conversation_request_lease_seconds,
         )
         await application.state.store.initialize()
+        application.state.projects = ProjectRepository(
+            configured.conversation_database_url,
+            upload_ttl_hours=configured.upload_session_ttl_hours,
+        )
+        await application.state.projects.initialize()
+        application.state.project_storage = ProjectStorage(
+            configured.project_storage_root,
+            max_file_bytes=configured.knowledge_max_document_size_bytes,
+            max_extracted_bytes=configured.knowledge_max_extracted_document_bytes,
+            max_files=configured.knowledge_max_document_count,
+            max_total_bytes=configured.knowledge_max_total_source_bytes,
+        )
+        application.state.project_storage.initialize()
+        application.state.token_verifier = TokenVerifier(
+            issuer=configured.auth_issuer,
+            audience=configured.auth_audience,
+            jwks_url=configured.auth_jwks_url,
+            cache_seconds=configured.auth_jwks_cache_seconds,
+        )
         application.state.conversation_store_initialized = True
         cleanup_task = asyncio.create_task(
             _cleanup_conversations(application),
@@ -72,20 +103,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except asyncio.CancelledError:
                 pass
             await application.state.store.close()
+            await application.state.projects.close()
+            await application.state.token_verifier.close()
             application.state.conversation_store_initialized = False
 
     application = FastAPI(
         title="Graphify Knowledge Agent API",
         version="1.0.0-poc",
-        description="Unauthenticated POC API with named SSE conversation streams.",
+        description=(
+            "Authenticated multi-project API with named SSE conversation streams."
+        ),
         lifespan=lifespan,
     )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=configured.allowed_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Request-ID"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Request-ID",
+        ],
         expose_headers=["X-Request-ID"],
     )
 
@@ -121,10 +161,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_exception_handler(
         InvalidRequest, cast(Any, invalid_request_handler)
     )
+    application.add_exception_handler(
+        AuthenticationError, cast(Any, authentication_error_handler)
+    )
+    application.add_exception_handler(
+        AuthorizationError, cast(Any, authorization_error_handler)
+    )
+    application.add_exception_handler(
+        ProjectNotFound, cast(Any, project_not_found_handler)
+    )
+    application.add_exception_handler(
+        UploadNotFound, cast(Any, project_not_found_handler)
+    )
+    application.add_exception_handler(
+        ProjectConflict, cast(Any, project_conflict_handler)
+    )
+    application.add_exception_handler(
+        UploadValidationError, cast(Any, upload_validation_handler)
+    )
     application.add_exception_handler(Exception, unhandled_error_handler)
     application.include_router(api_router)
+    application.include_router(projects_router)
     if configured.knowledge_admin_endpoints_enabled:
-        application.include_router(knowledge_router)
+        application.include_router(
+            knowledge_router, dependencies=[Depends(require_admin)]
+        )
     return application
 
 
@@ -133,6 +194,16 @@ async def _cleanup_conversations(application: FastAPI) -> None:
     while True:
         await asyncio.sleep(interval)
         removed = await application.state.store.cleanup()
+        upload_paths = await application.state.projects.cleanup_expired_uploads()
+        await application.state.project_storage.cleanup_paths(upload_paths)
+        retention = application.state.settings.project_archive_retention_days
+        expired_projects = await application.state.projects.expired_archives(retention)
+        for project_id in expired_projects:
+            await application.state.projects.purge_expired(
+                project_id, "system-retention", retention
+            )
+            await application.state.store.delete_project(project_id)
+            await application.state.project_storage.purge_project(project_id)
         if removed:
             application.state.logger.info(
                 "expired_conversations_removed",

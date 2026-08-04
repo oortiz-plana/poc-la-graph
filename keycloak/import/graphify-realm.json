@@ -1,0 +1,57 @@
+{
+  "realm": "graphify",
+  "enabled": true,
+  "displayName": "Graphify Workspace",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "roles": {
+    "realm": [
+      { "name": "viewer", "description": "Read projects and chat" },
+      {
+        "name": "editor",
+        "description": "Create projects, upload files, and build",
+        "composite": true,
+        "composites": { "realm": ["viewer"] }
+      },
+      {
+        "name": "admin",
+        "description": "Archive, restore, and purge projects",
+        "composite": true,
+        "composites": { "realm": ["editor"] }
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "graphify-web",
+      "name": "Graphify web application",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "graphify-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "graphify-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "graphify-api",
+      "name": "Graphify API audience",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": true
+    }
+  ]
+}

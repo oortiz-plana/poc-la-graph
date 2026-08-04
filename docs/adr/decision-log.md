@@ -14,3 +14,4 @@
 | 2026-07-28 | Explicit mocks only | No silent production fallback |
 | 2026-07-29 | Real Graphify is the default; synthetic Graphify requires an explicit overlay | Synthetic transport tests cannot be mistaken for real runtime compatibility |
 | 2026-07-29 | Add one-shot knowledge initialization and ingestion jobs | Keeps graph generation outside the query runtime while preserving a simple Compose deployment |
+| 2026-08-03 | Authenticated multi-project workspace ([ADR 0008](0008-authenticated-multi-project-workspace.md)) | Replaces bearer conversation capabilities and one configured corpus with role-gated, version-pinned projects |

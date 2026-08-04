@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from sse_starlette.sse import EventSourceResponse
@@ -12,6 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.agent.events import LifecycleEvent
 from app.agent.models import ConversationTurn
 from app.agent.workflow import KnowledgeWorkflow
+from app.auth import AuthPrincipal, require_viewer
 from app.config.settings import Settings
 from app.integrations.graphify import GraphifyConfigurationError, GraphifyError
 from app.models import (
@@ -21,6 +22,8 @@ from app.models import (
     Readiness,
     SendMessageRequest,
 )
+from app.projects import ProjectRepository
+from app.projects.repository import ProjectConflict
 from app.store import ConversationStore
 
 from .dependencies import build_graph_client, get_app_settings, get_store, get_workflow
@@ -46,8 +49,15 @@ async def readiness(request: Request, response: Response) -> Readiness:
     graph = knowledge.graph_status() if knowledge else {"status": "unavailable"}
     settings = getattr(request.app.state, "settings", None)
     deterministic = bool(settings and settings.graphify_runtime_mode == "synthetic")
-    graph_ready = graph["status"] == "ready" or deterministic
-    knowledge_graph_status = "synthetic" if deterministic else str(graph["status"])
+    multi_project = bool(settings and settings.auth_enabled)
+    graph_ready = graph["status"] == "ready" or deterministic or multi_project
+    knowledge_graph_status = (
+        "synthetic"
+        if deterministic
+        else "project-registry"
+        if multi_project
+        else str(graph["status"])
+    )
     graphify_status = await _graphify_readiness(
         request,
         settings,
@@ -129,14 +139,31 @@ async def _graphify_readiness(
 async def create_conversation(
     store: Annotated[ConversationStore, Depends(get_store)],
     settings: Annotated[Settings, Depends(get_app_settings)],
+    request: Request,
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
     body: CreateConversationRequest | None = None,
 ) -> Conversation:
+    del principal
     requested = body.project_id if body else None
-    if requested is not None and requested != settings.graphify_project_id:
-        raise InvalidRequest(
-            "projectId must equal the server-configured Graphify project"
-        )
-    return await store.create(requested or settings.graphify_project_id)
+    if not settings.auth_enabled:
+        if requested is not None and requested != settings.graphify_project_id:
+            try:
+                project = await request.app.state.projects.get_project(
+                    requested, include_archived=False
+                )
+            except Exception as exc:
+                raise InvalidRequest("Unknown project") from exc
+            if project.state != "ready" or not project.active_graph_version:
+                raise ProjectConflict("The project is not ready")
+            return await store.create(project.id, project.active_graph_version)
+        return await store.create(requested or settings.graphify_project_id)
+    if requested is None:
+        raise InvalidRequest("projectId is required")
+    projects = cast(ProjectRepository, request.app.state.projects)
+    project = await projects.get_project(requested, include_archived=False)
+    if project.state != "ready" or not project.active_graph_version:
+        raise ProjectConflict("The project is not ready")
+    return await store.create(project.id, project.active_graph_version)
 
 
 @api_router.get(
@@ -147,7 +174,9 @@ async def create_conversation(
 async def get_conversation(
     conversation_id: str,
     store: Annotated[ConversationStore, Depends(get_store)],
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Conversation:
+    del principal
     return await store.get(conversation_id)
 
 
@@ -159,7 +188,9 @@ async def get_conversation(
 async def delete_conversation(
     conversation_id: str,
     store: Annotated[ConversationStore, Depends(get_store)],
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Response:
+    del principal
     await store.delete(conversation_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -176,8 +207,17 @@ async def send_message(
     request: Request,
     store: Annotated[ConversationStore, Depends(get_store)],
     workflow: Annotated[KnowledgeWorkflow, Depends(get_workflow)],
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> EventSourceResponse:
+    del principal
     correlation_id = str(request.state.request_id)
+    scope = await store.get_scope(conversation_id)
+    if request.app.state.settings.auth_enabled:
+        project = await request.app.state.projects.get_project(
+            scope.project_id, include_archived=True
+        )
+        if project.state == "archived":
+            raise ProjectConflict("Archived projects cannot receive messages")
     await store.acquire_request(conversation_id, correlation_id)
     try:
         history = await store.get_history(

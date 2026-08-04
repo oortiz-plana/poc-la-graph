@@ -13,28 +13,25 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-PROJECT_ID = os.getenv("GRAPHIFY_PROJECT_ID", "sample-project")
-PROJECT_PATH = Path(
-    os.getenv("GRAPHIFY_PROJECT_PATH", "/knowledge/sample-project")
-).resolve()
-DATA_PATH = PROJECT_PATH / "graph.json"
+KNOWLEDGE_ROOT = Path(os.getenv("GRAPHIFY_KNOWLEDGE_ROOT", "/knowledge")).resolve()
 
 if os.getenv("GRAPHIFY_RUNTIME") != "mock":
     raise RuntimeError("Synthetic server requires explicit GRAPHIFY_RUNTIME=mock")
 
-with DATA_PATH.open(encoding="utf-8") as stream:
-    GRAPH: dict[str, Any] = json.load(stream)
-
-NODES = {node["id"]: node for node in GRAPH["nodes"]}
-EDGES = GRAPH["edges"]
 mcp = FastMCP("Synthetic Graphify troubleshooting server", host="0.0.0.0", port=8001)
 
 
-def _project_guard(project_id: str, project_path: str | None = None) -> None:
-    if project_id != PROJECT_ID:
-        raise ValueError("Unknown configured project")
-    if project_path is not None and Path(project_path).resolve() != PROJECT_PATH:
-        raise ValueError("Project path is fixed by server configuration")
+def _graph(
+    project_path: str | None,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    if not project_path:
+        raise ValueError("project_path is required")
+    project = Path(project_path).resolve()
+    if project == KNOWLEDGE_ROOT or KNOWLEDGE_ROOT not in project.parents:
+        raise ValueError("Project path is outside the knowledge root")
+    with (project / "graphify-out" / "graph.json").open(encoding="utf-8") as stream:
+        graph: dict[str, Any] = json.load(stream)
+    return graph, {node["id"]: node for node in graph["nodes"]}, graph["edges"]
 
 
 def _citation(node: dict[str, Any]) -> dict[str, Any]:
@@ -50,15 +47,14 @@ def _citation(node: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp.tool()
-def search(
-    query: str, project_id: str = PROJECT_ID, project_path: str | None = None
-) -> dict[str, Any]:
+def search(query: str, project_id: str, project_path: str) -> dict[str, Any]:
     """Search the configured synthetic graph for matching nodes."""
-    _project_guard(project_id, project_path)
+    del project_id
+    graph, nodes, edges_data = _graph(project_path)
     terms = {term.lower() for term in query.split() if len(term) > 2}
     matches = [
         node
-        for node in NODES.values()
+        for node in nodes.values()
         if terms
         & set(
             f"{node['label']} {node['excerpt']} "
@@ -68,11 +64,11 @@ def search(
     node_ids = {node["id"] for node in matches}
     edges = [
         edge
-        for edge in EDGES
+        for edge in edges_data
         if edge["sourceNodeId"] in node_ids or edge["targetNodeId"] in node_ids
     ]
     return {
-        "graphVersion": GRAPH["graphVersion"],
+        "graphVersion": graph["graphVersion"],
         "nodes": matches,
         "edges": edges,
         "paths": [],
@@ -82,26 +78,26 @@ def search(
 
 
 @mcp.tool()
-def get_node(
-    node_id: str, project_id: str = PROJECT_ID, project_path: str | None = None
-) -> dict[str, Any]:
+def get_node(node_id: str, project_id: str, project_path: str) -> dict[str, Any]:
     """Return one node from the configured synthetic graph."""
-    _project_guard(project_id, project_path)
-    if node_id not in NODES:
+    del project_id
+    _, nodes, _ = _graph(project_path)
+    if node_id not in nodes:
         raise ValueError("Node not found")
-    return NODES[node_id]
+    return nodes[node_id]
 
 
 @mcp.tool()
 def get_neighbors(
     node_id: str,
+    project_id: str,
+    project_path: str,
     depth: int = 1,
-    project_id: str = PROJECT_ID,
-    project_path: str | None = None,
 ) -> dict[str, Any]:
     """Return a bounded neighborhood (depth 1 or 2)."""
-    _project_guard(project_id, project_path)
-    if node_id not in NODES:
+    del project_id
+    _, nodes, edges_data = _graph(project_path)
+    if node_id not in nodes:
         raise ValueError("Node not found")
     if depth not in (1, 2):
         raise ValueError("Depth must be 1 or 2")
@@ -110,7 +106,7 @@ def get_neighbors(
     selected_edges: list[dict[str, Any]] = []
     for _ in range(depth):
         next_frontier: set[str] = set()
-        for edge in EDGES:
+        for edge in edges_data:
             if edge["sourceNodeId"] in frontier or edge["targetNodeId"] in frontier:
                 if edge not in selected_edges:
                     selected_edges.append(edge)
@@ -119,7 +115,7 @@ def get_neighbors(
         seen |= next_frontier
         frontier = next_frontier
     return {
-        "nodes": [NODES[item] for item in seen],
+        "nodes": [nodes[item] for item in seen],
         "edges": selected_edges,
         "paths": [],
     }
@@ -129,12 +125,13 @@ def get_neighbors(
 def shortest_path(
     source_node_id: str,
     target_node_id: str,
-    project_id: str = PROJECT_ID,
-    project_path: str | None = None,
+    project_id: str,
+    project_path: str,
 ) -> dict[str, Any]:
     """Return a shortest unweighted path in the tiny synthetic graph."""
-    _project_guard(project_id, project_path)
-    if source_node_id not in NODES or target_node_id not in NODES:
+    del project_id
+    _, nodes, edges_data = _graph(project_path)
+    if source_node_id not in nodes or target_node_id not in nodes:
         raise ValueError("Node not found")
     queue: list[tuple[str, list[str], list[str]]] = [(source_node_id, [], [])]
     visited = {source_node_id}
@@ -143,7 +140,7 @@ def shortest_path(
         next_nodes = node_path + [current]
         if current == target_node_id:
             return {"nodeIds": next_nodes, "edgeIds": edge_path}
-        for edge in EDGES:
+        for edge in edges_data:
             neighbor = None
             if edge["sourceNodeId"] == current:
                 neighbor = edge["targetNodeId"]

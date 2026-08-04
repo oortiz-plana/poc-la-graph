@@ -22,8 +22,13 @@ class Problem(StrictModel):
     requestId: str
     code: Literal[
         "invalid_request",
+        "unauthorized",
+        "forbidden",
         "conversation_not_found",
         "conversation_busy",
+        "project_not_found",
+        "project_conflict",
+        "upload_invalid",
         "internal_error",
     ]
     message: str

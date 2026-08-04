@@ -162,3 +162,57 @@ export type Answer = z.infer<typeof answerSchema>;
 export type GraphEvidence = z.infer<typeof graphEvidenceSchema>;
 export type Conversation = z.infer<typeof conversationSchema>;
 export type UIEvent = z.infer<typeof uiEventSchema>;
+
+export const buildSummarySchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(["queued", "building", "ready", "failed"]),
+  errorCode: z.string().nullable(),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+});
+export const projectSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  state: z.enum(["draft", "queued", "building", "ready", "failed", "archived"]),
+  creator: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archivedAt: z.string().nullable(),
+  activeGraphVersion: z.string().nullable(),
+  draftFileCount: z.number().int().nonnegative(),
+  activeDocumentCount: z.number().int().nonnegative(),
+  currentBuild: buildSummarySchema.nullable(),
+  lastBuild: buildSummarySchema.nullable(),
+  allowedActions: z.object({
+    createConversation: z.boolean(),
+    editDraft: z.boolean(),
+    build: z.boolean(),
+    archive: z.boolean(),
+    restore: z.boolean(),
+    purge: z.boolean(),
+  }),
+});
+export const snapshotFileSchema = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  mediaType: z.string(),
+  size: z.number().int().positive(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const uploadSessionSchema = z.object({
+  id: z.string().uuid(),
+  expiresAt: z.string(),
+  parts: z.array(
+    z.object({
+      id: z.string().uuid(),
+      filename: z.string(),
+      uploadUrl: z.string(),
+    }),
+  ),
+});
+
+export type Project = z.infer<typeof projectSchema>;
+export type BuildSummary = z.infer<typeof buildSummarySchema>;
+export type SnapshotFile = z.infer<typeof snapshotFileSchema>;

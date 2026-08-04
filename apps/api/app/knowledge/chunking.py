@@ -53,7 +53,7 @@ def tokenizer() -> Any:
 
 
 def token_count(text: str) -> int:
-    return len(tokenizer().encode(text))  # type: ignore[attr-defined]
+    return len(tokenizer().encode(text))
 
 
 def build_chunks(

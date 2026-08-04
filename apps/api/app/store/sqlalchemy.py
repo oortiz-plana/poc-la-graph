@@ -35,6 +35,7 @@ from app.models import Conversation, Message
 from .protocol import (
     ConversationNotFound,
     ConversationRequestConflict,
+    ConversationScope,
     MessageStatus,
 )
 
@@ -48,6 +49,7 @@ class ConversationRow(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    graph_version: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -131,11 +133,14 @@ class SQLAlchemyConversationStore:
             )
             return _rowcount(result)
 
-    async def create(self, project_id: str) -> Conversation:
+    async def create(
+        self, project_id: str, graph_version: str | None = None
+    ) -> Conversation:
         now = datetime.now(UTC)
         row = ConversationRow(
             id=str(uuid4()),
             project_id=project_id,
+            graph_version=graph_version,
             created_at=now,
             updated_at=now,
         )
@@ -148,6 +153,11 @@ class SQLAlchemyConversationStore:
             row = await _get_row(session, conversation_id)
             return _conversation_model(row, row.messages)
 
+    async def get_scope(self, conversation_id: str) -> ConversationScope:
+        async with self._sessions() as session:
+            row = await _get_row(session, conversation_id)
+            return ConversationScope(row.project_id, row.graph_version)
+
     async def delete(self, conversation_id: str) -> None:
         async with self._sessions.begin() as session:
             result = await session.execute(
@@ -155,6 +165,13 @@ class SQLAlchemyConversationStore:
             )
             if not _rowcount(result):
                 raise ConversationNotFound(conversation_id)
+
+    async def delete_project(self, project_id: str) -> int:
+        async with self._sessions.begin() as session:
+            result = await session.execute(
+                delete(ConversationRow).where(ConversationRow.project_id == project_id)
+            )
+            return _rowcount(result)
 
     async def add_user_message(self, conversation_id: str, content: str) -> Message:
         return await self._append(conversation_id, "user", content, "completed", None)

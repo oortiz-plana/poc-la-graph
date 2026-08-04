@@ -4,26 +4,14 @@ from __future__ import annotations
 
 import os
 import sys
-import time
-from pathlib import Path
 
 
 def main() -> int:
     if os.getenv("GRAPHIFY_RUNTIME_MODE", "real") != "real":
         print("graphify_runtime_error=real_mode_required", flush=True)
         return 78
-    graph = Path(os.getenv("GRAPHIFY_GRAPH_PATH", "/knowledge/graph/active/graph.json"))
-    timeout = int(os.getenv("GRAPHIFY_STARTUP_WAIT_SECONDS", "600"))
-    deadline = time.monotonic() + timeout
-    while not graph.is_file():
-        if time.monotonic() >= deadline:
-            print("graphify_runtime_error=active_graph_unavailable", flush=True)
-            return 78
-        time.sleep(1)
     command = [
         "graphify-mcp",
-        "--graph",
-        str(graph),
         "--transport",
         "http",
         "--host",

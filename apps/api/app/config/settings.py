@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3000"
 
+    auth_enabled: bool = False
+    auth_issuer: str = "http://localhost:8080/realms/graphify"
+    auth_audience: str = "graphify-api"
+    auth_jwks_url: str = (
+        "http://keycloak:8080/realms/graphify/protocol/openid-connect/certs"
+    )
+    auth_jwks_cache_seconds: int = Field(default=300, ge=30, le=86_400)
+
     llm_adapter: Literal["litellm", "mock"] = "litellm"
     llm_model: str = ""
     llm_api_base: str | None = None
@@ -65,6 +73,11 @@ class Settings(BaseSettings):
     conversation_history_max_chars: int = Field(default=8000, ge=256, le=100_000)
     conversation_request_lease_seconds: int = Field(default=300, ge=30, le=3600)
     conversation_cleanup_interval_seconds: int = Field(default=3600, ge=60, le=86_400)
+
+    project_storage_root: str = "/knowledge/projects"
+    upload_session_ttl_hours: int = Field(default=24, ge=1, le=168)
+    project_archive_retention_days: int = Field(default=30, ge=1, le=3650)
+    knowledge_worker_poll_seconds: float = Field(default=1.0, gt=0, le=60)
 
     knowledge_input_dir: str = "/knowledge/input"
     knowledge_staging_dir: str = "/knowledge/staging"

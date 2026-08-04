@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from app.agent.models import Answer
 from app.models import Conversation, Message
 
 MessageStatus = Literal["pending", "completed", "failed"]
+
+
+@dataclass(frozen=True)
+class ConversationScope:
+    project_id: str
+    graph_version: str | None
 
 
 class ConversationNotFound(KeyError):
@@ -36,11 +43,17 @@ class ConversationStore(Protocol):
         """Delete expired conversations and return the number removed."""
         ...
 
-    async def create(self, project_id: str) -> Conversation: ...
+    async def create(
+        self, project_id: str, graph_version: str | None = None
+    ) -> Conversation: ...
 
     async def get(self, conversation_id: str) -> Conversation: ...
 
+    async def get_scope(self, conversation_id: str) -> ConversationScope: ...
+
     async def delete(self, conversation_id: str) -> None: ...
+
+    async def delete_project(self, project_id: str) -> int: ...
 
     async def add_user_message(self, conversation_id: str, content: str) -> Message: ...
 

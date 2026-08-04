@@ -12,6 +12,7 @@ from app.models import Conversation, Message
 from .protocol import (
     ConversationNotFound,
     ConversationRequestConflict,
+    ConversationScope,
     MessageStatus,
 )
 
@@ -28,6 +29,7 @@ class InMemoryConversationStore:
     ) -> None:
         self._items: dict[str, Conversation] = {}
         self._leases: dict[str, tuple[str, datetime]] = {}
+        self._versions: dict[str, str | None] = {}
         self._lock = asyncio.Lock()
         self._retention_days = retention_days
         self._max_turns = max_turns
@@ -50,9 +52,12 @@ class InMemoryConversationStore:
             for conversation_id in expired:
                 del self._items[conversation_id]
                 self._leases.pop(conversation_id, None)
+                self._versions.pop(conversation_id, None)
         return len(expired)
 
-    async def create(self, project_id: str) -> Conversation:
+    async def create(
+        self, project_id: str, graph_version: str | None = None
+    ) -> Conversation:
         now = datetime.now(UTC)
         conversation = Conversation.model_validate(
             {
@@ -65,6 +70,7 @@ class InMemoryConversationStore:
         )
         async with self._lock:
             self._items[conversation.id] = conversation
+            self._versions[conversation.id] = graph_version
         return conversation.model_copy(deep=True)
 
     async def get(self, conversation_id: str) -> Conversation:
@@ -74,10 +80,33 @@ class InMemoryConversationStore:
                 raise ConversationNotFound(conversation_id)
             return item.model_copy(deep=True)
 
+    async def get_scope(self, conversation_id: str) -> ConversationScope:
+        async with self._lock:
+            item = self._items.get(conversation_id)
+            if item is None:
+                raise ConversationNotFound(conversation_id)
+            return ConversationScope(
+                item.project_id, self._versions.get(conversation_id)
+            )
+
     async def delete(self, conversation_id: str) -> None:
         async with self._lock:
             if self._items.pop(conversation_id, None) is None:
                 raise ConversationNotFound(conversation_id)
+            self._versions.pop(conversation_id, None)
+
+    async def delete_project(self, project_id: str) -> int:
+        async with self._lock:
+            identifiers = [
+                identifier
+                for identifier, conversation in self._items.items()
+                if conversation.project_id == project_id
+            ]
+            for identifier in identifiers:
+                self._items.pop(identifier, None)
+                self._versions.pop(identifier, None)
+                self._leases.pop(identifier, None)
+            return len(identifiers)
 
     async def add_user_message(self, conversation_id: str, content: str) -> Message:
         return await self._append(conversation_id, "user", content, "completed")

@@ -6,12 +6,76 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.auth.dependencies import AuthorizationError
+from app.auth.verifier import AuthenticationError
 from app.models import Problem
+from app.projects import ProjectConflict, ProjectNotFound
+from app.projects.repository import UploadNotFound
+from app.projects.storage import UploadValidationError
 from app.store import ConversationNotFound, ConversationRequestConflict
 
 
 class InvalidRequest(ValueError):
     pass
+
+
+def _problem(
+    request: Request, status_code: int, code: str, message: str
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "requestId": request_id(request),
+            "code": code,
+            "message": message,
+        },
+    )
+
+
+async def authentication_error_handler(
+    request: Request, exc: AuthenticationError
+) -> JSONResponse:
+    del exc
+    response = _problem(request, 401, "unauthorized", "Authentication is required.")
+    response.headers["WWW-Authenticate"] = "Bearer"
+    return response
+
+
+async def authorization_error_handler(
+    request: Request, exc: AuthorizationError
+) -> JSONResponse:
+    del exc
+    return _problem(
+        request, 403, "forbidden", "You are not allowed to perform this action."
+    )
+
+
+async def project_not_found_handler(
+    request: Request, exc: ProjectNotFound | UploadNotFound
+) -> JSONResponse:
+    del exc
+    return _problem(
+        request, 404, "project_not_found", "The project resource was not found."
+    )
+
+
+async def project_conflict_handler(
+    request: Request, exc: ProjectConflict
+) -> JSONResponse:
+    del exc
+    return _problem(
+        request,
+        409,
+        "project_conflict",
+        "The project state does not allow this action.",
+    )
+
+
+async def upload_validation_handler(
+    request: Request, exc: UploadValidationError
+) -> JSONResponse:
+    del exc
+    return _problem(request, 422, "upload_invalid", "The upload is invalid.")
 
 
 def request_id(request: Request) -> str:

@@ -17,6 +17,7 @@ from app.integrations.graphify import (
 )
 from app.integrations.haystack import HaystackSourceRetriever
 from app.integrations.llm import DeterministicModel, LanguageModel, LiteLLMClient
+from app.projects import ProjectConflict
 from app.store import ConversationStore
 
 
@@ -43,7 +44,11 @@ def build_model(settings: Settings) -> LanguageModel:
 
 
 def build_graph_client(
-    settings: Settings, *, graph_version: str | None = None
+    settings: Settings,
+    *,
+    graph_version: str | None = None,
+    project_id: str | None = None,
+    project_path: str | None = None,
 ) -> GraphKnowledgeClient:
     if settings.graphify_adapter == "mock":
         return MockGraphKnowledgeClient.from_fixture(
@@ -52,8 +57,8 @@ def build_graph_client(
     return MCPGraphKnowledgeClient(
         GraphifyMCPConfig(
             url=settings.graphify_mcp_url,
-            project_id=settings.graphify_project_id,
-            project_path=settings.graphify_project_path,
+            project_id=project_id or settings.graphify_project_id,
+            project_path=project_path or settings.graphify_project_path,
             knowledge_root=settings.graphify_knowledge_root,
             timeout_seconds=settings.graphify_request_timeout_seconds,
             tool_names={
@@ -73,16 +78,45 @@ def build_graph_client(
     )
 
 
-def get_workflow(request: Request) -> KnowledgeWorkflow:
+async def get_workflow(request: Request) -> KnowledgeWorkflow:
     settings = get_app_settings(request)
     model = cast(LanguageModel, request.app.state.model)
-    knowledge = request.app.state.knowledge
-    graph_version = knowledge.graph_status().get("activeGraphVersion")
+    conversation_id = str(request.path_params.get("conversation_id", ""))
+    scope = await get_store(request).get_scope(conversation_id)
+    if settings.auth_enabled:
+        project = await request.app.state.projects.get_project(
+            scope.project_id, include_archived=True
+        )
+        graph_version = project.active_graph_version
+        if not graph_version:
+            raise ProjectConflict("The project has no active version")
+        project_path = (
+            f"{settings.project_storage_root}/{scope.project_id}"
+            f"/versions/{graph_version}"
+        )
+        source_index_path = f"{project_path}/source-index.sqlite"
+    elif scope.graph_version:
+        graph_version = scope.graph_version
+        project_path = (
+            f"{settings.project_storage_root}/{scope.project_id}"
+            f"/versions/{graph_version}"
+        )
+        source_index_path = f"{project_path}/source-index.sqlite"
+    else:
+        knowledge = request.app.state.knowledge
+        graph_version = knowledge.graph_status().get("activeGraphVersion")
+        project_path = settings.graphify_project_path
+        source_index_path = str(knowledge.source_index_path())
     return KnowledgeWorkflow(
-        graph_client=build_graph_client(settings, graph_version=graph_version),
+        graph_client=build_graph_client(
+            settings,
+            graph_version=graph_version,
+            project_id=scope.project_id,
+            project_path=project_path,
+        ),
         model=model,
         source_retriever=(
-            HaystackSourceRetriever(str(knowledge.source_index_path()), graph_version)
+            HaystackSourceRetriever(source_index_path, graph_version)
             if graph_version
             else None
         ),

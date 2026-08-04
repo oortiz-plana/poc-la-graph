@@ -3,7 +3,7 @@ name: ${COMPOSE_PROJECT_NAME:-graphify-agent-poc}
 services:
   knowledge-init:
     image: alpine:3.22
-    command: ["sh", "-c", "mkdir -p /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state && chown -R 10001:10001 /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state"]
+    command: ["sh", "-c", "mkdir -p /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state /knowledge/projects && chown -R 10001:10001 /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state /knowledge/projects"]
     volumes:
       - graphify_knowledge:/knowledge
       - ./knowledge/input:/knowledge/input:ro
@@ -14,6 +14,7 @@ services:
     restart: "no"
 
   knowledge-ingest:
+    profiles: ["legacy-single-project"]
     build:
       context: .
       dockerfile: docker/api.Dockerfile
@@ -62,7 +63,6 @@ services:
     image: graphify-agent-poc-graphify:${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
     environment:
       GRAPHIFY_RUNTIME_MODE: ${GRAPHIFY_RUNTIME_MODE:-real}
-      GRAPHIFY_GRAPH_PATH: /knowledge/graph/active/graph.json
     volumes:
       - graphify_knowledge:/knowledge:ro
     read_only: true
@@ -79,7 +79,7 @@ services:
       retries: 18
       start_period: 20s
     depends_on:
-      knowledge-ingest:
+      knowledge-init:
         condition: service_completed_successfully
     restart: unless-stopped
     networks: [app]
@@ -123,6 +123,14 @@ services:
       CONVERSATION_HISTORY_MAX_CHARS: ${CONVERSATION_HISTORY_MAX_CHARS:-8000}
       CONVERSATION_REQUEST_LEASE_SECONDS: ${CONVERSATION_REQUEST_LEASE_SECONDS:-300}
       CONVERSATION_CLEANUP_INTERVAL_SECONDS: ${CONVERSATION_CLEANUP_INTERVAL_SECONDS:-3600}
+      AUTH_ENABLED: "true"
+      AUTH_ISSUER: ${AUTH_ISSUER:-http://localhost:8080/realms/graphify}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-graphify-api}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-http://keycloak:8080/realms/graphify/protocol/openid-connect/certs}
+      AUTH_JWKS_CACHE_SECONDS: ${AUTH_JWKS_CACHE_SECONDS:-300}
+      PROJECT_STORAGE_ROOT: /knowledge/projects
+      UPLOAD_SESSION_TTL_HOURS: ${UPLOAD_SESSION_TTL_HOURS:-24}
+      PROJECT_ARCHIVE_RETENTION_DAYS: ${PROJECT_ARCHIVE_RETENTION_DAYS:-30}
       CORS_ORIGINS: http://localhost:3000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       KNOWLEDGE_INPUT_DIR: /knowledge/input
@@ -155,6 +163,8 @@ services:
     depends_on:
       graphify:
         condition: service_healthy
+      keycloak:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
       interval: 5s
@@ -172,7 +182,12 @@ services:
     image: graphify-agent-poc-web:local
     environment:
       API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
-      GRAPHIFY_PROJECT_ID: ${GRAPHIFY_PROJECT_ID:-sample-project}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-graphify}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-graphify-web}
+      UPLOAD_MAX_FILE_BYTES: ${KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES:-2097152}
+      UPLOAD_MAX_FILES: ${KNOWLEDGE_MAX_DOCUMENT_COUNT:-100}
+      UPLOAD_MAX_TOTAL_BYTES: ${KNOWLEDGE_MAX_TOTAL_SOURCE_BYTES:-33554432}
     ports:
       - "3000:3000"
     cap_drop: [ALL]
@@ -190,8 +205,57 @@ services:
     restart: unless-stopped
     networks: [app]
 
+  knowledge-worker:
+    image: graphify-agent-poc-api:local
+    command: ["python", "-m", "app.projects.worker"]
+    environment:
+      CONVERSATION_DATABASE_URL: ${CONVERSATION_DATABASE_URL:-sqlite+aiosqlite:////knowledge/state/conversations.db}
+      PROJECT_STORAGE_ROOT: /knowledge/projects
+      GRAPHIFY_RUNTIME_MODE: ${GRAPHIFY_RUNTIME_MODE:-real}
+      GRAPHIFY_PACKAGE_VERSION: ${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
+      GRAPHIFY_EXTRACT_BACKEND: ${GRAPHIFY_EXTRACT_BACKEND:-openai}
+      GRAPHIFY_EXTRACT_MODEL: ${GRAPHIFY_EXTRACT_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES: ${KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES:-2097152}
+      KNOWLEDGE_MAX_DOCUMENT_COUNT: ${KNOWLEDGE_MAX_DOCUMENT_COUNT:-100}
+      KNOWLEDGE_MAX_TOTAL_SOURCE_BYTES: ${KNOWLEDGE_MAX_TOTAL_SOURCE_BYTES:-33554432}
+      KNOWLEDGE_MAX_EXTRACTED_DOCUMENT_BYTES: ${KNOWLEDGE_MAX_EXTRACTED_DOCUMENT_BYTES:-8388608}
+      KNOWLEDGE_DOCUMENT_PROFILES_JSON: ${KNOWLEDGE_DOCUMENT_PROFILES_JSON:-}
+      KNOWLEDGE_BUILD_TIMEOUT_SECONDS: ${KNOWLEDGE_BUILD_TIMEOUT_SECONDS:-1800}
+      KNOWLEDGE_WORKER_POLL_SECONDS: ${KNOWLEDGE_WORKER_POLL_SECONDS:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - graphify_knowledge:/knowledge
+    depends_on:
+      api:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    restart: unless-stopped
+    networks: [app]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME:-}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:-}
+    ports:
+      - "8080:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak/import:/opt/keycloak/data/import:ro
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    networks: [app]
+
 volumes:
   graphify_knowledge:
+  keycloak_data:
 
 networks:
   app:

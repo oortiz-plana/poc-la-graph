@@ -1,15 +1,13 @@
 # Graphify Knowledge Agent POC
 
-The default Compose stack now pins the actual open-source
-`graphifyy==0.9.18` runtime and `haystack-ai==2.31.0`. It discovers supported
-Markdown, text, HTML, PDF, and DOCX documents under `knowledge/input`, builds a
-native Graphify `graph.json`, indexes normalized structural source chunks in
-SQLite FTS5, starts Graphify's Streamable HTTP MCP server, and serves grounded
-hybrid-retrieval chat through FastAPI and Next.js.
+The default Compose stack pins the open-source `graphifyy==0.9.18` runtime and
+`haystack-ai==2.31.0`. Editors upload supported Markdown, text, HTML, PDF, and
+DOCX documents into immutable project snapshots. A durable worker builds native
+Graphify graphs and version-local SQLite FTS5 source indexes before activation.
 
 Graphify semantic extraction requires a valid provider credential. Copy
-`.env.example` to `.env`, set `OPENAI_API_KEY` (and provider/model overrides
-when applicable), then run:
+`.env.example` to `.env`, set unique Keycloak bootstrap values and
+`OPENAI_API_KEY` (plus provider/model overrides when applicable), then run:
 
 ```bash
 docker compose up --build
@@ -18,8 +16,8 @@ docker compose up --build
 Graphify itself is MIT-licensed open source and needs no license key. The
 credential above is for the LLM used during semantic document extraction.
 
-The normal startup deliberately fails if real graph generation fails. The
-deterministic server is available only through:
+The normal stack starts Graphify in pure multi-project mode and waits for an
+explicit project build. The deterministic server is available only through:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.synthetic.yml up --build
@@ -42,6 +40,7 @@ When the services are healthy:
 - Web UI: <http://localhost:3000>
 - Backend API: <http://localhost:8000>
 - OpenAPI documentation: <http://localhost:8000/docs>
+- Keycloak: <http://localhost:8080>
 
 The first image build downloads Python, Node, and application dependencies.
 Ask a sample question such as:
@@ -58,8 +57,9 @@ contracts without an external answer model.
 
 ## Runtime architecture
 
-The browser talks only to Next.js routes. Next.js proxies conversation calls and
-converts the backend's typed SSE lifecycle events to the Vercel AI SDK data
+The browser authenticates with Keycloak Authorization Code + PKCE S256, keeps
+tokens in memory, and talks only to Next.js routes. Next.js proxies project and
+conversation calls and converts typed SSE events to the Vercel AI SDK data
 stream. FastAPI owns a durable SQLAlchemy conversation store and invokes a
 bounded LangGraph workflow. The workflow resolves follow-up references from a
 sanitized history window, retrieves fresh Graphify evidence for every answer,
@@ -97,8 +97,9 @@ including its document, article, paragraph marker, and line range.
 
 The browser never receives an LLM key or Graphify credentials and never connects
 directly to Graphify. Only `query_graph`, `get_node`, `get_neighbors`, and
-`shortest_path` are allowlisted. Project identity and the project filesystem path
-come from server configuration, never from the model.
+`shortest_path` are allowlisted. Project identity and immutable version paths
+come from the authenticated server registry, never from document content or
+model output.
 
 See:
 
@@ -143,7 +144,8 @@ the tested PostgreSQL backend instead:
 docker compose -f docker-compose.yml -f compose/postgres.yml up --build
 ```
 
-Only the current conversation UUID is kept in browser `localStorage`. Previous
+The selected project and one conversation UUID per project are kept in browser
+`localStorage`. Previous
 turn text is bounded and sanitized before it is supplied to follow-up
 resolution. It is never accepted as knowledge evidence: citations must match
 graph or bounded source evidence retrieved for the current request.
@@ -204,13 +206,15 @@ for direct test commands.
 
 ## Scope and limitations
 
-- Authentication and authorization are intentionally absent.
+- The bundled Keycloak `start-dev` service is for local development only.
 - Conversations expire after 30 days and retain at most 100 complete exchanges
   by default; both limits are configurable.
-- The browser stores only the current conversation ID in `localStorage`.
+- The browser stores only project selection and one conversation ID per project
+  in `localStorage`; access tokens remain in memory.
 - There is no account-level conversation list or cross-device synchronization.
-- Conversation IDs are bearer capabilities in this unauthenticated POC.
-- One server-configured Graphify project is supported per deployment.
+- All authenticated users share project visibility; invitations and ownership
+  ACLs are out of scope.
+- Uploaded bytes use the local Docker volume; object storage is out of scope.
 - Source-text retrieval is lexical BM25; no semantic embedding retriever is
   configured.
 - Article-detail answers require both a Graphify article scope and matching

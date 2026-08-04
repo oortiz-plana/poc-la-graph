@@ -121,6 +121,18 @@ describe("ChatWorkspace", () => {
       }));
   });
 
+  it("shows the project name instead of its opaque identifier", async () => {
+    const projectId = "5ab3495a-51f0-43b8-a8af-d499cc9a5ba2";
+
+    render(
+      <ChatWorkspace projectId={projectId} projectName="Legal knowledge" />,
+    );
+
+    await screen.findByText("API connected");
+    expect(screen.getAllByText("Legal knowledge")).toHaveLength(2);
+    expect(screen.queryByText(projectId)).not.toBeInTheDocument();
+  });
+
   it("persists the active conversation and submits with Enter", async () => {
     const user = userEvent.setup();
     render(<ChatWorkspace />);

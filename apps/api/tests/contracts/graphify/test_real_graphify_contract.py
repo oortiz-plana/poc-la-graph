@@ -148,12 +148,19 @@ async def test_all_native_tools_accept_ids_from_search(
     assert node.id == law.id
     assert neighbors.nodes[0].id == law.id
     assert path.node_ids == [law.id, pensions.id]
-    assert calls[1][1] == {"label": "Ley 100 de 1993"}
-    assert calls[2][1] == {"label": "Ley 100 de 1993"}
+    assert calls[1][1] == {
+        "label": "Ley 100 de 1993",
+        "project_path": "/knowledge/laws",
+    }
+    assert calls[2][1] == {
+        "label": "Ley 100 de 1993",
+        "project_path": "/knowledge/laws",
+    }
     assert calls[3][1] == {
         "source": "Ley 100 de 1993",
         "target": "Sistema General de Pensiones",
         "max_hops": 2,
+        "project_path": "/knowledge/laws",
     }
 
 

@@ -2,10 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "./route";
 
-function chatRequest() {
+function chatRequest(authorization?: string) {
   return new Request("http://localhost/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authorization ? { Authorization: authorization } : {}),
+    },
     body: JSON.stringify({
       conversationId: "conv-1",
       messages: [
@@ -52,5 +55,23 @@ describe("chat route upstream errors", () => {
       code: "conversation_expired",
       message: "This conversation expired.",
     });
+  });
+
+  it("forwards the in-memory bearer token to the API", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await POST(chatRequest("Bearer memory-only-token"));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/messages"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer memory-only-token",
+        }),
+      }),
+    );
   });
 });

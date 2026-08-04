@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import {
+  ArrowLeft,
   BookOpen,
   CircleAlert,
   LoaderCircle,
@@ -38,6 +39,7 @@ import {
   getRuntimeConfig,
   loadConversation,
 } from "@/lib/api";
+import { authorizationHeaders } from "@/lib/auth-token";
 import {
   type Answer,
   type Citation,
@@ -79,9 +81,22 @@ function citationsOf(message: UIMessage) {
   ] as Citation[];
 }
 
-export function ChatWorkspace() {
+export function ChatWorkspace({
+  projectId: selectedProjectId,
+  projectName,
+  onBack,
+}: {
+  projectId?: string;
+  projectName?: string;
+  onBack?: () => void;
+} = {}) {
   const [conversationId, setConversationId] = useState<string>();
-  const [projectId, setProjectId] = useState("sample-project");
+  const [projectId, setProjectId] = useState(
+    selectedProjectId ?? "sample-project",
+  );
+  const conversationKey = selectedProjectId
+    ? `${CONVERSATION_KEY}:${selectedProjectId}`
+    : CONVERSATION_KEY;
   const [connection, setConnection] = useState<Connection>("checking");
   const [draft, setDraft] = useState("");
   const [initError, setInitError] = useState<string>();
@@ -104,6 +119,7 @@ export function ChatWorkspace() {
       new DefaultChatTransport({
         api: "/api/chat",
         body: { conversationId },
+        headers: authorizationHeaders,
       }),
     [conversationId],
   );
@@ -127,19 +143,22 @@ export function ChatWorkspace() {
       return;
     }
     try {
-      const config = await getRuntimeConfig();
-      setProjectId(config.projectId);
-      const stored = localStorage.getItem(CONVERSATION_KEY);
+      const configuredProjectId =
+        selectedProjectId ??
+        ((await getRuntimeConfig()) as unknown as { projectId: string })
+          .projectId;
+      setProjectId(configuredProjectId);
+      const stored = localStorage.getItem(conversationKey);
       let conversation = stored ? await loadConversation(stored) : null;
-      if (!conversation || conversation.projectId !== config.projectId) {
-        conversation = await createConversation(config.projectId);
+      if (!conversation || conversation.projectId !== configuredProjectId) {
+        conversation = await createConversation(configuredProjectId);
         if (stored) {
           setContinuityNotice(
             "Your previous conversation expired, so a new conversation was started.",
           );
         }
       }
-      localStorage.setItem(CONVERSATION_KEY, conversation.id);
+      localStorage.setItem(conversationKey, conversation.id);
       setConversationId(conversation.id);
       setMessages(
         conversation.messages.map((message) => ({
@@ -168,7 +187,7 @@ export function ChatWorkspace() {
         "The API is reachable, but a conversation could not be started.",
       );
     }
-  }, [setMessages]);
+  }, [conversationKey, selectedProjectId, setMessages]);
   useEffect(() => {
     void initialize();
   }, [initialize]);
@@ -202,7 +221,7 @@ export function ChatWorkspace() {
     recoveringExpiredConversation.current = true;
     void createConversation(projectId)
       .then((fresh) => {
-        localStorage.setItem(CONVERSATION_KEY, fresh.id);
+        localStorage.setItem(conversationKey, fresh.id);
         setConversationId(fresh.id);
         setMessages([]);
         setSelected(undefined);
@@ -221,7 +240,14 @@ export function ChatWorkspace() {
       .finally(() => {
         recoveringExpiredConversation.current = false;
       });
-  }, [clearError, error, lastQuestion, projectId, setMessages]);
+  }, [
+    clearError,
+    conversationKey,
+    error,
+    lastQuestion,
+    projectId,
+    setMessages,
+  ]);
 
   async function submit(question = draft) {
     const value = question.trim();
@@ -234,14 +260,14 @@ export function ChatWorkspace() {
     if (!conversationId) return;
     try {
       await deleteConversation(conversationId);
-      localStorage.removeItem(CONVERSATION_KEY);
+      localStorage.removeItem(conversationKey);
       setMessages([]);
       setSelected(undefined);
       setSelectedCitationId(undefined);
       setContinuityNotice(undefined);
       setResetOpen(false);
       const fresh = await createConversation(projectId);
-      localStorage.setItem(CONVERSATION_KEY, fresh.id);
+      localStorage.setItem(conversationKey, fresh.id);
       setConversationId(fresh.id);
       window.setTimeout(() => composer.current?.focus(), 0);
     } catch {
@@ -283,6 +309,8 @@ export function ChatWorkspace() {
           busy={busy}
           hasMessages={hasMessages}
           projectId={projectId}
+          projectName={projectName}
+          onBack={onBack}
           reset={() => setResetOpen(true)}
         />
       </aside>
@@ -320,7 +348,9 @@ export function ChatWorkspace() {
         <div className="shrink-0 border-b bg-sky-50 px-3 py-2 text-sm sm:px-4">
           <div className="min-w-0 truncate">
             <strong>Knowledge project:</strong>{" "}
-            <span className="font-mono">{projectId}</span>
+            <span className="font-medium" title={projectName ?? projectId}>
+              {projectName ?? projectId}
+            </span>
             <span className="ml-2 hidden text-slate-600 lg:inline">
               Answers use this knowledge graph.
             </span>
@@ -476,6 +506,8 @@ export function ChatWorkspace() {
               busy={busy}
               hasMessages={hasMessages}
               projectId={projectId}
+              projectName={projectName}
+              onBack={onBack}
               reset={() => {
                 setNavigationOpen(false);
                 setResetOpen(true);
@@ -507,15 +539,30 @@ function NavigationContent({
   busy,
   hasMessages,
   projectId,
+  projectName,
+  onBack,
   reset,
 }: {
   busy: boolean;
   hasMessages: boolean;
   projectId: string;
+  projectName?: string;
+  onBack?: () => void;
   reset: () => void;
 }) {
   return (
     <div className="flex min-h-full flex-col gap-6 p-5">
+      {onBack && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onBack}
+          className="min-h-11 w-full justify-start"
+        >
+          <ArrowLeft aria-hidden />
+          Projects
+        </Button>
+      )}
       <div>
         <p className="text-lg font-bold">Graphify</p>
         <p className="text-sm text-slate-600">Knowledge workspace</p>
@@ -524,8 +571,11 @@ function NavigationContent({
         <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
           Current project
         </p>
-        <p className="mt-2 break-all rounded-lg bg-slate-50 p-3 font-mono text-sm">
-          {projectId}
+        <p
+          className="mt-2 break-words rounded-lg bg-slate-50 p-3 text-sm font-semibold leading-5 text-slate-900"
+          title={projectName ?? projectId}
+        >
+          {projectName ?? projectId}
         </p>
       </nav>
       <div className="mt-auto space-y-3">

@@ -13,9 +13,13 @@ Copy the example configuration:
 cp .env.example .env
 ```
 
+Set `KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME` and
+`KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD` to local-only bootstrap values. They create
+the Keycloak administrative account only; no application users are bundled.
+
 The default mode is the real open-source `graphifyy==0.9.18` runtime. On a
-fresh volume, Graphify semantically extracts the four Spanish Markdown files
-under `knowledge/input`. With the configured `openai` extraction backend, set
+fresh volume, editors upload a project snapshot through the UI and explicitly
+start its build. With the configured `openai` extraction backend, set
 `OPENAI_API_KEY`; `OPENAI_BASE_URL`, `OPENAI_MODEL`, and
 `GRAPHIFY_EXTRACT_MODEL` are optional provider overrides.
 
@@ -28,7 +32,7 @@ docker compose up --build
 Startup order is:
 
 ```text
-knowledge-init -> knowledge-ingest -> graphify -> api -> web
+knowledge-init -> graphify + keycloak -> api -> knowledge-worker + web
 ```
 
 Ingestion failure stops the dependency chain and preserves an existing active
@@ -39,6 +43,7 @@ When healthy:
 - UI: <http://localhost:3000>
 - API: <http://localhost:8000>
 - OpenAPI: <http://localhost:8000/docs>
+- Keycloak: <http://localhost:8080>
 
 Inspect component-level readiness:
 
@@ -90,7 +95,19 @@ LLM_API_KEY=replace-me
 
 These values are API-only. Never put credentials in a `NEXT_PUBLIC_*` variable.
 
-## Knowledge operations
+## Project workflow
+
+Create disposable development users in Keycloak and assign the `viewer`,
+`editor`, or `admin` realm role. Sign in at the UI. Editors can create a project,
+upload supported files, and select **Build project**. Viewers can start a
+conversation only after a validated version is active.
+
+The host `knowledge/input` directory and legacy commands remain available only
+through the `legacy-single-project` Compose profile. Normal project bytes,
+graphs, and source indexes are stored below `/knowledge/projects` in the named
+volume.
+
+## Legacy knowledge operations
 
 The host input directory is `knowledge/input`; generated state is in the named
 `graphify_knowledge` volume. The maintenance commands return non-zero on
@@ -111,10 +128,7 @@ administrative routes can be removed entirely with:
 KNOWLEDGE_ADMIN_ENDPOINTS_ENABLED=false
 ```
 
-There is no upload route, login, or permission implementation. Future upload
-sources must enforce `knowledge:document:upload`,
-`knowledge:ingestion:execute`, `knowledge:ingestion:read`, and
-`knowledge:graph:activate`.
+The development knowledge administration routes require the `admin` realm role.
 
 ## Tests
 

@@ -1,5 +1,17 @@
 # Contract Freeze
 
+The authenticated project-workspace contract is frozen as of 2026-08-03 and is
+governed by [ADR 0008](../adr/0008-authenticated-multi-project-workspace.md).
+All `/api/v1/projects`, `/api/v1/knowledge`, and `/api/v1/conversations`
+operations require bearer authentication. `/health`, `/ready`, and the Next.js
+`/api/config` runtime configuration remain public.
+
+Project creation, upload-session creation/finalization, and build submission
+require `Idempotency-Key`. Upload part URLs accept raw bytes with `PUT`.
+Conversation creation requires `projectId`. Each message pins the then-active
+immutable graph and source-index version before retrieval. Existing answer and
+SSE shapes remain unchanged.
+
 The initial POC contract is frozen as of 2026-07-28.
 
 Normative artifacts:
@@ -30,4 +42,3 @@ zero or more `answer.delta` and `citation.available` events, then
 `message.completed`. A tool start must precede its matching completion. Citation
 events may arrive before or after answer deltas. An error terminates the stream
 with `message.failed`.
-

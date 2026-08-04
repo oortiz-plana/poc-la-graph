@@ -41,6 +41,9 @@ export async function POST(request: Request) {
       headers: {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
+        ...(request.headers.get("authorization")
+          ? { Authorization: request.headers.get("authorization")! }
+          : {}),
       },
       body: JSON.stringify({ message: question, includeGraphPaths: true }),
       signal: request.signal,

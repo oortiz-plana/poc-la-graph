@@ -9,15 +9,24 @@ async function proxy(
 ) {
   const { path } = await context.params;
   const target = `${API_URL}/${path.join("/")}`;
+  const headers = new Headers();
+  for (const name of [
+    "authorization",
+    "content-type",
+    "accept",
+    "idempotency-key",
+    "x-request-id",
+  ]) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
   const response = await fetch(target, {
     method: request.method,
-    headers: {
-      "Content-Type": request.headers.get("content-type") ?? "application/json",
-    },
+    headers,
     body:
       request.method === "GET" || request.method === "HEAD"
         ? undefined
-        : await request.text(),
+        : await request.arrayBuffer(),
     cache: "no-store",
   });
   return new Response(response.body, {
@@ -30,4 +39,5 @@ async function proxy(
 }
 export const GET = proxy;
 export const POST = proxy;
+export const PUT = proxy;
 export const DELETE = proxy;

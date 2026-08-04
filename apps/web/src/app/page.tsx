@@ -1,5 +1,10 @@
-import { ChatWorkspace } from "@/components/chat-workspace";
+import { AuthProvider } from "@/components/auth-provider";
+import { ProjectWorkspace } from "@/components/project-workspace";
 
 export default function Home() {
-  return <ChatWorkspace />;
+  return (
+    <AuthProvider>
+      <ProjectWorkspace />
+    </AuthProvider>
+  );
 }

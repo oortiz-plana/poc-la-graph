@@ -104,15 +104,15 @@ class FilesystemDocumentSource:
             profile_name, _ = self.profiles.select(relative)
             documents.append(
                 KnowledgeDocument(
-                    relativePath=relative,
+                    relative_path=relative,
                     content=converted.text,
-                    rawBytes=raw,
+                    raw_bytes=raw,
                     sha256=hashlib.sha256(raw).hexdigest(),
                     bytes=len(raw),
-                    modifiedAt=datetime.fromtimestamp(
+                    modified_at=datetime.fromtimestamp(
                         path.stat(follow_symlinks=False).st_mtime, tz=UTC
                     ),
-                    mediaType=converted.media_type,
+                    media_type=converted.media_type,
                     profile=profile_name,
                     converter=converted.metadata,
                 )
@@ -125,9 +125,9 @@ class FilesystemDocumentSource:
             digest.update(document.sha256.encode("ascii"))
             digest.update(b"\0")
         return KnowledgeSnapshot(
-            sourceVersion=digest.hexdigest(),
+            source_version=digest.hexdigest(),
             documents=tuple(documents),
-            totalBytes=total,
+            total_bytes=total,
         )
 
     def _walk(self, directory: Path, root: Path) -> list[Path]:

@@ -16,6 +16,10 @@ from jwt.exceptions import PyJWTError
 class AuthenticationError(ValueError):
     """A bearer token is missing or cannot be trusted."""
 
+    def __init__(self, message: str, *, reason: str = "invalid_token") -> None:
+        super().__init__(message)
+        self.reason = reason
+
 
 @dataclass(frozen=True)
 class VerifiedToken:
@@ -56,17 +60,21 @@ class TokenVerifier:
         try:
             header = jwt.get_unverified_header(token)
         except InvalidTokenError as exc:
-            raise AuthenticationError("Invalid bearer token") from exc
+            raise AuthenticationError(
+                "Invalid bearer token", reason="malformed_token"
+            ) from exc
         kid = header.get("kid")
         algorithm = header.get("alg")
         if not isinstance(kid, str) or algorithm != "RS256":
-            raise AuthenticationError("Invalid bearer token")
+            raise AuthenticationError("Invalid bearer token", reason="invalid_header")
 
         key = await self._key(kid, force=False)
         if key is None:
             key = await self._key(kid, force=True)
         if key is None:
-            raise AuthenticationError("Invalid bearer token")
+            raise AuthenticationError(
+                "Invalid bearer token", reason="signing_key_not_found"
+            )
         try:
             claims = jwt.decode(
                 token,
@@ -77,11 +85,13 @@ class TokenVerifier:
                 options={"require": ["exp", "iat", "iss", "sub"]},
             )
         except InvalidTokenError as exc:
-            raise AuthenticationError("Invalid bearer token") from exc
+            raise AuthenticationError(
+                "Invalid bearer token", reason="invalid_claims"
+            ) from exc
 
         subject = claims.get("sub")
         if not isinstance(subject, str) or not subject:
-            raise AuthenticationError("Invalid bearer token")
+            raise AuthenticationError("Invalid bearer token", reason="subject_missing")
         username_value = claims.get("preferred_username", subject)
         username = username_value if isinstance(username_value, str) else subject
         realm_access = claims.get("realm_access")
@@ -129,7 +139,9 @@ class TokenVerifier:
                     except (PyJWTError, ValueError):
                         continue
             except (httpx.HTTPError, ValueError, KeyError) as exc:
-                raise AuthenticationError("Authentication service unavailable") from exc
+                raise AuthenticationError(
+                    "Authentication service unavailable", reason="jwks_unavailable"
+                ) from exc
             self._keys = keys
             self._expires_at = now + self.cache_seconds
             return keys.get(kid)

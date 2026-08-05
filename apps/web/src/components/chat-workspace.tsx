@@ -2,23 +2,32 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import Link from "next/link";
 import {
   ArrowLeft,
   Archive,
   BookOpen,
   CircleAlert,
+  CircleCheck,
+  Ellipsis,
+  FileText,
   LoaderCircle,
+  LogOut,
   Menu,
+  MessageSquare,
+  Network,
+  PanelRightOpen,
   Pencil,
   Plus,
   Search,
   Send,
+  Settings,
   Square,
   Trash2,
   Undo2,
+  Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,6 +51,8 @@ import {
   archiveConversation,
   getRuntimeConfig,
   listConversations,
+  listProjectFiles,
+  listProjects,
   loadConversation,
   purgeConversation,
   renameConversation,
@@ -53,11 +64,22 @@ import {
   type Citation,
   type Conversation,
   type ConversationSummary,
+  type Project,
+  type SnapshotFile,
   type UIEvent,
   uiEventSchema,
 } from "@/lib/contracts";
 import { CitedAnswer } from "./cited-answer";
-import { EvidenceDrawer } from "./evidence-drawer";
+import { useAuth } from "./auth-provider";
+import { ProjectContextPanel, type ContextTab } from "./project-context-panel";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 type Connection = "checking" | "connected" | "unavailable";
 const CONVERSATION_KEY = "graphify-conversation-id";
@@ -93,17 +115,25 @@ function citationsOf(message: UIMessage) {
 
 export function ChatWorkspace({
   projectId: selectedProjectId,
-  projectName,
+  project: selectedProject,
+  projectName: legacyProjectName,
+  initialFiles = [],
   onBack,
 }: {
   projectId?: string;
+  project?: Project;
   projectName?: string;
+  initialFiles?: SnapshotFile[];
   onBack?: () => void;
 } = {}) {
+  const auth = useAuth();
   const [conversationId, setConversationId] = useState<string>();
   const [projectId, setProjectId] = useState(
     selectedProjectId ?? "sample-project",
   );
+  const [project, setProject] = useState<Project | undefined>(selectedProject);
+  const [files, setFiles] = useState<SnapshotFile[]>(initialFiles);
+  const projectName = project?.name ?? legacyProjectName;
   const conversationKey = selectedProjectId
     ? `${CONVERSATION_KEY}:${selectedProjectId}`
     : CONVERSATION_KEY;
@@ -113,6 +143,9 @@ export function ChatWorkspace({
   const [continuityNotice, setContinuityNotice] = useState<string>();
   const [selected, setSelected] = useState<UIMessage>();
   const [selectedCitationId, setSelectedCitationId] = useState<string>();
+  const [contextTab, setContextTab] = useState<ContextTab>("files");
+  const [contextOpen, setContextOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [activeConversations, setActiveConversations] = useState<
@@ -122,6 +155,7 @@ export function ChatWorkspace({
     ConversationSummary[]
   >([]);
   const [showArchived, setShowArchived] = useState(false);
+  const [conversationQuery, setConversationQuery] = useState("");
   const [activeCursor, setActiveCursor] = useState<string | null>(null);
   const [archivedCursor, setArchivedCursor] = useState<string | null>(null);
   const [lastQuestion, setLastQuestion] = useState("");
@@ -132,7 +166,7 @@ export function ChatWorkspace({
     citationId?: string;
     trigger: HTMLElement | null;
   } | null>(null);
-  const evidenceIsPanel = useMediaQuery("(min-width: 768px)");
+  const evidenceIsPanel = useMediaQuery("(min-width: 1024px)");
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -243,6 +277,43 @@ export function ChatWorkspace({
   useEffect(() => {
     void initialize();
   }, [initialize]);
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    async function refreshProjectContext() {
+      try {
+        const [projects, nextFiles] = await Promise.all([
+          listProjects(),
+          listProjectFiles(selectedProjectId!),
+        ]);
+        if (cancelled) return;
+        const nextProject = projects.find(
+          (item) => item.id === selectedProjectId,
+        );
+        if (nextProject) setProject(nextProject);
+        setFiles(nextFiles);
+        if (
+          nextProject?.state === "queued" ||
+          nextProject?.state === "building"
+        ) {
+          timer = window.setTimeout(() => void refreshProjectContext(), 1000);
+        }
+      } catch {
+        // Conversation availability is independent from contextual file metadata.
+      }
+    }
+    void refreshProjectContext();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [selectedProjectId]);
+  useEffect(() => {
+    if (!evidenceIsPanel) return;
+    const key = `graphify-context-panel-collapsed:${projectId}`;
+    setContextOpen(localStorage.getItem(key) !== "true");
+  }, [evidenceIsPanel, projectId]);
   useEffect(() => {
     if (connection !== "unavailable") return;
     const timer = window.setInterval(() => void initialize(), 15_000);
@@ -361,6 +432,19 @@ export function ChatWorkspace({
       setResetOpen(false);
     }
   }
+  async function archiveOne(id: string) {
+    if (id === conversationId) {
+      setResetOpen(true);
+      return;
+    }
+    if (busy) return;
+    try {
+      await archiveConversation(id);
+      await refreshConversationLists();
+    } catch {
+      setInitError("The conversation could not be archived.");
+    }
+  }
   async function saveName(id: string, name: string) {
     if (busy) return;
     try {
@@ -419,6 +503,7 @@ export function ChatWorkspace({
     };
     setSelected(undefined);
     setSelectedCitationId(undefined);
+    setContextTab("files");
     evidenceTrigger.current = null;
   }, [selectedCitationId]);
   const openEvidence = useCallback(
@@ -426,15 +511,36 @@ export function ChatWorkspace({
       evidenceTrigger.current = trigger;
       setSelectedCitationId(citationId);
       setSelected(message);
+      setContextTab("sources");
+      setContextOpen(true);
     },
     [],
   );
   const hasMessages = messages.length > 0;
+  const latestAssistant = messages.findLast(
+    (message) => message.role === "assistant" && Boolean(finalOf(message)),
+  );
+  const contextMessage = selected ?? latestAssistant;
+  const currentConversation = activeConversations.find(
+    (conversation) => conversation.id === conversationId,
+  );
+  const setContextVisibility = useCallback(
+    (open: boolean) => {
+      setContextOpen(open);
+      if (evidenceIsPanel) {
+        localStorage.setItem(
+          `graphify-context-panel-collapsed:${projectId}`,
+          String(!open),
+        );
+      }
+    },
+    [evidenceIsPanel, projectId],
+  );
   return (
     <div className="flex h-dvh max-w-full overflow-hidden">
       <aside
         aria-label="Primary navigation"
-        className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r bg-white xl:flex"
+        className="hidden w-[clamp(13rem,16vw,18rem)] shrink-0 flex-col overflow-y-auto border-r bg-surface xl:flex"
       >
         <NavigationContent
           active={activeConversations}
@@ -445,21 +551,25 @@ export function ChatWorkspace({
           conversationId={conversationId}
           projectId={projectId}
           projectName={projectName}
+          fileCount={files.length}
+          projectState={project?.state}
+          query={conversationQuery}
           showArchived={showArchived}
           onBack={onBack}
-          archive={() => setResetOpen(true)}
           create={() => void startNewConversation()}
           loadMore={(state) => void loadMoreConversations(state)}
           purge={(id) => void permanentlyDelete(id)}
           rename={(id, name) => void saveName(id, name)}
           restore={(id) => void restoreArchived(id)}
+          archiveOne={(id) => void archiveOne(id)}
           select={(id) => void selectConversation(id)}
+          setQuery={setConversationQuery}
           setShowArchived={setShowArchived}
         />
       </aside>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="shrink-0 border-b bg-white/90 px-3 py-3 backdrop-blur sm:px-4">
-          <div className="flex min-w-0 items-center justify-between gap-3">
+        <header className="shrink-0 border-b bg-surface/95 px-3 backdrop-blur sm:px-4">
+          <div className="flex min-h-16 min-w-0 items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <Button
                 ref={navigationTrigger}
@@ -475,37 +585,108 @@ export function ChatWorkspace({
                 <Menu aria-hidden className="h-5 w-5" />
               </Button>
               <div className="min-w-0">
-                <h1 className="truncate text-lg font-bold tracking-tight sm:text-xl">
+                <h1 className="truncate text-base font-semibold">
                   Graphify Knowledge Agent
                 </h1>
-                <p className="hidden truncate text-xs text-slate-500 sm:block">
-                  Answers grounded in connected knowledge
+                <p className="hidden truncate text-xs text-text-muted sm:block">
+                  Evidence-grounded research workspace
                 </p>
               </div>
             </div>
-            <div className="shrink-0">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <ConnectionStatus status={connection} check={initialize} />
+              <span className="hidden rounded-full border bg-background px-2.5 py-1 text-xs text-text-secondary lg:inline">
+                Local
+              </span>
+              <span className="hidden max-w-32 truncate text-sm text-text-secondary 2xl:inline">
+                {auth.username}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Log out"
+                onClick={auth.logout}
+              >
+                <LogOut aria-hidden />
+              </Button>
             </div>
           </div>
         </header>
-        <div className="shrink-0 border-b bg-sky-50 px-3 py-2 text-sm sm:px-4">
-          <div className="min-w-0 truncate">
-            <strong>Knowledge project:</strong>{" "}
-            <span className="font-medium" title={projectName ?? projectId}>
-              {projectName ?? projectId}
-            </span>
-            <span className="ml-2 hidden text-slate-600 lg:inline">
-              Answers use this knowledge graph.
-            </span>
+        <header className="shrink-0 border-b bg-surface px-3 py-3 sm:px-5">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-xs text-text-muted">
+                Project: {projectName ?? projectId}
+              </p>
+              <h1 className="mt-0.5 truncate text-base font-semibold">
+                {currentConversation?.name ?? "New conversation"}
+              </h1>
+              {currentConversation && (
+                <p className="mt-0.5 text-xs text-text-muted">
+                  Updated {formatRelativeTime(currentConversation.updatedAt)}
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" disabled>
+                    Share link
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Sharing links are coming soon</TooltipContent>
+              </Tooltip>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Conversation actions"
+                    disabled={!conversationId || busy}
+                  >
+                    <Ellipsis aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => setRenameOpen(true)}>
+                    <Pencil aria-hidden /> Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => setResetOpen(true)}
+                    className="text-error focus:text-error"
+                  >
+                    <Archive aria-hidden /> Archive
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {(!evidenceIsPanel || !contextOpen) && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Open project context"
+                      onClick={() => setContextVisibility(true)}
+                    >
+                      <PanelRightOpen aria-hidden />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Open project context</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
-        </div>
+        </header>
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <section
               aria-label="Conversation"
               className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-5 sm:py-7"
             >
-              <div className="mx-auto w-full max-w-4xl">
+              <div className="mx-auto w-full max-w-[52rem]">
                 {!hasMessages ? (
                   <EmptyState choose={setDraft} />
                 ) : (
@@ -530,7 +711,7 @@ export function ChatWorkspace({
                 {(error || initError) && (
                   <div
                     role="alert"
-                    className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+                    className="mt-5 rounded-lg border border-error-border bg-error-surface p-4 text-sm text-error"
                   >
                     <CircleAlert className="mr-2 inline h-4 w-4" />
                     {initError ??
@@ -542,7 +723,7 @@ export function ChatWorkspace({
                 {continuityNotice && (
                   <div
                     role="status"
-                    className="mt-5 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900"
+                    className="mt-5 rounded-lg border border-information-border bg-information-surface p-4 text-sm text-information"
                   >
                     {continuityNotice}
                   </div>
@@ -551,7 +732,7 @@ export function ChatWorkspace({
             </section>
             <div className="shrink-0 border-t bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-5">
               <form
-                className="mx-auto w-full max-w-4xl rounded-2xl border bg-white p-3 shadow-xl"
+                className="mx-auto w-full max-w-[52rem] rounded-lg border bg-surface p-3 shadow-panel"
                 onSubmit={(e) => {
                   e.preventDefault();
                   void submit();
@@ -578,10 +759,10 @@ export function ChatWorkspace({
                       void submit();
                     }
                   }}
-                  className="mt-2 w-full resize-none rounded-lg border bg-slate-50 p-3 disabled:opacity-60"
+                  className="mt-2 w-full resize-none rounded-md border bg-background p-3 disabled:opacity-60"
                 />
                 <div className="mt-2 flex items-center justify-between gap-3">
-                  <span className="hidden text-xs text-slate-500 sm:inline">
+                  <span className="hidden text-xs text-text-muted sm:inline">
                     Enter to send · Shift+Enter for a new line
                   </span>
                   {busy ? (
@@ -589,7 +770,7 @@ export function ChatWorkspace({
                       type="button"
                       aria-label="Stop response"
                       onClick={stop}
-                      className="ml-auto min-h-11 bg-slate-900 hover:bg-slate-800"
+                      className="ml-auto bg-foreground hover:bg-foreground/90"
                     >
                       <Square />
                       Stop
@@ -613,13 +794,26 @@ export function ChatWorkspace({
               </form>
             </div>
           </main>
-          {selected && evidenceIsPanel && (
-            <EvidenceDrawer
+          {evidenceIsPanel && (
+            <ProjectContextPanel
               mode="panel"
-              answer={finalOf(selected)}
-              citations={citationsOf(selected)}
+              open={contextOpen}
+              onOpenChange={(open) => {
+                setContextVisibility(open);
+                if (!open && selected) closeEvidence();
+              }}
+              projectId={projectId}
+              files={files}
+              canUpload={project?.allowedActions.editDraft ?? false}
+              tab={contextTab}
+              setTab={(tab) => {
+                setContextTab(tab);
+                if (tab === "files") setSelectedCitationId(undefined);
+              }}
+              answer={contextMessage ? finalOf(contextMessage) : undefined}
+              citations={contextMessage ? citationsOf(contextMessage) : []}
               selectedCitationId={selectedCitationId}
-              onClose={closeEvidence}
+              onCollapse={() => setContextVisibility(false)}
             />
           )}
         </div>
@@ -654,36 +848,61 @@ export function ChatWorkspace({
               conversationId={conversationId}
               projectId={projectId}
               projectName={projectName}
+              fileCount={files.length}
+              projectState={project?.state}
+              query={conversationQuery}
               showArchived={showArchived}
               onBack={onBack}
-              archive={() => {
-                setNavigationOpen(false);
-                setResetOpen(true);
-              }}
               create={() => void startNewConversation()}
               loadMore={(state) => void loadMoreConversations(state)}
               purge={(id) => void permanentlyDelete(id)}
               rename={(id, name) => void saveName(id, name)}
               restore={(id) => void restoreArchived(id)}
+              archiveOne={(id) => void archiveOne(id)}
               select={(id) => void selectConversation(id)}
+              setQuery={setConversationQuery}
               setShowArchived={setShowArchived}
             />
           </SheetContent>
         </Sheet>
       )}
-      {selected && !evidenceIsPanel && (
-        <EvidenceDrawer
+      {!evidenceIsPanel && (
+        <ProjectContextPanel
           mode="drawer"
-          answer={finalOf(selected)}
-          citations={citationsOf(selected)}
+          open={contextOpen}
+          onOpenChange={(open) => {
+            setContextVisibility(open);
+            if (!open && selected) closeEvidence();
+          }}
+          projectId={projectId}
+          files={files}
+          canUpload={project?.allowedActions.editDraft ?? false}
+          tab={contextTab}
+          setTab={(tab) => {
+            setContextTab(tab);
+            if (tab === "files") setSelectedCitationId(undefined);
+          }}
+          answer={contextMessage ? finalOf(contextMessage) : undefined}
+          citations={contextMessage ? citationsOf(contextMessage) : []}
           selectedCitationId={selectedCitationId}
-          onClose={closeEvidence}
+          onCollapse={() => setContextVisibility(false)}
         />
       )}
       {resetOpen && (
         <ConfirmReset
           cancel={() => setResetOpen(false)}
           confirm={() => void archiveCurrent()}
+        />
+      )}
+      {renameOpen && currentConversation && (
+        <RenameConversationDialog
+          conversation={currentConversation}
+          cancel={() => setRenameOpen(false)}
+          confirm={(name) => {
+            void saveName(currentConversation.id, name).then(() =>
+              setRenameOpen(false),
+            );
+          }}
         />
       )}
     </div>
@@ -699,15 +918,19 @@ function NavigationContent({
   conversationId,
   projectId,
   projectName,
+  fileCount,
+  projectState,
+  query,
   showArchived,
   onBack,
-  archive,
   create,
   loadMore,
   purge,
   rename,
   restore,
+  archiveOne,
   select,
+  setQuery,
   setShowArchived,
 }: {
   active: ConversationSummary[];
@@ -718,54 +941,115 @@ function NavigationContent({
   conversationId?: string;
   projectId: string;
   projectName?: string;
+  fileCount: number;
+  projectState?: Project["state"];
+  query: string;
   showArchived: boolean;
   onBack?: () => void;
-  archive: () => void;
   create: () => void;
   loadMore: (state: "active" | "archived") => void;
   purge: (id: string) => void;
   rename: (id: string, name: string) => void;
   restore: (id: string) => void;
+  archiveOne: (id: string) => void;
   select: (id: string) => void;
+  setQuery: (value: string) => void;
   setShowArchived: (value: boolean) => void;
 }) {
+  const conversations = (showArchived ? archived : active).filter(
+    (conversation) =>
+      !query.trim() ||
+      conversation.name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
   return (
-    <div className="flex min-h-full flex-col gap-5 p-5">
-      {onBack && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onBack}
-          className="min-h-11 w-full justify-start"
+    <div className="flex min-h-full flex-col p-4">
+      <Link
+        href="/"
+        onClick={
+          onBack
+            ? (event) => {
+                event.preventDefault();
+                onBack();
+              }
+            : undefined
+        }
+        className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-medium text-text-secondary hover:bg-background"
+      >
+        <ArrowLeft aria-hidden className="h-4 w-4" /> All projects
+      </Link>
+      <Link
+        href={`/projects/${encodeURIComponent(projectId)}`}
+        className="mt-1 break-words px-2 py-2 text-base font-semibold leading-5 hover:text-primary"
+        title={projectName ?? projectId}
+      >
+        {projectName ?? projectId}
+      </Link>
+      <nav aria-label="Project" className="mt-2 border-t pt-3">
+        <ProjectNavigationLink
+          href={`/projects/${encodeURIComponent(projectId)}/chat`}
+          label="Conversation"
+          icon={MessageSquare}
+          selected
+        />
+        <ProjectNavigationLink
+          href={`/projects/${encodeURIComponent(projectId)}?section=documents`}
+          label="Files"
+          icon={FileText}
+          suffix={fileCount.toString()}
+          processing={projectState === "queued" || projectState === "building"}
+        />
+        <ProjectNavigationLink
+          href={`/projects/${encodeURIComponent(projectId)}?section=builds`}
+          label="Knowledge"
+          icon={Network}
+        />
+        <ProjectNavigationLink
+          href={`/projects/${encodeURIComponent(projectId)}?section=settings`}
+          label="Project settings"
+          icon={Settings}
+        />
+        <span
+          aria-disabled="true"
+          className="mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm text-text-muted opacity-60"
+          title="Access and sharing is coming soon"
         >
-          <ArrowLeft aria-hidden />
-          Projects
-        </Button>
-      )}
-      <div>
-        <p className="text-lg font-bold">Graphify</p>
-        <p className="text-sm text-slate-600">Knowledge workspace</p>
-      </div>
-      <nav aria-label="Workspace" className="min-h-0 flex-1">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-          Current project
-        </p>
-        <p
-          className="mt-2 break-words rounded-lg bg-slate-50 p-3 text-sm font-semibold leading-5 text-slate-900"
-          title={projectName ?? projectId}
+          <Users aria-hidden className="h-5 w-5" /> Access &amp; sharing
+        </span>
+      </nav>
+      <section
+        aria-labelledby="conversations-heading"
+        className="mt-4 min-h-0 border-t pt-4"
+      >
+        <h2
+          id="conversations-heading"
+          className="px-2 text-xs font-semibold text-text-muted"
         >
-          {projectName ?? projectId}
-        </p>
+          Conversations
+        </h2>
         <Button
           type="button"
           disabled={busy}
           onClick={create}
-          className="mt-3 min-h-11 w-full justify-start"
+          className="mt-2 min-h-11 w-full justify-start"
         >
           <Plus aria-hidden /> New conversation
         </Button>
+        <label className="relative mt-2 block">
+          <span className="sr-only">Search conversations</span>
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-text-muted"
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search"
+            className="min-h-11 w-full rounded-md border bg-surface py-2 pl-9 pr-3 text-sm"
+          />
+        </label>
         <div
-          className="mt-4 flex gap-2"
+          className="mt-3 flex gap-2"
           role="group"
           aria-label="Conversation state"
         >
@@ -789,12 +1073,12 @@ function NavigationContent({
           </Button>
         </div>
         <ul
-          className="mt-3 space-y-2"
+          className="mt-3 space-y-1"
           aria-label={
             showArchived ? "Archived conversations" : "Active conversations"
           }
         >
-          {(showArchived ? archived : active).map((conversation) => (
+          {conversations.map((conversation) => (
             <ConversationNavigationItem
               key={conversation.id}
               conversation={conversation}
@@ -804,15 +1088,18 @@ function NavigationContent({
               onSelect={() => select(conversation.id)}
               onRename={(name) => rename(conversation.id, name)}
               onRestore={() => restore(conversation.id)}
+              onArchive={() => archiveOne(conversation.id)}
               onPurge={() => purge(conversation.id)}
             />
           ))}
         </ul>
-        {(showArchived ? archived : active).length === 0 && (
-          <p className="mt-3 text-sm text-slate-500">
-            {showArchived
-              ? "No archived conversations."
-              : "No active conversations."}
+        {conversations.length === 0 && (
+          <p className="mt-3 text-sm text-text-muted">
+            {query.trim()
+              ? "No conversations match your search."
+              : showArchived
+                ? "No archived conversations."
+                : "No active conversations."}
           </p>
         )}
         {(showArchived ? archivedCursor : activeCursor) && (
@@ -826,20 +1113,47 @@ function NavigationContent({
             Load more
           </Button>
         )}
-      </nav>
-      <div className="mt-auto space-y-3">
-        <Button
-          aria-label="Archive conversation"
-          variant="outline"
-          disabled={!conversationId || busy}
-          onClick={archive}
-          className="min-h-11 w-full justify-start"
-        >
-          <Archive aria-hidden />
-          Archive conversation
-        </Button>
-      </div>
+      </section>
     </div>
+  );
+}
+
+function ProjectNavigationLink({
+  href,
+  label,
+  icon: Icon,
+  selected = false,
+  suffix,
+  processing = false,
+}: {
+  href: string;
+  label: string;
+  icon: typeof MessageSquare;
+  selected?: boolean;
+  suffix?: string;
+  processing?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={selected ? "page" : undefined}
+      className={`mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium ${
+        selected
+          ? "bg-selected text-primary"
+          : "text-text-secondary hover:bg-background"
+      }`}
+    >
+      <Icon aria-hidden className="h-5 w-5" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {processing ? (
+        <LoaderCircle
+          aria-label="Processing"
+          className="h-4 w-4 animate-spin text-warning"
+        />
+      ) : suffix ? (
+        <span className="text-xs text-text-muted">{suffix}</span>
+      ) : null}
+    </Link>
   );
 }
 
@@ -851,6 +1165,7 @@ function ConversationNavigationItem({
   onSelect,
   onRename,
   onRestore,
+  onArchive,
   onPurge,
 }: {
   conversation: ConversationSummary;
@@ -860,6 +1175,7 @@ function ConversationNavigationItem({
   onSelect: () => void;
   onRename: (name: string) => void;
   onRestore: () => void;
+  onArchive: () => void;
   onPurge: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -908,7 +1224,7 @@ function ConversationNavigationItem({
   }
   return (
     <li
-      className={`rounded-lg border p-2 ${selected ? "border-sky-500 bg-sky-50" : "bg-white"}`}
+      className={`group flex min-w-0 items-center rounded-md px-1 ${selected ? "bg-selected" : "hover:bg-background"}`}
     >
       {!archived && (
         <button
@@ -916,57 +1232,61 @@ function ConversationNavigationItem({
           disabled={busy}
           aria-current={selected ? "page" : undefined}
           onClick={onSelect}
-          className="min-h-11 w-full break-words text-left text-sm font-medium disabled:opacity-50"
+          className="min-h-11 min-w-0 flex-1 truncate px-2 text-left text-sm font-medium disabled:opacity-50"
         >
-          {conversation.name}
+          <MessageSquare
+            aria-hidden
+            className="mr-2 inline h-4 w-4 text-text-muted"
+          />
+          <span>{conversation.name}</span>
         </button>
       )}
       {archived && (
-        <p className="break-words px-1 py-2 text-sm font-medium">
+        <p className="min-h-11 min-w-0 flex-1 truncate px-2 py-3 text-sm font-medium">
+          <Archive
+            aria-hidden
+            className="mr-2 inline h-4 w-4 text-text-muted"
+          />
           {conversation.name}
         </p>
       )}
-      <div className="flex gap-1">
-        {!archived && (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <Button
             type="button"
-            size="icon"
             variant="ghost"
+            size="icon"
             disabled={busy}
-            aria-label={`Rename ${conversation.name}`}
-            onClick={() => setEditing(true)}
-            className="min-h-11 min-w-11"
+            aria-label={`Actions for ${conversation.name}`}
+            className="shrink-0"
           >
-            <Pencil aria-hidden />
+            <Ellipsis aria-hidden />
           </Button>
-        )}
-        {archived && (
-          <>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              disabled={busy}
-              aria-label={`Restore ${conversation.name}`}
-              onClick={onRestore}
-              className="min-h-11 min-w-11"
-            >
-              <Undo2 aria-hidden />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              disabled={busy}
-              aria-label={`Permanently delete ${conversation.name}`}
-              onClick={onPurge}
-              className="min-h-11 min-w-11 text-red-700"
-            >
-              <Trash2 aria-hidden />
-            </Button>
-          </>
-        )}
-      </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {!archived ? (
+            <>
+              <DropdownMenuItem onSelect={() => setEditing(true)}>
+                <Pencil aria-hidden /> Rename
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onArchive} className="text-error">
+                <Archive aria-hidden /> Archive
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <>
+              <DropdownMenuItem onSelect={onRestore}>
+                <Undo2 aria-hidden /> Restore
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onPurge} className="text-error">
+                <Trash2 aria-hidden /> Delete
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </li>
   );
 }
@@ -999,13 +1319,19 @@ function ConnectionStatus({
   return (
     <div
       aria-live="polite"
-      className="flex min-h-11 items-center gap-2 text-sm"
+      className="flex min-h-11 items-center gap-2 text-sm text-text-secondary"
     >
-      <span
-        aria-hidden="true"
-        className={`h-2.5 w-2.5 rounded-full ${status === "connected" ? "bg-emerald-500" : status === "checking" ? "bg-amber-500" : "bg-red-500"}`}
-      />
-      <span>{label}</span>
+      {status === "connected" ? (
+        <CircleCheck aria-hidden className="h-4 w-4 text-success" />
+      ) : status === "checking" ? (
+        <LoaderCircle
+          aria-hidden
+          className="h-4 w-4 animate-spin text-warning"
+        />
+      ) : (
+        <CircleAlert aria-hidden className="h-4 w-4 text-error" />
+      )}
+      <span className="sr-only sm:not-sr-only">{label}</span>
       {status === "unavailable" && (
         <Button
           variant="link"
@@ -1020,12 +1346,12 @@ function ConnectionStatus({
 }
 function EmptyState({ choose }: { choose: (value: string) => void }) {
   return (
-    <div className="mx-auto mt-12 max-w-2xl rounded-2xl border bg-white p-7 text-center shadow-sm">
-      <BookOpen className="mx-auto h-9 w-9 text-sky-600" />
-      <h2 className="mt-4 text-2xl font-bold">
+    <div className="mx-auto mt-12 max-w-2xl rounded-lg border bg-surface p-7 text-center shadow-panel">
+      <BookOpen className="mx-auto h-9 w-9 text-primary" />
+      <h2 className="mt-4 text-xl font-semibold">
         Explore your connected knowledge
       </h2>
-      <p className="mx-auto mt-2 max-w-xl text-slate-600">
+      <p className="mx-auto mt-2 max-w-xl text-text-secondary">
         Ask a question and inspect the Graphify sources, relationships, and
         paths supporting the answer.
       </p>
@@ -1038,7 +1364,7 @@ function EmptyState({ choose }: { choose: (value: string) => void }) {
             key={q}
             variant="outline"
             onClick={() => choose(q)}
-            className="min-h-11 rounded-full bg-slate-50 hover:bg-sky-50"
+            className="rounded-full bg-background hover:bg-selected"
           >
             {q}
           </Button>
@@ -1069,9 +1395,9 @@ function Message({
   return (
     <article
       aria-label={`${message.role === "user" ? "You" : "Graphify Agent"} message`}
-      className={`rounded-2xl border p-5 ${message.role === "user" ? "ml-auto max-w-2xl bg-sky-50" : "bg-white shadow-sm"}`}
+      className={`rounded-lg border p-5 ${message.role === "user" ? "ml-auto max-w-2xl border-information-border bg-information-surface" : "bg-surface shadow-panel"}`}
     >
-      <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+      <div className="mb-2 text-xs font-medium text-text-muted">
         {message.role === "user" ? "You" : "Graphify Agent"}
       </div>
       {message.role === "user" ? (
@@ -1079,15 +1405,15 @@ function Message({
       ) : (
         <>
           {busy && (
-            <div className="mb-3 flex items-center gap-2 text-sm text-sky-800">
+            <div className="mb-3 flex items-center gap-2 text-sm text-information">
               <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
               {searching
-                ? "Searching Graphify"
-                : "Writing an evidence-grounded answer"}
+                ? "Searching the knowledge graph…"
+                : "Preparing the grounded answer…"}
             </div>
           )}
           {answer?.responseType === "insufficient" && (
-            <h3 className="mb-2 font-bold text-amber-900">
+            <h3 className="mb-2 font-semibold text-warning">
               Not enough evidence in this project
             </h3>
           )}
@@ -1103,25 +1429,18 @@ function Message({
             </div>
           )}
           {answer && !clarification && (
-            <div className="mt-4 flex flex-wrap gap-2 text-xs">
-              <Badge variant="secondary">Confidence: {answer.confidence}</Badge>
-              {answer.graphVersion && (
-                <Badge variant="secondary">
-                  Graph version: {answer.graphVersion}
-                </Badge>
-              )}
-            </div>
+            <GroundingCoverage answer={answer} citations={citations} />
           )}
           {answer?.warnings.map((w) => (
             <div
               key={w}
-              className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm"
+              className="mt-3 rounded-md border border-warning-border bg-warning-surface p-3 text-sm text-warning"
             >
               {w}
             </div>
           ))}
           {answer && answer.responseType === "answer" && !citations.length && (
-            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+            <div className="mt-3 rounded-md border border-warning-border bg-warning-surface p-3 text-sm text-warning">
               No supporting citations were returned. Treat this answer with
               caution.
             </div>
@@ -1129,7 +1448,7 @@ function Message({
           {failed && (
             <div
               role="alert"
-              className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm"
+              className="mt-3 rounded-md border border-error-border bg-error-surface p-3 text-sm text-error"
             >
               {failed.error.message}
             </div>
@@ -1146,21 +1465,6 @@ function Message({
                 Sources ({citations.length})
               </Button>
             )}
-            {answer &&
-              !clarification &&
-              answer.graphEvidence.nodes.length +
-                answer.graphEvidence.edges.length +
-                answer.graphEvidence.paths.length >
-                0 && (
-                <Button
-                  aria-label="View evidence"
-                  variant="outline"
-                  onClick={(event) => openEvidence(event.currentTarget)}
-                  className="min-h-11"
-                >
-                  View evidence
-                </Button>
-              )}
             {failed && failed.error.retryable && (
               <Button
                 aria-label="Retry answer"
@@ -1176,6 +1480,108 @@ function Message({
     </article>
   );
 }
+
+function GroundingCoverage({
+  answer,
+  citations,
+}: {
+  answer: Answer;
+  citations: Citation[];
+}) {
+  const directCount = citations.filter(
+    (citation) => citation.provenance === "explicit",
+  ).length;
+  const graphCount =
+    answer.graphEvidence.nodes.length + answer.graphEvidence.edges.length;
+  const coverage =
+    citations.length >= 2 && graphCount > 0
+      ? "Strong"
+      : citations.length > 0
+        ? "Supported"
+        : "Limited";
+  const tone =
+    coverage === "Strong" || coverage === "Supported"
+      ? "border-success-border bg-success-surface text-success"
+      : "border-warning-border bg-warning-surface text-warning";
+
+  return (
+    <div className={`mt-4 rounded-md border p-3 text-sm ${tone}`}>
+      <p className="flex items-center gap-2 font-semibold">
+        {citations.length ? (
+          <CircleCheck aria-hidden className="h-4 w-4" />
+        ) : (
+          <CircleAlert aria-hidden className="h-4 w-4" />
+        )}
+        Evidence coverage: {coverage}
+      </p>
+      <p className="mt-1 text-xs">
+        {directCount} direct {directCount === 1 ? "source" : "sources"} ·{" "}
+        {citations.length} supporting{" "}
+        {citations.length === 1 ? "passage" : "passages"}
+        {graphCount > 0 ? " · Graph context available" : ""}
+      </p>
+    </div>
+  );
+}
+function RenameConversationDialog({
+  conversation,
+  cancel,
+  confirm,
+}: {
+  conversation: ConversationSummary;
+  cancel: () => void;
+  confirm: (name: string) => void;
+}) {
+  const [name, setName] = useState(conversation.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <Dialog open onOpenChange={(open) => !open && cancel()}>
+      <DialogContent
+        className="max-w-md"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Rename conversation</DialogTitle>
+          <DialogDescription>
+            Choose a concise name that will be easy to find later.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const normalized = name.trim();
+            if (normalized) confirm(normalized);
+          }}
+        >
+          <label htmlFor="conversation-name" className="text-sm font-medium">
+            Conversation name
+          </label>
+          <input
+            ref={inputRef}
+            id="conversation-name"
+            value={name}
+            maxLength={120}
+            onChange={(event) => setName(event.target.value)}
+            className="mt-2 min-h-11 w-full rounded-md border bg-surface px-3 text-sm"
+          />
+          <DialogFooter className="mt-5">
+            <Button type="button" variant="outline" onClick={cancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!name.trim()}>
+              Save name
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ConfirmReset({
   cancel,
   confirm,
@@ -1218,6 +1624,18 @@ function ConfirmReset({
       </DialogContent>
     </Dialog>
   );
+}
+
+function formatRelativeTime(value: string) {
+  const elapsed = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0) return "just now";
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function parseChatError(error: Error): { code?: string; message?: string } {

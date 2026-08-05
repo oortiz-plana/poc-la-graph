@@ -25,6 +25,8 @@ class AuthPrincipal:
     subject: str
     username: str
     roles: frozenset[str]
+    tenant_id: str = "default"
+    group_ids: frozenset[str] = frozenset()
 
 
 async def current_principal(
@@ -37,12 +39,36 @@ async def current_principal(
             "development-user",
             "development-user",
             frozenset({"admin", "editor", "viewer"}),
+            settings.tenant_id,
         )
     if credentials is None or credentials.scheme.lower() != "bearer":
-        raise AuthenticationError("Bearer authentication is required")
+        raise AuthenticationError(
+            "Bearer authentication is required", reason="bearer_missing"
+        )
     verifier = cast(TokenVerifier, request.app.state.token_verifier)
     verified = await verifier.verify(credentials.credentials)
-    return AuthPrincipal(verified.subject, verified.username, verified.roles)
+    if settings.tenancy_mode == "claim":
+        tenant = verified.claims.get(settings.auth_tenant_claim)
+        if not isinstance(tenant, str) or not tenant.strip():
+            raise AuthenticationError("Invalid bearer token", reason="tenant_missing")
+        tenant_id = tenant.strip()
+    else:
+        tenant_id = settings.tenant_id
+    if tenant_id not in settings.allowed_tenant_ids:
+        raise AuthenticationError("Invalid bearer token", reason="tenant_not_allowed")
+    raw_groups = verified.claims.get(settings.auth_groups_claim, [])
+    groups = (
+        frozenset(item for item in raw_groups if isinstance(item, str) and item)
+        if isinstance(raw_groups, list)
+        else frozenset()
+    )
+    return AuthPrincipal(
+        verified.subject,
+        verified.username,
+        verified.roles,
+        tenant_id,
+        groups,
+    )
 
 
 def require_role(role: Role):  # type: ignore[no-untyped-def]

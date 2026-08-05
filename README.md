@@ -67,17 +67,67 @@ uses that evidence to bound Haystack BM25 retrieval over the original source
 passages, and then calls the internal model interface implemented with LiteLLM.
 
 Graphify remains the authoritative entity and relationship graph. Haystack does
-not replace Graphify or add another network service: a persistent SQLite FTS5
-index under `/knowledge/state` is the canonical source-text store, while an
-ephemeral Haystack document store ranks only the allowlisted passages for the
-current request.
+not replace Graphify or add another network service: each immutable project
+version contains a persistent SQLite FTS5 source-text index, while an ephemeral
+Haystack document store ranks only the allowlisted passages for the current
+request.
 
-```text
-Graphify nodes, edges, and paths
-              +
-bounded legal source passages
-              ↓
-       grounded answer
+```mermaid
+flowchart TB
+    User["Browser user"]
+    Keycloak["Keycloak<br/>OIDC and PKCE"]
+
+    subgraph Web["Web application · apps/web"]
+        UI["Next.js and React UI<br/>Zod contract validation"]
+        BFF["Same-origin API and chat route handlers"]
+    end
+
+    subgraph Query["Chat query plane · FastAPI"]
+        API["HTTP and typed SSE routes"]
+        Store["Conversation store<br/>SQLAlchemy"]
+        Agent["Bounded LangGraph workflow"]
+        GraphAdapter["GraphKnowledgeClient<br/>Graphify MCP adapter"]
+        SourceRetriever["Haystack source retriever<br/>scoped BM25 ranking"]
+        Model["LanguageModel<br/>LiteLLM adapter"]
+    end
+
+    subgraph Control["Knowledge control plane"]
+        ProjectAPI["Project, upload, and build API"]
+        Registry["Project and build repository"]
+        Worker["Durable single-concurrency worker"]
+        Ingestion["Validation, conversion, chunking,<br/>graph build, and indexing"]
+    end
+
+    subgraph Data["Durable state"]
+        SQL[("SQLite or PostgreSQL<br/>projects and conversations")]
+        Blobs[("Content-addressed<br/>source blobs")]
+        Versions[("Immutable project versions<br/>native graph plus FTS5 index")]
+    end
+
+    Graphify["Graphify 0.9.18<br/>official MCP runtime"]
+    Provider["Configured LLM provider"]
+
+    User --> UI
+    UI <-->|"Authorization Code + PKCE"| Keycloak
+    UI --> BFF
+    BFF -->|"Bearer token, JSON, and SSE"| API
+    API --> Store --> SQL
+    API --> Agent
+    Agent -->|"graph scope first"| GraphAdapter
+    GraphAdapter -->|"four allowlisted operations"| Graphify
+    Versions -->|"native graph"| Graphify
+    Agent -->|"allowed documents and articles"| SourceRetriever
+    SourceRetriever --> Versions
+    Agent -->|"structured grounded request"| Model --> Provider
+
+    API --> ProjectAPI
+    ProjectAPI --> Registry --> SQL
+    ProjectAPI --> Blobs
+    Worker -->|"claims queued builds"| Registry
+    Worker --> Ingestion
+    Ingestion --> Blobs
+    Ingestion -->|"semantic extraction"| Provider
+    Ingestion -->|"publish, validate, activate"| Versions
 ```
 
 The retrieval boundary is deliberately one-way:
@@ -95,6 +145,34 @@ In the web UI, citations retrieved through Haystack are labeled
 **Show full retrieved passage** to expand the complete indexed source text,
 including its document, article, paragraph marker, and line range.
 
+Project management uses a dedicated `/projects/{projectId}` workspace rather
+than a modal. Its URL-backed sections cover overview, draft documents, access
+and sharing, knowledge builds, and settings. Document uploads support both file
+selection and drag and drop; member management uses tenant-scoped directory
+users and groups.
+
+Projects are private by default. Project roles are Viewer, Contributor, Manager,
+and Owner; the highest direct or directory-group grant wins. Owners are named
+users and the final Owner cannot be removed or demoted. Tenant administrators
+can repair membership and audit access without automatically receiving access
+to project content or private conversations. Public links, guest accounts, and
+application-managed email invitations are intentionally out of scope.
+Tenant administrators use the dedicated `/governance` workspace to discover
+private projects and repair direct or group membership without entering the
+project's document or conversation workspace.
+
+Inside a project, the shared left navigation separates project capabilities
+from conversation management. Conversation pages add a persistent context
+panel with Files, Sources, and Graph views; selecting an inline citation opens
+the matching source automatically. On smaller screens, navigation and context
+move into accessible drawers.
+
+Project file responses include additive lifecycle metadata. Files move through
+uploaded, queued, validating, converting, graph-building, passage-indexing,
+ready, or failed checkpoints. Percentages are durable phase checkpoints for the
+atomic corpus build—not per-document elapsed-time estimates—and failures expose
+only normalized error codes.
+
 The browser never receives an LLM key or Graphify credentials and never connects
 directly to Graphify. Only `query_graph`, `get_node`, `get_neighbors`, and
 `shortest_path` are allowlisted. Project identity and immutable version paths
@@ -109,7 +187,139 @@ See:
 - [Graphify adapter contract](contracts/mcp/graphify-adapter.md)
 - [UI guidelines](docs/ui/ui-guidelines.md)
 
+## Main modules
+
+| Module | Responsibility |
+| --- | --- |
+| `apps/web/src/app` | Next.js routes, project and conversation pages, and same-origin backend proxies. The chat route translates backend SSE into the Vercel AI SDK data stream. |
+| `apps/web/src/components` | Authenticated application shell, project workspace, chat, citations, evidence, graph context, and accessible responsive primitives. |
+| `apps/web/src/lib` | Browser API client, in-memory token access, and Zod validation for every backend payload rendered by the UI. |
+| `apps/api/app/api` | FastAPI route composition, authentication dependencies, public HTTP/SSE boundaries, request correlation, and normalized errors. |
+| `apps/api/app/agent` | Bounded LangGraph orchestration: follow-up resolution, graph retrieval, source scoping, answer generation, citation validation, and terminal events. |
+| `apps/api/app/integrations` | Provider adapters. `graphify` normalizes the four reviewed MCP operations, `haystack` ranks scoped source passages, and `llm` isolates LiteLLM/provider behavior. |
+| `apps/api/app/knowledge` | Secure source discovery and conversion, deterministic structural chunking, FTS5 indexing, immutable version publication, activation, and rollback. |
+| `apps/api/app/projects` | Project, upload, snapshot, and build persistence; content-addressed storage; and the durable knowledge-build worker. |
+| `apps/api/app/store` | Conversation repository protocol and SQLAlchemy implementations for durable, subject-private histories. |
+| `contracts` | Frozen OpenAPI, SSE, answer, evidence, MCP adapter, manifest, and active-pointer schemas shared across boundaries. |
+| `tests/e2e` | Synthetic, recovery, persistence, and real-Spanish verification across the composed system. |
+
+## Architectural patterns
+
+- **Backend for frontend:** the browser calls same-origin Next.js routes; only
+  server-side route handlers proxy authenticated calls to FastAPI and translate
+  the SSE stream expected by the chat UI.
+- **Ports and adapters:** workflow code depends on internal graph, retrieval,
+  model, and persistence interfaces. Graphify MCP, Haystack, LiteLLM, SQLite,
+  and PostgreSQL details stay at their adapters.
+- **Bounded workflow:** explicit LangGraph stages and configured limits replace
+  an open-ended tool loop. Tool calls, traversal, evidence, history, model
+  iterations, and duration all have hard bounds.
+- **Graph-first grounded retrieval:** Graphify establishes the document and
+  article allowlist before Haystack ranks exact source passages. Source
+  retrieval can narrow that scope but never broaden it.
+- **Immutable snapshots and atomic activation:** uploads are sealed into a
+  snapshot, builds publish a new version, and activation occurs only after both
+  the native Graphify artifact and matching source index validate. Failed builds
+  leave the active version untouched.
+- **Control-plane/query-plane separation:** project ingestion is handled by a
+  durable worker with write access, while chat retrieval remains request-bound,
+  version-pinned, and read-only.
+- **Schema validation at boundaries:** Pydantic validates backend and persistence
+  structures, strict JSON Schemas constrain model output, Zod validates browser
+  input, and public fields remain camelCase.
+- **Dependency injection and composition roots:** FastAPI lifespan and dependency
+  functions assemble concrete adapters from configuration, allowing explicit
+  deterministic substitutes in tests and synthetic troubleshooting mode.
+- **Typed streaming lifecycle:** named SSE events expose tool activity, answer
+  deltas, citations, and exactly one completion or failure without leaking raw
+  provider payloads or hidden reasoning.
+
 ## Configuration modes
+
+### `TENANCY_MODE`
+
+`TENANCY_MODE` controls how the API assigns authenticated users to tenants:
+
+- `fixed` assigns every user to `TENANT_ID`; use it for a single organization.
+
+  ```env
+  TENANCY_MODE=fixed
+  TENANT_ID=default
+  TENANT_IDS=default
+  ```
+
+- `claim` reads the tenant from the signed token claim named by
+  `AUTH_TENANT_CLAIM`; the value must be listed in `TENANT_IDS`.
+
+  ```env
+  TENANCY_MODE=claim
+  AUTH_TENANT_CLAIM=tenant_id
+  TENANT_IDS=acme,globex
+  ```
+
+Unknown tenant IDs are rejected. Keep tenant IDs synchronized with the identity
+provider and application configuration.
+
+Set `LOG_LEVEL=DEBUG` when diagnosing authentication. The API logs a sanitized
+failure category and request ID, plus the underlying exception type at debug
+level; bearer tokens and claims are never logged.
+
+### Tenant access and directory search
+
+Dedicated deployments use `TENANCY_MODE=fixed`, `TENANT_ID=default`, and an
+allowlist containing that tenant in `TENANT_IDS`. Multi-tenant deployments use
+`TENANCY_MODE=claim`; the signed claim named by `AUTH_TENANT_CLAIM` must match an
+entry in `TENANT_IDS`. Unknown tenants are rejected rather than created from a
+token.
+
+Configure `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_DIRECTORY_TOKEN_URL`,
+`KEYCLOAK_DIRECTORY_CLIENT_ID`, and `KEYCLOAK_DIRECTORY_CLIENT_SECRET` for
+provisioned user/group search when managing project access. The confidential
+client requires only bounded realm user/group view permissions. Project
+authorization reads the signed `AUTH_GROUPS_CLAIM` (default `groups`) from the
+JWT, so configure the identity provider to emit stable group IDs in that claim.
+Group changes take effect when the user receives a refreshed token.
+
+### Set up users
+
+1. Open Keycloak at <http://localhost:8080>, sign in with the bootstrap
+   credentials from `.env`, and select the `graphify` realm.
+2. Create users, set a password, and set their `tenant_id` user attribute to a
+   value in `TENANT_IDS` (normally `default`). Assign the realm role `viewer`,
+   `editor`, or `admin`; self-registration is disabled.
+3. Create groups and add users when group-based project access is needed. Users
+   receive project roles from the project **Access & sharing** section; realm
+   roles control platform-level capabilities.
+
+For production, provision users and groups through the organization’s identity
+provider and configure the Keycloak directory service account. Do not commit
+bootstrap passwords or user credentials.
+
+### Directory setup
+
+Keycloak is the application directory: it stores users, groups, memberships,
+and the `tenant_id` attribute used for tenant filtering. To enable user/group
+search in **Access & sharing**:
+
+1. Create a confidential Keycloak client for the API with service-account access
+   to read realm users and groups.
+2. Set its client credentials and Admin API endpoints in `.env`:
+
+   ```env
+   KEYCLOAK_ADMIN_URL=http://keycloak:8080/admin/realms/graphify
+   KEYCLOAK_DIRECTORY_TOKEN_URL=http://keycloak:8080/realms/graphify/protocol/openid-connect/token
+   KEYCLOAK_DIRECTORY_CLIENT_ID=graphify-directory
+   KEYCLOAK_DIRECTORY_CLIENT_SECRET=replace-me
+   ```
+
+3. Restart the API after changing these values:
+
+   ```bash
+   docker compose up -d --build api
+   ```
+
+Keep the client secret server-side. If these settings are empty, directory
+search is unavailable, but JWT-based project authorization continues to work.
 
 ### Default real mode
 
@@ -214,8 +424,8 @@ for direct test commands.
 - The browser stores only project selection and one conversation ID per project
   in `localStorage`; access tokens remain in memory.
 - Conversation lists and independent histories synchronize through the API.
-- All authenticated users share project visibility; invitations and ownership
-  ACLs are out of scope.
+- Projects are tenant-scoped and private to direct users and directory groups;
+  public links, guest identities, and email invitations are out of scope.
 - Uploaded bytes use the local Docker volume; object storage is out of scope.
 - Source-text retrieval is lexical BM25; no semantic embedding retriever is
   configured.

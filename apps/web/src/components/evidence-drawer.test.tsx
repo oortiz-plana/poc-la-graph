@@ -66,7 +66,7 @@ describe("EvidenceDrawer", () => {
       "top-0",
       "z-20",
       "grid",
-      "bg-white",
+      "bg-surface",
       "px-5",
       "py-5",
     );
@@ -98,7 +98,7 @@ describe("EvidenceDrawer", () => {
       screen.getByRole("dialog", { name: "Answer evidence" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Sources (1)" }),
+      screen.getByRole("heading", { name: "Document passages (1)" }),
     ).toBeInTheDocument();
     expect(screen.getByText("[1] System notes")).toBeInTheDocument();
     expect(screen.getByText("Direct evidence")).toBeInTheDocument();
@@ -115,10 +115,10 @@ describe("EvidenceDrawer", () => {
   it("announces empty evidence without inventing sources", () => {
     render(<EvidenceDrawer citations={[]} onClose={vi.fn()} />);
     expect(
-      screen.getByText("No citations were returned for this answer."),
+      screen.getByText("No source passages were returned for this answer."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("No graph structure was returned for this answer."),
+      screen.getByText("No graph relationships were returned for this answer."),
     ).toBeInTheDocument();
   });
 

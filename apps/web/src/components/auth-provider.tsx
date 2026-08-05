@@ -88,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       <main className="grid min-h-dvh place-items-center p-6">
         <p
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-900"
+          className="rounded-lg border border-error-border bg-error-surface p-4 text-error"
         >
           {state.message}
         </p>

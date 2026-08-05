@@ -16,6 +16,12 @@ separate purge endpoint permanently deletes archived history. Each message pins
 the then-active immutable graph and source-index version before retrieval.
 Existing answer and SSE shapes remain unchanged.
 
+ADR 0010 replaces organization-wide project visibility with tenant-scoped
+memberships. Project responses expose the caller's effective role and
+server-computed allowed actions. Memberships, access requests, directory search,
+and access activity are authenticated project subresources. Realm roles do not
+grant implicit project content access.
+
 The initial POC contract is frozen as of 2026-07-28.
 
 Normative artifacts:

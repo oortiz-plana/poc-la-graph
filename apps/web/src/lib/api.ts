@@ -3,15 +3,28 @@ import { authorizationHeaders } from "./auth-token";
 
 import {
   buildSummarySchema,
+  accessActivitySchema,
+  accessRequestContextSchema,
   conversationSchema,
   conversationListSchema,
   projectSchema,
+  directoryPrincipalListSchema,
+  governanceProjectSchema,
+  projectAccessRequestSchema,
+  projectMembershipSchema,
   snapshotFileSchema,
   uploadSessionSchema,
   type BuildSummary,
+  type AccessActivity,
+  type AccessRequestContext,
   type Conversation,
   type ConversationList,
   type Project,
+  type DirectoryPrincipal,
+  type GovernanceProject,
+  type ProjectAccessRequest,
+  type ProjectMembership,
+  type ProjectRole,
   type SnapshotFile,
 } from "./contracts";
 
@@ -178,6 +191,16 @@ export async function listProjects(): Promise<Project[]> {
   return z.array(projectSchema).parse(await response.json());
 }
 
+export async function listGovernanceProjects(): Promise<GovernanceProject[]> {
+  const response = await safeFetch(
+    "/api/backend/api/v1/projects/governance/projects",
+    { cache: "no-store" },
+  );
+  if (!response.ok)
+    throw new Error("Could not load tenant project governance.");
+  return z.array(governanceProjectSchema).parse(await response.json());
+}
+
 export async function createProject(
   name: string,
   description: string,
@@ -301,4 +324,151 @@ export async function getProjectBuild(
   );
   if (!response.ok) throw new Error("The build status could not be loaded.");
   return buildSummarySchema.parse(await response.json());
+}
+
+export async function listProjectMembers(
+  projectId: string,
+): Promise<ProjectMembership[]> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/members`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error("Could not load project members.");
+  return z.array(projectMembershipSchema).parse(await response.json());
+}
+
+export async function searchDirectory(
+  projectId: string,
+  query: string,
+): Promise<DirectoryPrincipal[]> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/directory?query=${encodeURIComponent(query)}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error("Could not search the directory.");
+  return directoryPrincipalListSchema.parse(await response.json()).items;
+}
+
+export async function addProjectMembers(
+  projectId: string,
+  principals: DirectoryPrincipal[],
+  role: Exclude<ProjectRole, "owner">,
+): Promise<ProjectMembership[]> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/members`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey() },
+      body: JSON.stringify({
+        principals: principals.map((item) => ({
+          principalType: item.type,
+          principalId: item.id,
+          displayName: item.displayName,
+        })),
+        role,
+      }),
+    },
+  );
+  if (!response.ok) throw new Error("Project access could not be granted.");
+  return z.array(projectMembershipSchema).parse(await response.json());
+}
+
+export async function changeProjectMemberRole(
+  projectId: string,
+  membershipId: string,
+  role: ProjectRole,
+): Promise<ProjectMembership> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(membershipId)}`,
+    { method: "PATCH", body: JSON.stringify({ role }) },
+  );
+  if (!response.ok) throw new Error("The member role could not be changed.");
+  return projectMembershipSchema.parse(await response.json());
+}
+
+export async function removeProjectMember(
+  projectId: string,
+  membershipId: string,
+): Promise<void> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(membershipId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw new Error("Project access could not be removed.");
+}
+
+export async function listProjectAccessRequests(
+  projectId: string,
+): Promise<ProjectAccessRequest[]> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/access-requests`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error("Could not load access requests.");
+  return z.array(projectAccessRequestSchema).parse(await response.json());
+}
+
+export async function getProjectAccessContext(
+  projectId: string,
+): Promise<AccessRequestContext | null> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/access-context`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Could not load project access details.");
+  return accessRequestContextSchema.parse(await response.json());
+}
+
+export async function requestProjectAccess(
+  projectId: string,
+  note: string,
+): Promise<ProjectAccessRequest> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/access-requests`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey() },
+      body: JSON.stringify({ note: note.trim() || null }),
+    },
+  );
+  if (!response.ok) throw new Error("The access request could not be sent.");
+  return projectAccessRequestSchema.parse(await response.json());
+}
+
+export async function cancelProjectAccessRequest(
+  projectId: string,
+  requestId: string,
+): Promise<void> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/access-requests/${encodeURIComponent(requestId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok)
+    throw new Error("The access request could not be cancelled.");
+}
+
+export async function decideProjectAccessRequest(
+  projectId: string,
+  requestId: string,
+  decision: "approved" | "denied",
+  role?: Exclude<ProjectRole, "owner">,
+): Promise<ProjectAccessRequest> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/access-requests/${encodeURIComponent(requestId)}`,
+    { method: "PATCH", body: JSON.stringify({ decision, role }) },
+  );
+  if (!response.ok) throw new Error("The access request could not be updated.");
+  return projectAccessRequestSchema.parse(await response.json());
+}
+
+export async function listProjectAccessActivity(
+  projectId: string,
+): Promise<AccessActivity[]> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/projects/${encodeURIComponent(projectId)}/access-activity`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error("Could not load access activity.");
+  return z.array(accessActivitySchema).parse(await response.json());
 }

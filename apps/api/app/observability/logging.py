@@ -15,6 +15,8 @@ _CONTEXT_FIELDS = (
     "method",
     "path",
     "status_code",
+    "auth_reason",
+    "auth_cause",
     "error_type",
     "component",
     "ingestion_id",

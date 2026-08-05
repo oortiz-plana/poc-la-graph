@@ -203,7 +203,77 @@ export const projectSchema = z.object({
     archive: z.boolean(),
     restore: z.boolean(),
     purge: z.boolean(),
+    manageAccess: z.boolean().default(false),
+    viewAccessActivity: z.boolean().default(false),
+    requestAccess: z.boolean().default(false),
   }),
+  currentAccess: z.object({
+    effectiveRole: z.enum(["viewer", "contributor", "manager", "owner"]),
+    origins: z.array(
+      z.object({
+        membershipId: z.string().uuid(),
+        principalType: z.enum(["user", "group"]),
+        principalId: z.string().min(1),
+        displayName: z.string().min(1),
+        role: z.enum(["viewer", "contributor", "manager", "owner"]),
+      }),
+    ),
+  }),
+});
+export const projectRoleSchema = z.enum([
+  "viewer",
+  "contributor",
+  "manager",
+  "owner",
+]);
+export const projectMembershipSchema = z.object({
+  id: z.string().uuid(),
+  principalType: z.enum(["user", "group"]),
+  principalId: z.string().min(1),
+  displayName: z.string().min(1),
+  role: projectRoleSchema,
+  accessOrigin: z.enum(["direct", "group"]),
+  createdAt: z.string(),
+});
+export const directoryPrincipalSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(["user", "group"]),
+  displayName: z.string().min(1),
+  secondaryText: z.string().nullable(),
+});
+export const directoryPrincipalListSchema = z.object({
+  items: z.array(directoryPrincipalSchema),
+  nextCursor: z.string().nullable(),
+});
+export const projectAccessRequestSchema = z.object({
+  id: z.string().uuid(),
+  requesterId: z.string(),
+  requesterName: z.string(),
+  note: z.string().nullable(),
+  status: z.enum(["pending", "approved", "denied", "cancelled"]),
+  decidedRole: projectRoleSchema.nullable(),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+export const accessRequestContextSchema = z.object({
+  projectId: z.string().uuid(),
+  projectName: z.string().min(1),
+  status: z.enum(["available", "pending", "denied"]),
+  requestId: z.string().uuid().nullable(),
+});
+export const accessActivitySchema = z.object({
+  id: z.string().uuid(),
+  actorId: z.string(),
+  action: z.string(),
+  targetName: z.string().nullable(),
+  occurredAt: z.string(),
+});
+export const governanceProjectSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  state: z.enum(["draft", "queued", "building", "ready", "failed", "archived"]),
+  ownerCount: z.number().int().nonnegative(),
+  updatedAt: z.string(),
 });
 export const snapshotFileSchema = z.object({
   id: z.string().uuid(),
@@ -211,6 +281,21 @@ export const snapshotFileSchema = z.object({
   mediaType: z.string(),
   size: z.number().int().positive(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  status: z
+    .enum([
+      "uploaded",
+      "queued",
+      "validating",
+      "converting",
+      "buildingGraph",
+      "indexing",
+      "ready",
+      "failed",
+    ])
+    .nullish(),
+  progressPercent: z.number().int().min(0).max(100).nullish(),
+  errorCode: z.string().nullish(),
+  uploadedAt: z.string().nullish(),
 });
 export const uploadSessionSchema = z.object({
   id: z.string().uuid(),
@@ -225,5 +310,12 @@ export const uploadSessionSchema = z.object({
 });
 
 export type Project = z.infer<typeof projectSchema>;
+export type ProjectRole = z.infer<typeof projectRoleSchema>;
+export type ProjectMembership = z.infer<typeof projectMembershipSchema>;
+export type DirectoryPrincipal = z.infer<typeof directoryPrincipalSchema>;
+export type ProjectAccessRequest = z.infer<typeof projectAccessRequestSchema>;
+export type AccessRequestContext = z.infer<typeof accessRequestContextSchema>;
+export type AccessActivity = z.infer<typeof accessActivitySchema>;
+export type GovernanceProject = z.infer<typeof governanceProjectSchema>;
 export type BuildSummary = z.infer<typeof buildSummarySchema>;
 export type SnapshotFile = z.infer<typeof snapshotFileSchema>;

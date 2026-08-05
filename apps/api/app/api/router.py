@@ -167,6 +167,12 @@ async def create_conversation(
         raise InvalidRequest("projectId is required")
     projects = cast(ProjectRepository, request.app.state.projects)
     project = await projects.get_project(requested, include_archived=False)
+    await projects.access_decision(
+        requested,
+        tenant_id=principal.tenant_id,
+        subject=principal.subject,
+        group_ids=principal.group_ids,
+    )
     if project.state != "ready" or not project.active_graph_version:
         raise ProjectConflict("The project is not ready")
     return await store.create(
@@ -181,12 +187,14 @@ async def create_conversation(
 )
 async def list_conversations(
     project_id: str,
+    request: Request,
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
     state: Literal["active", "archived"] = Query(default="active"),
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = Query(default=None, min_length=1, max_length=1024),
 ) -> ConversationList:
+    await _authorize_project_request(project_id, principal, request)
     try:
         return await store.list_conversations(
             project_id,
@@ -206,9 +214,11 @@ async def list_conversations(
 )
 async def get_conversation(
     conversation_id: str,
+    request: Request,
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Conversation:
+    await _authorize_conversation(conversation_id, principal, store, request)
     return await store.get(conversation_id, principal.subject)
 
 
@@ -220,9 +230,11 @@ async def get_conversation(
 async def rename_conversation(
     conversation_id: str,
     body: UpdateConversationRequest,
+    request: Request,
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Conversation:
+    await _authorize_conversation(conversation_id, principal, store, request)
     name = body.name.strip()
     if not name:
         raise InvalidRequest("Conversation name is empty")
@@ -236,9 +248,11 @@ async def rename_conversation(
 )
 async def delete_conversation(
     conversation_id: str,
+    request: Request,
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Response:
+    await _authorize_conversation(conversation_id, principal, store, request)
     await store.archive(conversation_id, principal.subject)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -250,9 +264,11 @@ async def delete_conversation(
 )
 async def restore_conversation(
     conversation_id: str,
+    request: Request,
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Conversation:
+    await _authorize_conversation(conversation_id, principal, store, request)
     return await store.restore(conversation_id, principal.subject)
 
 
@@ -263,9 +279,11 @@ async def restore_conversation(
 )
 async def purge_conversation(
     conversation_id: str,
+    request: Request,
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Response:
+    await _authorize_conversation(conversation_id, principal, store, request)
     await store.purge(conversation_id, principal.subject)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -287,6 +305,12 @@ async def send_message(
     correlation_id = str(request.state.request_id)
     scope = await store.get_scope(conversation_id, principal.subject)
     if request.app.state.settings.auth_enabled:
+        await request.app.state.projects.access_decision(
+            scope.project_id,
+            tenant_id=principal.tenant_id,
+            subject=principal.subject,
+            group_ids=principal.group_ids,
+        )
         project = await request.app.state.projects.get_project(
             scope.project_id, include_archived=True
         )
@@ -353,6 +377,31 @@ async def send_message(
         events(),
         headers={"X-Request-ID": correlation_id, "Cache-Control": "no-cache"},
         ping=15,
+    )
+
+
+async def _authorize_conversation(
+    conversation_id: str,
+    principal: AuthPrincipal,
+    store: ConversationStore,
+    request: Request,
+) -> None:
+    scope = await store.get_scope(conversation_id, principal.subject)
+    await _authorize_project_request(scope.project_id, principal, request)
+
+
+async def _authorize_project_request(
+    project_id: str,
+    principal: AuthPrincipal,
+    request: Request,
+) -> None:
+    if not request.app.state.settings.auth_enabled:
+        return
+    await request.app.state.projects.access_decision(
+        project_id,
+        tenant_id=principal.tenant_id,
+        subject=principal.subject,
+        group_ids=principal.group_ids,
     )
 
 

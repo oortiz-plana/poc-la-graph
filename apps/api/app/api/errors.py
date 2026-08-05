@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -39,7 +41,24 @@ def _problem(
 async def authentication_error_handler(
     request: Request, exc: AuthenticationError
 ) -> JSONResponse:
-    del exc
+    logger = getattr(
+        request.app.state, "logger", logging.getLogger("graphify_agent.api")
+    )
+    reason = getattr(exc, "reason", "invalid_token")
+    extra = {
+        "request_id": request_id(request),
+        "method": request.method,
+        "path": request.url.path,
+        "status_code": 401,
+        "auth_reason": reason,
+    }
+    logger.warning("authentication_failed", extra=extra)
+    if logger.isEnabledFor(logging.DEBUG):
+        cause = exc.__cause__
+        logger.debug(
+            "authentication_failure_debug",
+            extra={**extra, "auth_cause": type(cause).__name__ if cause else None},
+        )
     response = _problem(request, 401, "unauthorized", "Authentication is required.")
     response.headers["WWW-Authenticate"] = "Bearer"
     return response

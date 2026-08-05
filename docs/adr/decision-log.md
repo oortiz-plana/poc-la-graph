@@ -16,3 +16,4 @@
 | 2026-07-29 | Add one-shot knowledge initialization and ingestion jobs | Keeps graph generation outside the query runtime while preserving a simple Compose deployment |
 | 2026-08-03 | Authenticated multi-project workspace ([ADR 0008](0008-authenticated-multi-project-workspace.md)) | Replaces bearer conversation capabilities and one configured corpus with role-gated, version-pinned projects |
 | 2026-08-04 | Private project conversations ([ADR 0009](0009-private-project-conversations.md)) | Adds owner-scoped histories, stable resume ordering, naming, and reversible archive retention |
+| 2026-08-04 | Tenant-scoped project access ([ADR 0010](0010-tenant-project-access.md)) | Replaces organization-wide visibility with private user/group grants, protected ownership, requests, and audited changes |

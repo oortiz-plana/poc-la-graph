@@ -55,10 +55,22 @@ class UploadNotFound(KeyError):
     pass
 
 
+class TenantRow(ProjectsBase):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class ProjectRow(ProjectsBase):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1000))
     state: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
@@ -83,6 +95,58 @@ class ProjectRow(ProjectsBase):
     builds: Mapped[list[BuildJobRow]] = relationship(
         back_populates="project", cascade="all, delete-orphan", lazy="selectin"
     )
+    memberships: Mapped[list[ProjectMembershipRow]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class ProjectMembershipRow(ProjectsBase):
+    __tablename__ = "project_memberships"
+    __table_args__ = (
+        UniqueConstraint("project_id", "principal_type", "principal_id"),
+        Index("ix_project_memberships_principal", "principal_type", "principal_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    principal_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    principal_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    project: Mapped[ProjectRow] = relationship(back_populates="memberships")
+
+
+class AccessRequestRow(ProjectsBase):
+    __tablename__ = "project_access_requests"
+    __table_args__ = (
+        Index("ix_access_requests_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    requester_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    requester_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(255))
+    decided_role: Mapped[str | None] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SnapshotRow(ProjectsBase):
@@ -130,6 +194,12 @@ class SnapshotFileRow(ProjectsBase):
     media_type: Mapped[str] = mapped_column(String(255), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    lifecycle_status: Mapped[str] = mapped_column(
+        String(24), default="uploaded", nullable=False
+    )
+    progress_percent: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     snapshot: Mapped[SnapshotRow] = relationship(back_populates="files")
 
 
@@ -249,6 +319,15 @@ class BuildRecord:
     requested_by: str
 
 
+@dataclass(frozen=True)
+class AccessDecision:
+    effective_role: str
+    origins: tuple[ProjectMembershipRow, ...]
+
+
+_ROLE_RANK = {"viewer": 1, "contributor": 2, "manager": 3, "owner": 4}
+
+
 def aware(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -269,6 +348,20 @@ class ProjectRepository:
                 await connection.exec_driver_sql("PRAGMA foreign_keys=ON")
             await connection.run_sync(ProjectsBase.metadata.create_all)
 
+    async def ensure_tenants(self, tenant_ids: frozenset[str]) -> None:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            for tenant_id in tenant_ids:
+                if await session.get(TenantRow, tenant_id) is None:
+                    session.add(
+                        TenantRow(
+                            id=tenant_id,
+                            name=tenant_id,
+                            status="active",
+                            created_at=now,
+                        )
+                    )
+
     async def recover_builds(self) -> None:
         async with self._sessions.begin() as session:
             project_ids = list(
@@ -285,6 +378,21 @@ class ProjectRepository:
                 .where(BuildJobRow.status == "building")
                 .values(status="queued", started_at=None, worker_id=None)
             )
+            await session.execute(
+                update(SnapshotFileRow)
+                .where(
+                    SnapshotFileRow.snapshot_id.in_(
+                        select(BuildJobRow.snapshot_id).where(
+                            BuildJobRow.status == "queued"
+                        )
+                    )
+                )
+                .values(
+                    lifecycle_status="queued",
+                    progress_percent=5,
+                    error_code=None,
+                )
+            )
             if project_ids:
                 await session.execute(
                     update(ProjectRow)
@@ -295,18 +403,35 @@ class ProjectRepository:
     async def close(self) -> None:
         await self._engine.dispose()
 
-    async def list_projects(self) -> list[ProjectRow]:
+    async def list_projects(
+        self,
+        *,
+        tenant_id: str | None = None,
+        subject: str | None = None,
+        group_ids: frozenset[str] = frozenset(),
+    ) -> list[ProjectRow]:
         async with self._sessions() as session:
+            statement = select(ProjectRow).where(ProjectRow.state != "archived")
+            if tenant_id is not None:
+                statement = statement.where(ProjectRow.tenant_id == tenant_id)
+            if subject is not None:
+                principals = [subject, *group_ids]
+                statement = (
+                    statement.join(ProjectMembershipRow)
+                    .where(
+                        ProjectMembershipRow.principal_id.in_(principals),
+                        ProjectMembershipRow.tenant_id == tenant_id,
+                    )
+                    .distinct()
+                )
             return list(
                 (
                     await session.scalars(
-                        select(ProjectRow)
-                        .where(ProjectRow.state != "archived")
-                        .options(
+                        statement.options(
                             selectinload(ProjectRow.snapshots),
                             selectinload(ProjectRow.builds),
-                        )
-                        .order_by(ProjectRow.updated_at.desc())
+                            selectinload(ProjectRow.memberships),
+                        ).order_by(ProjectRow.updated_at.desc())
                     )
                 ).all()
             )
@@ -321,6 +446,7 @@ class ProjectRepository:
                 .options(
                     selectinload(ProjectRow.snapshots).selectinload(SnapshotRow.files),
                     selectinload(ProjectRow.builds),
+                    selectinload(ProjectRow.memberships),
                 )
             )
             if not include_archived:
@@ -330,6 +456,19 @@ class ProjectRepository:
                 raise ProjectNotFound(project_id)
             return row
 
+    async def list_tenant_projects(self, tenant_id: str) -> list[ProjectRow]:
+        async with self._sessions() as session:
+            return list(
+                (
+                    await session.scalars(
+                        select(ProjectRow)
+                        .where(ProjectRow.tenant_id == tenant_id)
+                        .options(selectinload(ProjectRow.memberships))
+                        .order_by(ProjectRow.updated_at.desc())
+                    )
+                ).all()
+            )
+
     async def create_project(
         self,
         *,
@@ -337,6 +476,7 @@ class ProjectRepository:
         description: str | None,
         subject: str,
         username: str,
+        tenant_id: str = "default",
         key: str,
     ) -> ProjectRow:
         prior = await self._idempotent_resource(subject, "create_project", key)
@@ -349,6 +489,7 @@ class ProjectRepository:
             session.add(
                 ProjectRow(
                     id=project_id,
+                    tenant_id=tenant_id,
                     name=name,
                     description=description,
                     state="draft",
@@ -358,6 +499,20 @@ class ProjectRepository:
                     updated_at=now,
                     active_document_count=0,
                     generation=0,
+                )
+            )
+            session.add(
+                ProjectMembershipRow(
+                    id=str(uuid4()),
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    principal_type="user",
+                    principal_id=subject,
+                    display_name=username,
+                    role="owner",
+                    created_by=subject,
+                    created_at=now,
+                    updated_at=now,
                 )
             )
             session.add(
@@ -371,6 +526,400 @@ class ProjectRepository:
             self._remember(session, subject, "create_project", key, project_id, now)
             self._audit(session, project_id, subject, "project.created", now)
         return await self.get_project(project_id)
+
+    async def access_decision(
+        self,
+        project_id: str,
+        *,
+        tenant_id: str,
+        subject: str,
+        group_ids: frozenset[str] = frozenset(),
+        minimum: str = "viewer",
+    ) -> AccessDecision:
+        async with self._sessions() as session:
+            project = await session.scalar(
+                select(ProjectRow).where(
+                    ProjectRow.id == project_id, ProjectRow.tenant_id == tenant_id
+                )
+            )
+            if project is None:
+                raise ProjectNotFound(project_id)
+            conditions = [
+                (ProjectMembershipRow.principal_type == "user")
+                & (ProjectMembershipRow.principal_id == subject)
+            ]
+            if group_ids:
+                conditions.append(
+                    (ProjectMembershipRow.principal_type == "group")
+                    & (ProjectMembershipRow.principal_id.in_(group_ids))
+                )
+            from sqlalchemy import or_
+
+            origins = tuple(
+                (
+                    await session.scalars(
+                        select(ProjectMembershipRow).where(
+                            ProjectMembershipRow.project_id == project_id,
+                            ProjectMembershipRow.tenant_id == tenant_id,
+                            or_(*conditions),
+                        )
+                    )
+                ).all()
+            )
+            if not origins:
+                raise ProjectNotFound(project_id)
+            effective = max(origins, key=lambda row: _ROLE_RANK[row.role]).role
+            if _ROLE_RANK[effective] < _ROLE_RANK[minimum]:
+                from app.auth.dependencies import AuthorizationError
+
+                raise AuthorizationError("The project role is insufficient")
+            return AccessDecision(effective, origins)
+
+    async def list_memberships(
+        self, project_id: str, tenant_id: str
+    ) -> list[ProjectMembershipRow]:
+        async with self._sessions() as session:
+            return list(
+                (
+                    await session.scalars(
+                        select(ProjectMembershipRow)
+                        .where(
+                            ProjectMembershipRow.project_id == project_id,
+                            ProjectMembershipRow.tenant_id == tenant_id,
+                        )
+                        .order_by(
+                            ProjectMembershipRow.role.desc(),
+                            ProjectMembershipRow.display_name,
+                        )
+                        .limit(500)
+                    )
+                ).all()
+            )
+
+    async def add_memberships(
+        self,
+        project_id: str,
+        tenant_id: str,
+        principals: list[tuple[str, str, str]],
+        role: str,
+        actor: str,
+    ) -> list[ProjectMembershipRow]:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            project = await self._project_for_update(session, project_id)
+            if project.tenant_id != tenant_id:
+                raise ProjectNotFound(project_id)
+            for principal_type, principal_id, display_name in principals:
+                existing = await session.scalar(
+                    select(ProjectMembershipRow).where(
+                        ProjectMembershipRow.project_id == project_id,
+                        ProjectMembershipRow.principal_type == principal_type,
+                        ProjectMembershipRow.principal_id == principal_id,
+                    )
+                )
+                if existing is None:
+                    session.add(
+                        ProjectMembershipRow(
+                            id=str(uuid4()),
+                            tenant_id=tenant_id,
+                            project_id=project_id,
+                            principal_type=principal_type,
+                            principal_id=principal_id,
+                            display_name=display_name,
+                            role=role,
+                            created_by=actor,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+                else:
+                    existing.display_name = display_name
+                    existing.updated_at = now
+                self._audit(
+                    session,
+                    project_id,
+                    actor,
+                    "access.membership_added",
+                    now,
+                    {"targetName": display_name, "role": role},
+                )
+        return await self.list_memberships(project_id, tenant_id)
+
+    async def update_membership(
+        self, project_id: str, membership_id: str, tenant_id: str, role: str, actor: str
+    ) -> ProjectMembershipRow:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            row = await session.scalar(
+                select(ProjectMembershipRow)
+                .where(
+                    ProjectMembershipRow.id == membership_id,
+                    ProjectMembershipRow.project_id == project_id,
+                    ProjectMembershipRow.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise ProjectNotFound(membership_id)
+            if role == "owner" and row.principal_type != "user":
+                raise ProjectConflict("Groups cannot own projects")
+            if row.role == "owner" and role != "owner":
+                owners = await session.scalar(
+                    select(func.count())
+                    .select_from(ProjectMembershipRow)
+                    .where(
+                        ProjectMembershipRow.project_id == project_id,
+                        ProjectMembershipRow.role == "owner",
+                    )
+                )
+                if owners == 1:
+                    raise ProjectConflict("The final owner cannot be demoted")
+            row.role = role
+            row.updated_at = now
+            self._audit(
+                session,
+                project_id,
+                actor,
+                "access.role_changed",
+                now,
+                {"targetName": row.display_name, "role": role},
+            )
+        return row
+
+    async def remove_membership(
+        self, project_id: str, membership_id: str, tenant_id: str, actor: str
+    ) -> None:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            row = await session.scalar(
+                select(ProjectMembershipRow)
+                .where(
+                    ProjectMembershipRow.id == membership_id,
+                    ProjectMembershipRow.project_id == project_id,
+                    ProjectMembershipRow.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise ProjectNotFound(membership_id)
+            if row.role == "owner":
+                owners = await session.scalar(
+                    select(func.count())
+                    .select_from(ProjectMembershipRow)
+                    .where(
+                        ProjectMembershipRow.project_id == project_id,
+                        ProjectMembershipRow.role == "owner",
+                    )
+                )
+                if owners == 1:
+                    raise ProjectConflict("The final owner cannot be removed")
+            await session.delete(row)
+            self._audit(
+                session,
+                project_id,
+                actor,
+                "access.membership_removed",
+                now,
+                {"targetName": row.display_name, "role": row.role},
+            )
+
+    async def create_access_request(
+        self,
+        project_id: str,
+        tenant_id: str,
+        requester_id: str,
+        requester_name: str,
+        note: str | None,
+    ) -> AccessRequestRow:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            project = await session.scalar(
+                select(ProjectRow).where(
+                    ProjectRow.id == project_id,
+                    ProjectRow.tenant_id == tenant_id,
+                    ProjectRow.state != "archived",
+                )
+            )
+            if project is None:
+                raise ProjectNotFound(project_id)
+            existing = await session.scalar(
+                select(AccessRequestRow).where(
+                    AccessRequestRow.project_id == project_id,
+                    AccessRequestRow.requester_id == requester_id,
+                    AccessRequestRow.status == "pending",
+                )
+            )
+            if existing is not None:
+                return existing
+            row = AccessRequestRow(
+                id=str(uuid4()),
+                tenant_id=tenant_id,
+                project_id=project_id,
+                requester_id=requester_id,
+                requester_name=requester_name,
+                note=note,
+                status="pending",
+                created_at=now,
+            )
+            session.add(row)
+            self._audit(
+                session,
+                project_id,
+                requester_id,
+                "access.requested",
+                now,
+                {"targetName": requester_name},
+            )
+        return row
+
+    async def list_access_requests(
+        self, project_id: str, tenant_id: str, requester_id: str | None = None
+    ) -> list[AccessRequestRow]:
+        async with self._sessions() as session:
+            statement = select(AccessRequestRow).where(
+                AccessRequestRow.project_id == project_id,
+                AccessRequestRow.tenant_id == tenant_id,
+            )
+            if requester_id is not None:
+                statement = statement.where(
+                    AccessRequestRow.requester_id == requester_id
+                )
+            return list(
+                (
+                    await session.scalars(
+                        statement.order_by(AccessRequestRow.created_at.desc()).limit(
+                            100
+                        )
+                    )
+                ).all()
+            )
+
+    async def decide_access_request(
+        self,
+        project_id: str,
+        request_id: str,
+        tenant_id: str,
+        decision: str,
+        role: str | None,
+        actor: str,
+    ) -> AccessRequestRow:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            row = await session.scalar(
+                select(AccessRequestRow)
+                .where(
+                    AccessRequestRow.id == request_id,
+                    AccessRequestRow.project_id == project_id,
+                    AccessRequestRow.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise ProjectNotFound(request_id)
+            if row.status != "pending":
+                if row.status == decision and row.decided_role == (
+                    role if decision == "approved" else None
+                ):
+                    return row
+                raise ProjectConflict("The access request is already decided")
+            row.status = decision
+            row.reviewed_by = actor
+            row.decided_role = role if decision == "approved" else None
+            row.decided_at = now
+            if decision == "approved" and role:
+                existing = await session.scalar(
+                    select(ProjectMembershipRow).where(
+                        ProjectMembershipRow.project_id == project_id,
+                        ProjectMembershipRow.principal_type == "user",
+                        ProjectMembershipRow.principal_id == row.requester_id,
+                    )
+                )
+                if existing is None:
+                    session.add(
+                        ProjectMembershipRow(
+                            id=str(uuid4()),
+                            tenant_id=tenant_id,
+                            project_id=project_id,
+                            principal_type="user",
+                            principal_id=row.requester_id,
+                            display_name=row.requester_name,
+                            role=role,
+                            created_by=actor,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+                elif existing.role != "owner":
+                    existing.role = role
+                    existing.updated_at = now
+            self._audit(
+                session,
+                project_id,
+                actor,
+                f"access.request_{decision}",
+                now,
+                {"targetName": row.requester_name, "role": role},
+            )
+        return row
+
+    async def cancel_access_request(
+        self,
+        project_id: str,
+        request_id: str,
+        tenant_id: str,
+        requester_id: str,
+    ) -> None:
+        now = datetime.now(UTC)
+        async with self._sessions.begin() as session:
+            row = await session.scalar(
+                select(AccessRequestRow)
+                .where(
+                    AccessRequestRow.id == request_id,
+                    AccessRequestRow.project_id == project_id,
+                    AccessRequestRow.tenant_id == tenant_id,
+                    AccessRequestRow.requester_id == requester_id,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                raise ProjectNotFound(request_id)
+            if row.status != "pending":
+                raise ProjectConflict("Only pending requests can be cancelled")
+            row.status = "cancelled"
+            row.decided_at = now
+            self._audit(
+                session,
+                project_id,
+                requester_id,
+                "access.request_cancelled",
+                now,
+                {"targetName": row.requester_name},
+            )
+
+    async def access_activity(
+        self, project_id: str, tenant_id: str
+    ) -> list[AuditEventRow]:
+        async with self._sessions() as session:
+            exists = await session.scalar(
+                select(ProjectRow.id).where(
+                    ProjectRow.id == project_id, ProjectRow.tenant_id == tenant_id
+                )
+            )
+            if exists is None:
+                raise ProjectNotFound(project_id)
+            return list(
+                (
+                    await session.scalars(
+                        select(AuditEventRow)
+                        .where(
+                            AuditEventRow.project_id == project_id,
+                            AuditEventRow.action.like("access.%"),
+                        )
+                        .order_by(AuditEventRow.occurred_at.desc())
+                        .limit(100)
+                    )
+                ).all()
+            )
 
     async def create_upload_session(
         self,
@@ -532,6 +1081,9 @@ class ProjectRepository:
                         media_type=part.media_type,
                         size=part.expected_size,
                         sha256=part.expected_sha256,
+                        lifecycle_status="uploaded",
+                        progress_percent=0,
+                        uploaded_at=now,
                     )
                 )
             upload.state = "finalized"
@@ -542,12 +1094,19 @@ class ProjectRepository:
 
     async def list_files(self, project_id: str) -> list[SnapshotFileRow]:
         async with self._sessions() as session:
-            draft = await self._draft(session, project_id)
+            snapshot = await session.scalar(
+                select(SnapshotRow)
+                .where(SnapshotRow.project_id == project_id)
+                .order_by(SnapshotRow.created_at.desc())
+                .limit(1)
+            )
+            if snapshot is None:
+                raise ProjectConflict("The project has no visible file snapshot")
             return list(
                 (
                     await session.scalars(
                         select(SnapshotFileRow)
-                        .where(SnapshotFileRow.snapshot_id == draft.id)
+                        .where(SnapshotFileRow.snapshot_id == snapshot.id)
                         .order_by(SnapshotFileRow.logical_filename)
                     )
                 ).all()
@@ -613,6 +1172,15 @@ class ProjectRepository:
                 created_at=now,
             )
             session.add(row)
+            await session.execute(
+                update(SnapshotFileRow)
+                .where(SnapshotFileRow.snapshot_id == draft.id)
+                .values(
+                    lifecycle_status="queued",
+                    progress_percent=5,
+                    error_code=None,
+                )
+            )
             draft.status = "sealed"
             draft.sealed_at = now
             project.state = "queued"
@@ -662,12 +1230,38 @@ class ProjectRepository:
                 .where(ProjectRow.id == row.project_id)
                 .values(state="building", updated_at=now)
             )
+            await session.execute(
+                update(SnapshotFileRow)
+                .where(SnapshotFileRow.snapshot_id == row.snapshot_id)
+                .values(
+                    lifecycle_status="validating",
+                    progress_percent=15,
+                    error_code=None,
+                )
+            )
             return BuildRecord(
                 row.id,
                 row.project_id,
                 row.snapshot_id,
                 row.expected_generation,
                 row.requested_by,
+            )
+
+    async def update_file_lifecycle(
+        self,
+        snapshot_id: str,
+        lifecycle_status: str,
+        progress_percent: int,
+    ) -> None:
+        async with self._sessions.begin() as session:
+            await session.execute(
+                update(SnapshotFileRow)
+                .where(SnapshotFileRow.snapshot_id == snapshot_id)
+                .values(
+                    lifecycle_status=lifecycle_status,
+                    progress_percent=progress_percent,
+                    error_code=None,
+                )
             )
 
     async def snapshot_files(
@@ -745,8 +1339,20 @@ class ProjectRepository:
                         media_type=item.media_type,
                         size=item.size,
                         sha256=item.sha256,
+                        lifecycle_status="ready",
+                        progress_percent=100,
+                        uploaded_at=item.uploaded_at,
                     )
                 )
+            await session.execute(
+                update(SnapshotFileRow)
+                .where(SnapshotFileRow.snapshot_id == snapshot.id)
+                .values(
+                    lifecycle_status="ready",
+                    progress_percent=100,
+                    error_code=None,
+                )
+            )
             self._audit(
                 session,
                 project.id,
@@ -769,6 +1375,11 @@ class ProjectRepository:
             if snapshot is not None:
                 snapshot.status = "editable"
                 snapshot.sealed_at = None
+                await session.execute(
+                    update(SnapshotFileRow)
+                    .where(SnapshotFileRow.snapshot_id == snapshot.id)
+                    .values(lifecycle_status="failed", error_code=error_code)
+                )
             project.state = "ready" if project.active_graph_version else "failed"
             project.updated_at = now
             self._audit(

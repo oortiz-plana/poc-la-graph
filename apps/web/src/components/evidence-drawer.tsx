@@ -50,10 +50,10 @@ function SourceCard({
       ref={register}
       id={`evidence-source-${index + 1}`}
       aria-current={selected ? "true" : undefined}
-      className={`scroll-m-4 rounded-xl border p-4 transition ${
+      className={`scroll-m-4 rounded-lg border p-4 transition ${
         selected
-          ? "border-sky-500 bg-sky-50 ring-2 ring-sky-500 ring-offset-2"
-          : "bg-slate-50"
+          ? "border-primary bg-selected ring-2 ring-primary ring-offset-2"
+          : "bg-background"
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -72,14 +72,14 @@ function SourceCard({
         <details
           open={expanded}
           onToggle={(event) => setExpanded(event.currentTarget.open)}
-          className="mt-3 rounded-lg border border-sky-200 bg-white p-3"
+          className="mt-3 rounded-md border border-information-border bg-surface p-3"
         >
-          <summary className="cursor-pointer font-semibold text-sky-800 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600">
+          <summary className="cursor-pointer font-semibold text-information focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             Open full passage
           </summary>
           <blockquote
-            className={`mt-3 whitespace-pre-wrap border-l-2 border-sky-400 pl-3 text-sm leading-6 text-slate-800 ${
-              selected ? "rounded-r bg-amber-100 py-1 pr-2" : ""
+            className={`mt-3 whitespace-pre-wrap border-l-2 border-information pl-3 text-sm leading-6 ${
+              selected ? "rounded-r bg-warning-surface py-1 pr-2" : ""
             }`}
           >
             {citation.excerpt}
@@ -87,14 +87,14 @@ function SourceCard({
         </details>
       ) : citation.excerpt ? (
         <blockquote
-          className={`mt-3 border-l-2 border-sky-400 pl-3 text-sm ${
-            selected ? "rounded-r bg-amber-100 py-1 pr-2" : ""
+          className={`mt-3 border-l-2 border-information pl-3 text-sm ${
+            selected ? "rounded-r bg-warning-surface py-1 pr-2" : ""
           }`}
         >
           {citation.excerpt}
         </blockquote>
       ) : null}
-      <dl className="mt-3 text-xs text-slate-600">
+      <dl className="mt-3 text-xs text-text-secondary">
         <div>
           <dt className="sr-only">Source</dt>
           <dd className="font-medium">{documentLabel(citation)}</dd>
@@ -120,11 +120,11 @@ function SourceCard({
           </div>
         )}
       </dl>
-      <details className="mt-3 text-xs text-slate-600">
-        <summary className="cursor-pointer font-medium text-slate-700 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600">
+      <details className="mt-3 text-xs text-text-secondary">
+        <summary className="cursor-pointer font-medium focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
           Technical details
         </summary>
-        <dl className="mt-2 break-words rounded-md border bg-white p-3">
+        <dl className="mt-2 break-words rounded-md border bg-surface p-3">
           <div>
             <dt className="inline font-semibold">Correlation ID: </dt>
             <dd className="inline font-mono">{citation.id}</dd>
@@ -176,15 +176,23 @@ function EvidenceContent({
   onClose,
   titleRef,
   mode,
+  section,
 }: {
   answer?: Answer;
   citations: Citation[];
   selectedCitationId?: string;
   onClose: () => void;
   titleRef: React.RefObject<HTMLHeadingElement | null>;
-  mode: "panel" | "drawer";
+  mode: "panel" | "drawer" | "content";
+  section: "all" | "sources" | "graph";
 }) {
   const evidence = answer?.graphEvidence;
+  const passageCitations = citations.filter((citation) =>
+    Boolean(citation.excerpt || citation.source),
+  );
+  const graphCitations = citations.filter((citation) =>
+    Boolean(citation.relationship || citation.nodeId),
+  );
   const nodeName = new Map(
     evidence?.nodes.map((node) => [node.id, node.label]),
   );
@@ -199,146 +207,190 @@ function EvidenceContent({
 
   return (
     <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
-      <header
-        data-testid="evidence-header"
-        className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b bg-white px-5 py-5"
-      >
-        {mode === "drawer" ? (
-          <SheetHeader className="min-w-0">
-            <SheetDescription className="text-xs font-semibold uppercase tracking-widest text-sky-700">
-              Grounding details
-            </SheetDescription>
-            <SheetTitle
-              id="evidence-heading"
-              ref={titleRef}
-              tabIndex={-1}
-              className="break-words text-2xl font-bold"
-            >
-              Answer evidence
-            </SheetTitle>
-          </SheetHeader>
-        ) : (
-          <div className="min-w-0 space-y-2 text-left">
-            <p className="text-xs font-semibold uppercase tracking-widest text-sky-700">
-              Grounding details
-            </p>
-            <h2
-              id="evidence-heading"
-              ref={titleRef}
-              tabIndex={-1}
-              className="break-words text-2xl font-bold"
-            >
-              Answer evidence
-            </h2>
-          </div>
-        )}
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={onClose}
-          aria-label="Close evidence"
-          className="min-h-11 min-w-11 shrink-0 focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2"
+      {mode !== "content" && (
+        <header
+          data-testid="evidence-header"
+          className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b bg-surface px-5 py-5"
         >
-          <X aria-hidden className="h-5 w-5" />
-        </Button>
-      </header>
-      <div data-testid="evidence-body" className="px-5 pb-6 pt-6">
-        <section aria-labelledby="sources-heading">
-          <h3 id="sources-heading" className="text-lg font-semibold">
-            Sources ({citations.length})
-          </h3>
-          {citations.length ? (
-            <ol className="mt-3 space-y-3">
-              {citations.map((citation, index) => (
-                <SourceCard
-                  key={citation.id}
-                  citation={citation}
-                  index={index}
-                  selected={citation.id === selectedCitationId}
-                  register={(node) => {
-                    if (node) cardRefs.current.set(citation.id, node);
-                    else cardRefs.current.delete(citation.id);
-                  }}
-                />
-              ))}
-            </ol>
+          {mode === "drawer" ? (
+            <SheetHeader className="min-w-0">
+              <SheetDescription className="text-xs font-medium text-information">
+                Grounding details
+              </SheetDescription>
+              <SheetTitle
+                id="evidence-heading"
+                ref={titleRef}
+                tabIndex={-1}
+                className="break-words text-2xl font-semibold"
+              >
+                Answer evidence
+              </SheetTitle>
+            </SheetHeader>
           ) : (
-            <p className="mt-2 text-sm text-slate-600">
-              No citations were returned for this answer.
-            </p>
-          )}
-        </section>
-        <section
-          className="mt-8 border-t pt-6"
-          aria-labelledby="structure-heading"
-        >
-          <h3 id="structure-heading" className="text-lg font-semibold">
-            Graph structure
-          </h3>
-          {!evidence ||
-          (!evidence.nodes.length &&
-            !evidence.edges.length &&
-            !evidence.paths.length) ? (
-            <p className="mt-2 text-sm text-slate-600">
-              No graph structure was returned for this answer.
-            </p>
-          ) : (
-            <div className="mt-3 space-y-5">
-              <div>
-                <h4 className="font-semibold">
-                  Nodes ({evidence.nodes.length})
-                </h4>
-                <ul className="mt-2 space-y-2 text-sm">
-                  {evidence.nodes.map((node) => (
-                    <li
-                      key={node.id}
-                      className="rounded-md border bg-slate-50 p-2"
-                    >
-                      <strong>{node.label}</strong>{" "}
-                      <span className="text-slate-500">({node.type})</span>{" "}
-                      <Badge variant="outline">{node.provenance}</Badge>
-                      <details className="mt-1 text-xs text-slate-600">
-                        <summary className="cursor-pointer">
-                          Technical details
-                        </summary>
-                        <span className="font-mono">{node.id}</span>
-                      </details>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-semibold">
-                  Relationships ({evidence.edges.length})
-                </h4>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {evidence.edges.map((edge) => (
-                    <li key={edge.id}>
-                      {nodeName.get(edge.sourceNodeId) ?? "Unknown node"} →{" "}
-                      <strong>{edge.relationship}</strong> →{" "}
-                      {nodeName.get(edge.targetNodeId) ?? "Unknown node"}{" "}
-                      <Badge variant="outline">{edge.provenance}</Badge>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-semibold">
-                  Paths ({evidence.paths.length})
-                </h4>
-                <ol className="mt-2 space-y-1 text-sm">
-                  {evidence.paths.map((path) => (
-                    <li key={path.id}>
-                      {path.nodeIds
-                        .map((id) => nodeName.get(id) ?? "Unknown node")
-                        .join(" → ")}
-                    </li>
-                  ))}
-                </ol>
-              </div>
+            <div className="min-w-0 space-y-2 text-left">
+              <p className="text-xs font-medium text-information">
+                Grounding details
+              </p>
+              <h2
+                id="evidence-heading"
+                ref={titleRef}
+                tabIndex={-1}
+                className="break-words text-2xl font-semibold"
+              >
+                Answer evidence
+              </h2>
             </div>
           )}
-        </section>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={onClose}
+            aria-label="Close evidence"
+            className="shrink-0"
+          >
+            <X aria-hidden className="h-5 w-5" />
+          </Button>
+        </header>
+      )}
+      <div data-testid="evidence-body" className="px-5 pb-6 pt-6">
+        {(section === "all" || section === "sources") && (
+          <section aria-labelledby="sources-heading">
+            <h3 id="sources-heading" className="text-lg font-semibold">
+              Document passages ({passageCitations.length})
+            </h3>
+            {passageCitations.length ? (
+              <ol className="mt-3 space-y-3">
+                {passageCitations.map((citation) => {
+                  const index = citations.indexOf(citation);
+                  return (
+                    <SourceCard
+                      key={citation.id}
+                      citation={citation}
+                      index={index}
+                      selected={citation.id === selectedCitationId}
+                      register={(node) => {
+                        if (node) cardRefs.current.set(citation.id, node);
+                        else cardRefs.current.delete(citation.id);
+                      }}
+                    />
+                  );
+                })}
+              </ol>
+            ) : (
+              <p className="mt-2 text-sm text-text-secondary">
+                No source passages were returned for this answer.
+              </p>
+            )}
+          </section>
+        )}
+        {(section === "all" || section === "graph") && (
+          <section
+            className={section === "all" ? "mt-8 border-t pt-6" : ""}
+            aria-labelledby="structure-heading"
+          >
+            <h3 id="structure-heading" className="text-lg font-semibold">
+              Graph relationships
+            </h3>
+            {!evidence ||
+            (!evidence.nodes.length &&
+              !evidence.edges.length &&
+              !evidence.paths.length) ? (
+              <p className="mt-2 text-sm text-text-secondary">
+                No graph relationships were returned for this answer.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-5">
+                <div>
+                  <h4 className="font-semibold">
+                    Nodes ({evidence.nodes.length})
+                  </h4>
+                  <ul className="mt-2 space-y-2 text-sm">
+                    {evidence.nodes.map((node) => (
+                      <li
+                        key={node.id}
+                        className="rounded-md border bg-background p-2"
+                      >
+                        <strong>{node.label}</strong>{" "}
+                        <span className="text-text-muted">({node.type})</span>{" "}
+                        <Badge variant="outline">{node.provenance}</Badge>
+                        <details className="mt-1 text-xs text-text-secondary">
+                          <summary className="cursor-pointer">
+                            Technical details
+                          </summary>
+                          <span className="font-mono">{node.id}</span>
+                        </details>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="font-semibold">
+                    Relationships ({evidence.edges.length})
+                  </h4>
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {evidence.edges.map((edge) => (
+                      <li key={edge.id}>
+                        {nodeName.get(edge.sourceNodeId) ?? "Unknown node"} →{" "}
+                        <strong>{edge.relationship}</strong> →{" "}
+                        {nodeName.get(edge.targetNodeId) ?? "Unknown node"}{" "}
+                        <Badge variant="outline">{edge.provenance}</Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="font-semibold">
+                    Paths ({evidence.paths.length})
+                  </h4>
+                  <ol className="mt-2 space-y-1 text-sm">
+                    {evidence.paths.map((path) => (
+                      <li key={path.id}>
+                        {path.nodeIds
+                          .map((id) => nodeName.get(id) ?? "Unknown node")
+                          .join(" → ")}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+        {section === "all" && answer && (
+          <section
+            className="mt-8 border-t pt-6"
+            aria-labelledby="notes-heading"
+          >
+            <h3 id="notes-heading" className="text-lg font-semibold">
+              Warnings and provenance
+            </h3>
+            {answer?.warnings.map((warning) => (
+              <p
+                key={warning}
+                className="mt-3 rounded-md border border-warning-border bg-warning-surface p-3 text-sm text-warning"
+              >
+                {warning}
+              </p>
+            ))}
+            <details className="mt-3 text-sm text-text-secondary">
+              <summary className="cursor-pointer font-medium">
+                Answer technical details
+              </summary>
+              <dl className="mt-2 rounded-md border bg-background p-3 text-xs">
+                <div>
+                  <dt className="inline font-semibold">Knowledge build: </dt>
+                  <dd className="inline font-mono">
+                    {answer?.graphVersion ?? "Not available"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline font-semibold">Graph citations: </dt>
+                  <dd className="inline">{graphCitations.length}</dd>
+                </div>
+              </dl>
+            </details>
+          </section>
+        )}
       </div>
     </div>
   );
@@ -348,7 +400,7 @@ function Panel({ children }: { children: ReactNode }) {
   return (
     <aside
       aria-labelledby="evidence-heading"
-      className="h-full min-h-0 w-80 shrink-0 overflow-hidden border-l bg-white lg:w-96 2xl:w-[28rem]"
+      className="h-full min-h-0 w-[clamp(20rem,27vw,30rem)] shrink-0 overflow-hidden border-l bg-surface"
     >
       {children}
     </aside>
@@ -360,12 +412,14 @@ export function EvidenceDrawer({
   citations,
   selectedCitationId,
   mode = "drawer",
+  section = "all",
   onClose,
 }: {
   answer?: Answer;
   citations: Citation[];
   selectedCitationId?: string;
-  mode?: "panel" | "drawer";
+  mode?: "panel" | "drawer" | "content";
+  section?: "all" | "sources" | "graph";
   onClose: () => void;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -378,18 +432,20 @@ export function EvidenceDrawer({
       onClose={onClose}
       titleRef={heading}
       mode={mode}
+      section={section}
     />
   );
 
   if (mode === "panel") return <Panel>{content}</Panel>;
+  if (mode === "content") return content;
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         hideClose
-        side="right"
+        side="bottom"
         aria-labelledby="evidence-heading"
-        className="w-[min(100%,36rem)] gap-0 overflow-hidden p-0"
+        className="h-[min(92dvh,48rem)] w-full gap-0 overflow-hidden rounded-t-lg p-0 md:h-dvh md:w-[min(100%,36rem)] md:rounded-none"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           heading.current?.focus();

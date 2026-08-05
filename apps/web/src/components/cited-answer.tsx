@@ -92,7 +92,7 @@ function CitationLink({
       <button
         type="button"
         data-citation-id={citation.id}
-        className="rounded px-1 font-semibold text-sky-800 underline decoration-sky-300 underline-offset-2 hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2"
+        className="rounded px-1 font-semibold text-primary underline decoration-information-border underline-offset-2 hover:bg-selected focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
         aria-label={`Open source ${number}: ${preview}`}
         aria-describedby={`citation-preview-${number}`}
         onClick={(event) => onCitation(citation.id, event.currentTarget)}
@@ -102,7 +102,7 @@ function CitationLink({
       <span
         id={`citation-preview-${number}`}
         role="tooltip"
-        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-max max-w-72 -translate-x-1/2 rounded-md bg-slate-950 px-3 py-2 text-xs font-normal text-white shadow-lg group-hover/citation:block group-focus-within/citation:block"
+        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-max max-w-72 -translate-x-1/2 rounded-md bg-foreground px-3 py-2 text-xs font-normal text-white shadow-lg group-hover/citation:block group-focus-within/citation:block"
       >
         {preview}
       </span>

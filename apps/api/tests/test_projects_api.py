@@ -83,12 +83,18 @@ async def test_upload_build_and_project_scoped_conversation(
     )
     assert finalized.status_code == 200
     assert finalized.json()[0]["sha256"] == digest
+    assert finalized.json()[0]["status"] == "uploaded"
+    assert finalized.json()[0]["progressPercent"] == 0
+    assert finalized.json()[0]["uploadedAt"]
 
     queued = await client.post(
         f"/api/v1/projects/{project_id}/builds",
         headers={"Idempotency-Key": "build-1"},
     )
     assert queued.status_code == 202
+    queued_files = (await client.get(f"/api/v1/projects/{project_id}/files")).json()
+    assert queued_files[0]["status"] == "queued"
+    assert queued_files[0]["progressPercent"] == 5
     worker = KnowledgeWorker(settings)
     await worker.repository.initialize()
     try:
@@ -105,6 +111,9 @@ async def test_upload_build_and_project_scoped_conversation(
     ready = (await client.get(f"/api/v1/projects/{project_id}")).json()
     assert ready["state"] == "ready"
     assert ready["activeDocumentCount"] == 1
+    ready_files = (await client.get(f"/api/v1/projects/{project_id}/files")).json()
+    assert ready_files[0]["status"] == "ready"
+    assert ready_files[0]["progressPercent"] == 100
     conversation = await client.post(
         "/api/v1/conversations", json={"projectId": project_id}
     )
@@ -172,3 +181,61 @@ async def test_rejects_unsafe_upload_filename(
     )
     assert response.status_code == 422
     assert response.json()["code"] == "upload_invalid"
+
+
+async def test_project_membership_roles_and_last_owner_protection(
+    project_client: tuple[httpx.AsyncClient, Settings],
+) -> None:
+    client, _ = project_client
+    project = (
+        await client.post(
+            "/api/v1/projects",
+            headers={"Idempotency-Key": "access-project"},
+            json={"name": "Private project"},
+        )
+    ).json()
+    project_id = project["id"]
+    assert project["currentAccess"]["effectiveRole"] == "owner"
+    assert project["allowedActions"]["manageAccess"] is True
+
+    members = (
+        await client.post(
+            f"/api/v1/projects/{project_id}/members",
+            headers={"Idempotency-Key": "add-manager"},
+            json={
+                "principals": [
+                    {
+                        "principalType": "user",
+                        "principalId": "manager-subject",
+                        "displayName": "Project Manager",
+                    }
+                ],
+                "role": "manager",
+            },
+        )
+    ).json()
+    manager = next(item for item in members if item["principalId"] == "manager-subject")
+    promoted = await client.patch(
+        f"/api/v1/projects/{project_id}/members/{manager['id']}",
+        json={"role": "owner"},
+    )
+    assert promoted.status_code == 200
+    assert promoted.json()["role"] == "owner"
+
+    removed = await client.delete(
+        f"/api/v1/projects/{project_id}/members/{manager['id']}"
+    )
+    assert removed.status_code == 204
+    owner = next(item for item in members if item["principalId"] == "development-user")
+    final_owner = await client.delete(
+        f"/api/v1/projects/{project_id}/members/{owner['id']}"
+    )
+    assert final_owner.status_code == 409
+
+    activity = await client.get(f"/api/v1/projects/{project_id}/access-activity")
+    assert activity.status_code == 200
+    assert {item["action"] for item in activity.json()} >= {
+        "access.membership_added",
+        "access.role_changed",
+        "access.membership_removed",
+    }

@@ -1,0 +1,7 @@
+- Model selection
+- API key Configuration
+- do not rebuild the index if the file has not been changes, store and hash for all the files and compare before indexing, if file is different always ask the user for confirmation
+- Connect with github
+- Add Skills to help the user with specific tasks
+- deprecated code in /home/oortiz/oao/poc-la-graph/apps/api/app/main.py
+- Access & Sharing idempotency: incomplete and should be wired into the repository if strict replay safety is required.

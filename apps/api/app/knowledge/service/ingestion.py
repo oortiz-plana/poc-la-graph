@@ -12,6 +12,7 @@ import signal
 import stat
 import tempfile
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -37,15 +38,20 @@ class IngestionConflict(RuntimeError):
     pass
 
 
+ProgressCallback = Callable[[str, int], Awaitable[None]]
+
+
 class KnowledgeIngestionService:
     def __init__(
         self,
         settings: Settings,
         logger: Any,
         source: KnowledgeDocumentSource | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> None:
         self.settings = settings
         self.logger = logger
+        self.progress_callback = progress_callback
         self.document_source = source or FilesystemDocumentSource(
             self.settings.knowledge_input_dir,
             max_documents=self.settings.knowledge_max_document_count,
@@ -59,6 +65,10 @@ class KnowledgeIngestionService:
         self._task: asyncio.Task[None] | None = None
         self._guard = asyncio.Lock()
         self._commands: dict[str, IngestionCommand] = {}
+
+    async def _report_progress(self, phase: str, percent: int) -> None:
+        if self.progress_callback is not None:
+            await self.progress_callback(phase, percent)
 
     async def start(
         self,
@@ -267,6 +277,7 @@ class KnowledgeIngestionService:
             "knowledge_ingestion_started",
             extra={"ingestion_id": ingestion_id},
         )
+        await self._report_progress("validating", 15)
         try:
             snapshot = await self._load_snapshot(command)
         except Exception as exc:
@@ -282,6 +293,7 @@ class KnowledgeIngestionService:
             )
             self._write_manifest(failure)
             return
+        await self._report_progress("converting", 30)
         if (
             not force
             and old
@@ -381,6 +393,7 @@ class KnowledgeIngestionService:
                     else str(document.content).encode("utf-8")
                 )
                 destination.chmod(0o400)
+            await self._report_progress("buildingGraph", 55)
             subprocess_command = [
                 "graphify",
                 "extract",
@@ -437,6 +450,7 @@ class KnowledgeIngestionService:
             artifact_sha = hashlib.sha256(
                 (publish / "graph.json").read_bytes()
             ).hexdigest()
+            await self._report_progress("indexing", 85)
             try:
                 passage_count = SourceIndex(self.source_index_path()).rebuild_version(
                     version,

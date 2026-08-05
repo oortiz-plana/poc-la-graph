@@ -151,6 +151,9 @@ The canonical containerized checks are `make test-api` and `make lint`.
 
 ### TypeScript web app
 
+- Before making frontend UX, layout, styling, interaction, or accessibility
+  changes, consult `docs/graphify-enterprise-ux-guidelines.md` and preserve its
+  application-shell, semantic-token, responsive, evidence, and WCAG guidance.
 - Keep TypeScript strict and validate backend data with the existing Zod
   contracts before rendering.
 - Use existing Tailwind theme tokens and Radix/shadcn primitives; do not create a

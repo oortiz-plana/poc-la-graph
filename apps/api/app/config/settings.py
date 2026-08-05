@@ -34,6 +34,15 @@ class Settings(BaseSettings):
         "http://keycloak:8080/realms/graphify/protocol/openid-connect/certs"
     )
     auth_jwks_cache_seconds: int = Field(default=300, ge=30, le=86_400)
+    tenancy_mode: Literal["fixed", "claim"] = "fixed"
+    tenant_id: str = "default"
+    tenant_ids: str = "default"
+    auth_tenant_claim: str = "tenant_id"
+    auth_groups_claim: str = "groups"
+    keycloak_admin_url: str | None = None
+    keycloak_directory_token_url: str | None = None
+    keycloak_directory_client_id: str | None = None
+    keycloak_directory_client_secret: str | None = None
 
     llm_adapter: Literal["litellm", "mock"] = "litellm"
     llm_model: str = ""
@@ -106,7 +115,14 @@ class Settings(BaseSettings):
     knowledge_build_timeout_seconds: float = Field(default=1800, gt=0, le=7200)
 
     @field_validator(
-        "llm_api_base", "llm_api_key", "graphify_extract_model", mode="before"
+        "llm_api_base",
+        "llm_api_key",
+        "graphify_extract_model",
+        "keycloak_admin_url",
+        "keycloak_directory_token_url",
+        "keycloak_directory_client_id",
+        "keycloak_directory_client_secret",
+        mode="before",
     )
     @classmethod
     def empty_to_none(cls, value: object) -> object:
@@ -120,6 +136,13 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def valid_document_profiles(self) -> Settings:
         parse_document_profiles(self.knowledge_document_profiles_json)
+        if not self.allowed_tenant_ids:
+            raise ValueError("At least one tenant ID must be configured")
+        if (
+            self.tenancy_mode == "fixed"
+            and self.tenant_id not in self.allowed_tenant_ids
+        ):
+            raise ValueError("The fixed tenant ID must be allowlisted")
         return self
 
     @property
@@ -133,6 +156,12 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+
+    @property
+    def allowed_tenant_ids(self) -> frozenset[str]:
+        return frozenset(
+            item.strip() for item in self.tenant_ids.split(",") if item.strip()
+        )
 
 
 @lru_cache

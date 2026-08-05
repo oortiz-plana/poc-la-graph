@@ -34,6 +34,7 @@ from app.auth import TokenVerifier, require_admin
 from app.auth.dependencies import AuthorizationError
 from app.auth.verifier import AuthenticationError
 from app.config.settings import Settings, get_settings
+from app.integrations.directory import KeycloakDirectoryClient
 from app.knowledge.service import KnowledgeIngestionService
 from app.observability import configure_logging
 from app.projects import ProjectConflict, ProjectNotFound, ProjectRepository
@@ -67,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             upload_ttl_hours=configured.upload_session_ttl_hours,
         )
         await application.state.projects.initialize()
+        await application.state.projects.ensure_tenants(configured.allowed_tenant_ids)
         application.state.project_storage = ProjectStorage(
             configured.project_storage_root,
             max_file_bytes=configured.knowledge_max_document_size_bytes,
@@ -80,6 +82,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             audience=configured.auth_audience,
             jwks_url=configured.auth_jwks_url,
             cache_seconds=configured.auth_jwks_cache_seconds,
+        )
+        application.state.directory = KeycloakDirectoryClient(
+            admin_url=configured.keycloak_admin_url,
+            token_url=configured.keycloak_directory_token_url,
+            client_id=configured.keycloak_directory_client_id,
+            client_secret=configured.keycloak_directory_client_secret,
         )
         application.state.conversation_store_initialized = True
         cleanup_task = asyncio.create_task(
@@ -107,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await application.state.store.close()
             await application.state.projects.close()
             await application.state.token_verifier.close()
+            await application.state.directory.close()
             application.state.conversation_store_initialized = False
 
     application = FastAPI(

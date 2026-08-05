@@ -43,6 +43,14 @@ vi.mock("@ai-sdk/react", () => ({
     clearError: mocks.clearError,
   }),
 }));
+vi.mock("./auth-provider", () => ({
+  useAuth: () => ({
+    username: "researcher",
+    roles: new Set(["viewer"]),
+    logout: vi.fn(),
+    config: {},
+  }),
+}));
 vi.mock("@/lib/api", () => ({
   checkHealth: mocks.checkHealth,
   getRuntimeConfig: mocks.getRuntimeConfig,
@@ -143,7 +151,8 @@ describe("ChatWorkspace", () => {
     );
 
     await screen.findByText("API connected");
-    expect(screen.getAllByText("Legal knowledge")).toHaveLength(2);
+    expect(screen.getByText("Legal knowledge")).toBeInTheDocument();
+    expect(screen.getByText("Project: Legal knowledge")).toBeInTheDocument();
     expect(screen.queryByText(projectId)).not.toBeInTheDocument();
   });
 
@@ -241,8 +250,9 @@ describe("ChatWorkspace", () => {
       within(list).getAllByRole("button", { name: /Newest|Older/ })[0],
     ).toHaveTextContent("Newest");
     await userEvent.click(
-      within(list).getByRole("button", { name: "Rename Newest" }),
+      within(list).getByRole("button", { name: "Actions for Newest" }),
     );
+    await userEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
     const input = within(list).getByLabelText("Conversation name");
     await userEvent.clear(input);
     await userEvent.type(input, "Renamed conversation");
@@ -251,6 +261,30 @@ describe("ChatWorkspace", () => {
       "newest",
       "Renamed conversation",
     );
+  });
+
+  it("filters conversations by their user-facing name", async () => {
+    const newest = { ...conversation, id: "newest", name: "Pension reform" };
+    const older = { ...conversation, id: "older", name: "Health benefits" };
+    mocks.listConversations.mockImplementation(
+      (_projectId: string, state: "active" | "archived") =>
+        Promise.resolve({
+          items: state === "active" ? [newest, older] : [],
+          nextCursor: null,
+        }),
+    );
+    mocks.loadConversation.mockResolvedValue(newest);
+    render(<ChatWorkspace />);
+    await screen.findByText("API connected");
+
+    await userEvent.type(
+      screen.getByRole("searchbox", { name: "Search conversations" }),
+      "health",
+    );
+
+    const list = screen.getByRole("list", { name: "Active conversations" });
+    expect(within(list).getByText("Health benefits")).toBeInTheDocument();
+    expect(within(list).queryByText("Pension reform")).not.toBeInTheDocument();
   });
 
   it("restores and permanently deletes conversations from Archived", async () => {
@@ -284,9 +318,10 @@ describe("ChatWorkspace", () => {
     })[0];
     await userEvent.click(
       within(archivedList).getByRole("button", {
-        name: "Restore Archived research",
+        name: "Actions for Archived research",
       }),
     );
+    await userEvent.click(screen.getByRole("menuitem", { name: "Restore" }));
     expect(mocks.restoreConversation).toHaveBeenCalledWith("archived");
 
     await userEvent.click(
@@ -297,9 +332,10 @@ describe("ChatWorkspace", () => {
     })[0];
     await userEvent.click(
       within(archivedList).getByRole("button", {
-        name: "Permanently delete Archived research",
+        name: "Actions for Archived research",
       }),
     );
+    await userEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     expect(mocks.purgeConversation).toHaveBeenCalledWith("archived");
   });
 
@@ -352,18 +388,23 @@ describe("ChatWorkspace", () => {
     const user = userEvent.setup();
     render(<ChatWorkspace />);
     await screen.findByText("API connected");
-    expect(screen.getByText("Searching Graphify")).toBeInTheDocument();
+    expect(
+      screen.getByText("Searching the knowledge graph…"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Grounded")).toHaveProperty("tagName", "STRONG");
-    expect(screen.getByText("Confidence: high")).toBeInTheDocument();
+    expect(
+      screen.getByText("Evidence coverage: Supported"),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Stop response" }),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "View sources" }));
     expect(
-      screen.getByRole("dialog", { name: "Answer evidence" }),
+      screen.getByRole("dialog", { name: "Project context" }),
     ).toBeInTheDocument();
     expect(screen.getByText("[1] Design doc")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Graph" }));
     expect(screen.getByText("Nodes (1)")).toBeInTheDocument();
   });
 
@@ -372,7 +413,7 @@ describe("ChatWorkspace", () => {
     window.matchMedia = vi
       .fn()
       .mockImplementation((query: string): MediaQueryList => ({
-        matches: query === "(min-width: 768px)",
+        matches: query === "(min-width: 1024px)",
         media: query,
         onchange: null,
         addListener: () => undefined,
@@ -399,9 +440,11 @@ describe("ChatWorkspace", () => {
     await user.click(citation);
 
     expect(
-      await screen.findByRole("complementary", { name: "Answer evidence" }),
+      await screen.findByRole("complementary", { name: "Project context" }),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close evidence" }));
+    await user.click(
+      screen.getByRole("button", { name: "Collapse context panel" }),
+    );
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: /Open source 1:/ }),
@@ -423,7 +466,7 @@ describe("ChatWorkspace", () => {
 
     expect(screen.getByText("A partial grounded answer")).toBeInTheDocument();
     expect(
-      screen.getByText("Writing an evidence-grounded answer"),
+      screen.getByText("Preparing the grounded answer…"),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "View sources" }),
@@ -540,8 +583,9 @@ describe("ChatWorkspace", () => {
     render(<ChatWorkspace />);
     await screen.findByText("API connected");
     await userEvent.click(
-      screen.getByRole("button", { name: "Archive conversation" }),
+      screen.getByRole("button", { name: "Conversation actions" }),
     );
+    await userEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
     expect(
       screen.getByRole("alertdialog", { name: "Archive conversation?" }),
     ).toBeInTheDocument();

@@ -292,6 +292,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/governance/projects:
+    get:
+      tags:
+      - projects
+      summary: Governance Projects
+      operationId: governance_projects_api_v1_projects_governance_projects_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/GovernanceProject'
+                type: array
+                title: Response Governance Projects Api V1 Projects Governance Projects
+                  Get
+      security:
+      - HTTPBearer: []
   /api/v1/projects:
     get:
       tags:
@@ -390,6 +409,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Project'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/access-context:
+    get:
+      tags:
+      - projects
+      summary: Access Request Context
+      operationId: access_request_context_api_v1_projects__project_id__access_context_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequestContext'
         '422':
           description: Validation Error
           content:
@@ -707,6 +754,368 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/members:
+    get:
+      tags:
+      - projects
+      summary: List Members
+      operationId: list_members_api_v1_projects__project_id__members_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectMembership'
+                title: Response List Members Api V1 Projects  Project Id  Members
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - projects
+      summary: Add Members
+      operationId: add_members_api_v1_projects__project_id__members_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMembershipsRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectMembership'
+                title: Response Add Members Api V1 Projects  Project Id  Members Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/members/{membership_id}:
+    patch:
+      tags:
+      - projects
+      summary: Change Member Role
+      operationId: change_member_role_api_v1_projects__project_id__members__membership_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: membership_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Membership Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMembershipRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMembership'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - projects
+      summary: Remove Member
+      operationId: remove_member_api_v1_projects__project_id__members__membership_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: membership_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Membership Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/access-requests:
+    post:
+      tags:
+      - projects
+      summary: Request Access
+      operationId: request_access_api_v1_projects__project_id__access_requests_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccessRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectAccessRequest'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - projects
+      summary: List Access Requests
+      operationId: list_access_requests_api_v1_projects__project_id__access_requests_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectAccessRequest'
+                title: Response List Access Requests Api V1 Projects  Project Id  Access
+                  Requests Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/access-requests/{access_request_id}:
+    patch:
+      tags:
+      - projects
+      summary: Decide Access Request
+      operationId: decide_access_request_api_v1_projects__project_id__access_requests__access_request_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: access_request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Access Request Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+          title: Idempotency-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideAccessRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectAccessRequest'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - projects
+      summary: Cancel Access Request
+      operationId: cancel_access_request_api_v1_projects__project_id__access_requests__access_request_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: access_request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Access Request Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/access-activity:
+    get:
+      tags:
+      - projects
+      summary: Access Activity
+      operationId: access_activity_api_v1_projects__project_id__access_activity_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AccessActivity'
+                title: Response Access Activity Api V1 Projects  Project Id  Access
+                  Activity Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/projects/{project_id}/directory:
+    get:
+      tags:
+      - projects
+      summary: Search Directory
+      operationId: search_directory_api_v1_projects__project_id__directory_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: query
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Query
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryPrincipalList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/knowledge/ingestions:
     post:
       tags:
@@ -766,6 +1175,142 @@ paths:
       - HTTPBearer: []
 components:
   schemas:
+    AccessActivity:
+      properties:
+        id:
+          type: string
+          title: Id
+        actorId:
+          type: string
+          title: Actorid
+        action:
+          type: string
+          title: Action
+        targetName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Targetname
+        occurredAt:
+          type: string
+          format: date-time
+          title: Occurredat
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - actorId
+      - action
+      - occurredAt
+      title: AccessActivity
+    AccessOrigin:
+      properties:
+        membershipId:
+          type: string
+          title: Membershipid
+        principalType:
+          type: string
+          enum:
+          - user
+          - group
+          title: Principaltype
+        principalId:
+          type: string
+          title: Principalid
+        displayName:
+          type: string
+          title: Displayname
+        role:
+          type: string
+          enum:
+          - viewer
+          - contributor
+          - manager
+          - owner
+          title: Role
+      additionalProperties: false
+      type: object
+      required:
+      - membershipId
+      - principalType
+      - principalId
+      - displayName
+      - role
+      title: AccessOrigin
+    AccessRequestContext:
+      properties:
+        projectId:
+          type: string
+          title: Projectid
+        projectName:
+          type: string
+          title: Projectname
+        status:
+          type: string
+          enum:
+          - available
+          - pending
+          - denied
+          title: Status
+        requestId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requestid
+      additionalProperties: false
+      type: object
+      required:
+      - projectId
+      - projectName
+      - status
+      title: AccessRequestContext
+    AddMembershipItem:
+      properties:
+        principalType:
+          type: string
+          enum:
+          - user
+          - group
+          title: Principaltype
+        principalId:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Principalid
+        displayName:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Displayname
+      additionalProperties: false
+      type: object
+      required:
+      - principalType
+      - principalId
+      - displayName
+      title: AddMembershipItem
+    AddMembershipsRequest:
+      properties:
+        principals:
+          items:
+            $ref: '#/components/schemas/AddMembershipItem'
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Principals
+        role:
+          type: string
+          enum:
+          - viewer
+          - contributor
+          - manager
+          title: Role
+      additionalProperties: false
+      type: object
+      required:
+      - principals
+      - role
+      title: AddMembershipsRequest
     AllowedActions:
       properties:
         createConversation:
@@ -786,6 +1331,18 @@ components:
         purge:
           type: boolean
           title: Purge
+        manageAccess:
+          type: boolean
+          title: Manageaccess
+          default: false
+        viewAccessActivity:
+          type: boolean
+          title: Viewaccessactivity
+          default: false
+        requestAccess:
+          type: boolean
+          title: Requestaccess
+          default: false
       additionalProperties: false
       type: object
       required:
@@ -1084,6 +1641,17 @@ components:
       - updatedAt
       - archivedAt
       title: ConversationSummary
+    CreateAccessRequest:
+      properties:
+        note:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Note
+      additionalProperties: false
+      type: object
+      title: CreateAccessRequest
     CreateConversationRequest:
       properties:
         projectId:
@@ -1128,6 +1696,126 @@ components:
       required:
       - files
       title: CreateUploadSessionRequest
+    CurrentAccess:
+      properties:
+        effectiveRole:
+          type: string
+          enum:
+          - viewer
+          - contributor
+          - manager
+          - owner
+          title: Effectiverole
+        origins:
+          items:
+            $ref: '#/components/schemas/AccessOrigin'
+          type: array
+          title: Origins
+      additionalProperties: false
+      type: object
+      required:
+      - effectiveRole
+      - origins
+      title: CurrentAccess
+    DecideAccessRequest:
+      properties:
+        decision:
+          type: string
+          enum:
+          - approved
+          - denied
+          title: Decision
+        role:
+          anyOf:
+          - type: string
+            enum:
+            - viewer
+            - contributor
+            - manager
+          - type: 'null'
+          title: Role
+      additionalProperties: false
+      type: object
+      required:
+      - decision
+      title: DecideAccessRequest
+    DirectoryPrincipal:
+      properties:
+        id:
+          type: string
+          title: Id
+        type:
+          type: string
+          enum:
+          - user
+          - group
+          title: Type
+        displayName:
+          type: string
+          title: Displayname
+        secondaryText:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Secondarytext
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - type
+      - displayName
+      title: DirectoryPrincipal
+    DirectoryPrincipalList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/DirectoryPrincipal'
+          type: array
+          title: Items
+        nextCursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Nextcursor
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      title: DirectoryPrincipalList
+    GovernanceProject:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        state:
+          type: string
+          enum:
+          - draft
+          - queued
+          - building
+          - ready
+          - failed
+          - archived
+          title: State
+        ownerCount:
+          type: integer
+          title: Ownercount
+        updatedAt:
+          type: string
+          format: date-time
+          title: Updatedat
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - name
+      - state
+      - ownerCount
+      - updatedAt
+      title: GovernanceProject
     GraphEdge:
       properties:
         id:
@@ -1465,6 +2153,8 @@ components:
           - type: 'null'
         allowedActions:
           $ref: '#/components/schemas/AllowedActions'
+        currentAccess:
+          $ref: '#/components/schemas/CurrentAccess'
       additionalProperties: false
       type: object
       required:
@@ -1478,7 +2168,108 @@ components:
       - draftFileCount
       - activeDocumentCount
       - allowedActions
+      - currentAccess
       title: Project
+    ProjectAccessRequest:
+      properties:
+        id:
+          type: string
+          title: Id
+        requesterId:
+          type: string
+          title: Requesterid
+        requesterName:
+          type: string
+          title: Requestername
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+        status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - denied
+          - cancelled
+          title: Status
+        decidedRole:
+          anyOf:
+          - type: string
+            enum:
+            - viewer
+            - contributor
+            - manager
+            - owner
+          - type: 'null'
+          title: Decidedrole
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+        decidedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Decidedat
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - requesterId
+      - requesterName
+      - note
+      - status
+      - createdAt
+      title: ProjectAccessRequest
+    ProjectMembership:
+      properties:
+        id:
+          type: string
+          title: Id
+        principalType:
+          type: string
+          enum:
+          - user
+          - group
+          title: Principaltype
+        principalId:
+          type: string
+          title: Principalid
+        displayName:
+          type: string
+          title: Displayname
+        role:
+          type: string
+          enum:
+          - viewer
+          - contributor
+          - manager
+          - owner
+          title: Role
+        accessOrigin:
+          type: string
+          enum:
+          - direct
+          - group
+          title: Accessorigin
+        createdAt:
+          type: string
+          format: date-time
+          title: Createdat
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - principalType
+      - principalId
+      - displayName
+      - role
+      - accessOrigin
+      - createdAt
+      title: ProjectMembership
     Readiness:
       properties:
         ready:
@@ -1530,6 +2321,38 @@ components:
         sha256:
           type: string
           title: Sha256
+        status:
+          anyOf:
+          - type: string
+            enum:
+            - uploaded
+            - queued
+            - validating
+            - converting
+            - buildingGraph
+            - indexing
+            - ready
+            - failed
+          - type: 'null'
+          title: Status
+        progressPercent:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Progresspercent
+        errorCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Errorcode
+        uploadedAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Uploadedat
       additionalProperties: false
       type: object
       required:
@@ -1551,6 +2374,21 @@ components:
       required:
       - name
       title: UpdateConversationRequest
+    UpdateMembershipRequest:
+      properties:
+        role:
+          type: string
+          enum:
+          - viewer
+          - contributor
+          - manager
+          - owner
+          title: Role
+      additionalProperties: false
+      type: object
+      required:
+      - role
+      title: UpdateMembershipRequest
     UploadFileDeclaration:
       properties:
         filename:

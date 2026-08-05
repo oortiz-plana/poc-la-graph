@@ -97,7 +97,13 @@ class KnowledgeWorker:
             shutil.copyfile(blob_path, target, follow_symlinks=False)
             target.chmod(0o600)
 
+        async def report_progress(phase: str, percent: int) -> None:
+            await self.repository.update_file_lifecycle(
+                build.snapshot_id, phase, percent
+            )
+
         if self.settings.graphify_runtime_mode == "synthetic":
+            await report_progress("validating", 15)
             graph_version = f"synthetic-{build.id}"
             source = FilesystemDocumentSource(
                 source_root,
@@ -108,7 +114,9 @@ class KnowledgeWorker:
                 profiles=self.settings.document_profiles,
             )
             snapshot = source.discover()
+            await report_progress("converting", 30)
             staged = build_root / "version"
+            await report_progress("buildingGraph", 55)
             (staged / "graphify-out").mkdir(parents=True)
             graph = {
                 "graphVersion": graph_version,
@@ -128,6 +136,7 @@ class KnowledgeWorker:
             (staged / "graphify-out" / "graph.json").write_text(
                 json.dumps(graph, ensure_ascii=False), encoding="utf-8"
             )
+            await report_progress("indexing", 85)
             SourceIndex(staged / "source-index.sqlite").rebuild_version(
                 graph_version,
                 snapshot.documents,
@@ -153,7 +162,11 @@ class KnowledgeWorker:
                     "knowledge_ingest_on_startup": False,
                 }
             )
-            service = KnowledgeIngestionService(configured, self.logger)
+            service = KnowledgeIngestionService(
+                configured,
+                self.logger,
+                progress_callback=report_progress,
+            )
             await service.run_now(force=True)
             ingestion = service.current()
             if ingestion.get("status") == "failed":

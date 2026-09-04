@@ -29,6 +29,10 @@ class Problem(StrictModel):
         "project_not_found",
         "project_conflict",
         "upload_invalid",
+        "analysis_not_configured",
+        "analysis_not_found",
+        "analysis_unavailable",
+        "analysis_limit_exceeded",
         "internal_error",
     ]
     message: str

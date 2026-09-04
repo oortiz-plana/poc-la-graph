@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/schemas/plsql-dependency.schema.json",
+  "title": "PL/SQL typed dependency result",
+  "description": "Bounded typed-dependency envelopes (callers, callees, table access) for the PL/SQL analysis console (ADR 0013).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items", "truncated", "count"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plsqlDependency" }
+    },
+    "truncated": { "type": "boolean" },
+    "count": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "relationship": {
+      "type": "string",
+      "enum": [
+        "CALLS",
+        "READS",
+        "WRITES",
+        "VIEW_DEPENDS_ON",
+        "TRIGGER_ON",
+        "INDEXES",
+        "SYNONYM_FOR",
+        "DECLARES",
+        "CONTAINS"
+      ]
+    },
+    "resolution": {
+      "type": "string",
+      "enum": ["EXACT", "INFERRED", "AMBIGUOUS", "UNRESOLVED"]
+    },
+    "objectReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name", "schema", "qualifiedName"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Table",
+            "View",
+            "Package",
+            "Sequence",
+            "Trigger",
+            "Index",
+            "Synonym",
+            "Type",
+            "Procedure",
+            "Function",
+            "AnonymousBlock"
+          ]
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "schema": { "type": "string", "minLength": 1 },
+        "qualifiedName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "plsqlDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "relationship",
+        "source",
+        "target",
+        "resolution",
+        "evidence"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "relationship": { "$ref": "#/$defs/relationship" },
+        "source": { "$ref": "#/$defs/objectReference" },
+        "target": { "$ref": "#/$defs/objectReference" },
+        "resolution": { "$ref": "#/$defs/resolution" },
+        "evidence": {
+          "anyOf": [
+            { "$ref": "plsql-object.schema.json#/$defs/sourceCoordinate" },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

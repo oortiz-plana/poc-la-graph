@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/schemas/plsql-object.schema.json",
+  "title": "PL/SQL object search result",
+  "description": "Search envelope and object detail for the PL/SQL analysis console (ADR 0013).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items", "truncated", "count"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plsqlObject" }
+    },
+    "truncated": { "type": "boolean" },
+    "count": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "objectKind": {
+      "type": "string",
+      "enum": [
+        "Table",
+        "View",
+        "Package",
+        "Sequence",
+        "Trigger",
+        "Index",
+        "Synonym",
+        "Type",
+        "Procedure",
+        "Function",
+        "AnonymousBlock"
+      ]
+    },
+    "sourceCoordinate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceFileId",
+        "path",
+        "startLine",
+        "startColumn",
+        "startOffset",
+        "endOffset"
+      ],
+      "properties": {
+        "sourceFileId": { "type": ["string", "null"] },
+        "path": { "type": ["string", "null"] },
+        "startLine": { "type": ["integer", "null"], "minimum": 1 },
+        "startColumn": { "type": ["integer", "null"], "minimum": 1 },
+        "startOffset": { "type": ["integer", "null"], "minimum": 0 },
+        "endOffset": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "plsqlObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "schema",
+        "qualifiedName",
+        "projectId",
+        "owner",
+        "signature",
+        "returnType",
+        "declaration"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/objectKind" },
+        "name": { "type": "string", "minLength": 1 },
+        "schema": { "type": "string", "minLength": 1 },
+        "qualifiedName": { "type": "string", "minLength": 1 },
+        "projectId": { "type": "string", "minLength": 1 },
+        "owner": { "type": ["string", "null"] },
+        "signature": { "type": ["string", "null"] },
+        "returnType": { "type": ["string", "null"] },
+        "declaration": {
+          "anyOf": [{ "$ref": "#/$defs/sourceCoordinate" }, { "type": "null" }]
+        }
+      }
+    }
+  }
+}

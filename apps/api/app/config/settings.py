@@ -114,6 +114,20 @@ class Settings(BaseSettings):
     graphify_extract_model: str | None = None
     knowledge_build_timeout_seconds: float = Field(default=1800, gt=0, le=7200)
 
+    # PL/SQL analysis console (read-only gateway; see
+    # docs/architecture/plsql-analysis-console.md and ADR 0012).
+    plsql_adapter: Literal["disabled", "synthetic", "neo4j"] = "disabled"
+    plsql_project_id: str = "sample"
+    plsql_source_root: str | None = None
+    plsql_neo4j_uri: str | None = None
+    plsql_neo4j_user: str | None = None
+    plsql_neo4j_password: str | None = None
+    plsql_neo4j_read_only: bool = True
+    plsql_max_rows: int = Field(default=200, ge=1, le=200)
+    plsql_max_hops: int = Field(default=5, ge=1, le=5)
+    plsql_query_timeout_seconds: float = Field(default=10.0, gt=0, le=300)
+    plsql_max_source_bytes: int = Field(default=262_144, ge=1024, le=10_485_760)
+
     @field_validator(
         "llm_api_base",
         "llm_api_key",
@@ -122,6 +136,10 @@ class Settings(BaseSettings):
         "keycloak_directory_token_url",
         "keycloak_directory_client_id",
         "keycloak_directory_client_secret",
+        "plsql_source_root",
+        "plsql_neo4j_uri",
+        "plsql_neo4j_user",
+        "plsql_neo4j_password",
         mode="before",
     )
     @classmethod

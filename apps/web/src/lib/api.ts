@@ -14,6 +14,10 @@ import {
   projectMembershipSchema,
   snapshotFileSchema,
   uploadSessionSchema,
+  plsqlObjectSchema,
+  plsqlObjectSearchResultSchema,
+  plsqlDependencyResultSchema,
+  plsqlPathResultSchema,
   type BuildSummary,
   type AccessActivity,
   type AccessRequestContext,
@@ -22,6 +26,11 @@ import {
   type Project,
   type DirectoryPrincipal,
   type GovernanceProject,
+  type PlsqlObject,
+  type PlsqlDependencyResult,
+  type PlsqlObjectKind,
+  type PlsqlObjectSearchResult,
+  type PlsqlPathResult,
   type ProjectAccessRequest,
   type ProjectMembership,
   type ProjectRole,
@@ -39,6 +48,7 @@ const runtimeConfigSchema = z.object({
     maxFiles: z.number().int().positive(),
     maxTotalBytes: z.number().int().positive(),
   }),
+  plsqlEnabled: z.boolean().default(false),
 });
 
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
@@ -471,4 +481,94 @@ export async function listProjectAccessActivity(
   );
   if (!response.ok) throw new Error("Could not load access activity.");
   return z.array(accessActivitySchema).parse(await response.json());
+}
+
+export async function searchPlsqlObjects(
+  query: string,
+  options?: { kinds?: PlsqlObjectKind[]; limit?: number },
+): Promise<PlsqlObjectSearchResult> {
+  const params = new URLSearchParams();
+  const trimmed = query.trim();
+  if (trimmed) params.set("q", trimmed);
+  for (const kind of options?.kinds ?? []) params.append("kinds", kind);
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  const suffix = params.size ? `?${params}` : "";
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/objects${suffix}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error("Could not search PL/SQL objects.");
+  return plsqlObjectSearchResultSchema.parse(await response.json());
+}
+
+export async function getPlsqlObject(
+  objectId: string,
+): Promise<PlsqlObject | null> {
+  const params = new URLSearchParams({ objectId });
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/object?${params}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Could not load the PL/SQL object.");
+  return plsqlObjectSchema.parse(await response.json());
+}
+
+async function loadPlsqlDependencies(
+  path: string,
+  objectId: string,
+  errorMessage: string,
+): Promise<PlsqlDependencyResult> {
+  const params = new URLSearchParams({ objectId });
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/${path}?${params}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error(errorMessage);
+  return plsqlDependencyResultSchema.parse(await response.json());
+}
+
+export async function listPlsqlCallers(
+  objectId: string,
+): Promise<PlsqlDependencyResult> {
+  return loadPlsqlDependencies("callers", objectId, "Could not load callers.");
+}
+
+export async function listPlsqlCallees(
+  objectId: string,
+): Promise<PlsqlDependencyResult> {
+  return loadPlsqlDependencies("callees", objectId, "Could not load callees.");
+}
+
+export async function getPlsqlTableAccess(
+  objectId: string,
+): Promise<PlsqlDependencyResult> {
+  return loadPlsqlDependencies(
+    "table-access",
+    objectId,
+    "Could not load table access.",
+  );
+}
+
+export async function findPlsqlPaths(
+  fromId: string,
+  toId: string,
+  options?: { limit?: number },
+): Promise<PlsqlPathResult> {
+  const params = new URLSearchParams({ from: fromId, to: toId });
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/paths?${params}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) throw new Error("Could not find dependency paths.");
+  return plsqlPathResultSchema.parse(await response.json());
+}
+
+export async function listPlsqlUnresolved(): Promise<PlsqlDependencyResult> {
+  const response = await safeFetch("/api/backend/api/v1/plsql/unresolved", {
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("Could not load unresolved references.");
+  return plsqlDependencyResultSchema.parse(await response.json());
 }

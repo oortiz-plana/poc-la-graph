@@ -19,6 +19,11 @@ from app.integrations.graphify import (
 )
 from app.integrations.haystack import HaystackSourceRetriever
 from app.integrations.llm import DeterministicModel, LanguageModel, LiteLLMClient
+from app.integrations.plsql import (
+    AnalysisGraphClient,
+    PlsqlConfigurationError,
+    SyntheticPlsqlAnalysisClient,
+)
 from app.projects import ProjectConflict
 from app.store import ConversationStore
 
@@ -90,6 +95,25 @@ def build_graph_client(
             graph_version=graph_version,
         )
     )
+
+
+def build_analysis_client(settings: Settings) -> AnalysisGraphClient | None:
+    """Compose the read-only analysis client; ``None`` means disabled.
+
+    The Neo4j adapter is deferred behind a dependency decision (ADR 0012,
+    ADR 0015): configuring it now fails fast instead of degrading silently.
+    """
+    if settings.plsql_adapter == "synthetic":
+        return SyntheticPlsqlAnalysisClient(
+            project_id=settings.plsql_project_id,
+            max_rows=settings.plsql_max_rows,
+        )
+    if settings.plsql_adapter == "neo4j":
+        raise PlsqlConfigurationError(
+            "PLSQL_ADAPTER=neo4j is not implemented yet; use synthetic or "
+            "disabled while the Neo4j driver decision is pending."
+        )
+    return None
 
 
 async def get_workflow(

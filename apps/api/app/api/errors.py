@@ -10,6 +10,11 @@ from fastapi.responses import JSONResponse
 
 from app.auth.dependencies import AuthorizationError
 from app.auth.verifier import AuthenticationError
+from app.integrations.plsql.errors import (
+    PlsqlError,
+    PlsqlNotConfigured,
+    PlsqlObjectNotFound,
+)
 from app.models import Problem
 from app.projects import ProjectConflict, ProjectNotFound
 from app.projects.repository import UploadNotFound
@@ -170,6 +175,53 @@ async def invalid_request_handler(
             code="invalid_request",
             message="The request is invalid.",
         ).model_dump(),
+    )
+
+
+async def analysis_not_configured_handler(
+    request: Request, exc: PlsqlNotConfigured
+) -> JSONResponse:
+    del exc
+    return _problem(
+        request,
+        503,
+        "analysis_not_configured",
+        "The analysis feature is not configured.",
+    )
+
+
+async def analysis_not_found_handler(
+    request: Request, exc: PlsqlObjectNotFound
+) -> JSONResponse:
+    del exc
+    return _problem(
+        request,
+        404,
+        "analysis_not_found",
+        "The requested PL/SQL object was not found.",
+    )
+
+
+async def analysis_unavailable_handler(
+    request: Request, exc: PlsqlError
+) -> JSONResponse:
+    logger = getattr(
+        request.app.state, "logger", logging.getLogger("graphify_agent.api")
+    )
+    code = getattr(exc, "category", "analysis_unavailable")
+    logger.warning(
+        "analysis_request_failed",
+        extra={
+            "request_id": request_id(request),
+            "error_category": code,
+            "error_type": type(exc).__name__,
+        },
+    )
+    return _problem(
+        request,
+        503,
+        code,
+        "The analysis service is unavailable.",
     )
 
 

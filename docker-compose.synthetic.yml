@@ -30,7 +30,14 @@ services:
       GRAPHIFY_PROJECT_PATH: /knowledge/sample-project
       GRAPHIFY_SEARCH_TOOL: search
       KNOWLEDGE_INGEST_ON_STARTUP: "false"
+      # PL/SQL analysis console: deterministic fixture mode (ADR 0015).
+      PLSQL_ADAPTER: synthetic
+      PLSQL_PROJECT_ID: sample
 
   knowledge-worker:
     environment:
       GRAPHIFY_RUNTIME_MODE: synthetic
+
+  web:
+    environment:
+      PLSQL_ENABLED: "true"

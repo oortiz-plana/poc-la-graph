@@ -43,6 +43,7 @@ describe("getRuntimeConfig", () => {
         maxFiles: 100,
         maxTotalBytes: 33554432,
       },
+      plsqlEnabled: false,
     });
   });
 

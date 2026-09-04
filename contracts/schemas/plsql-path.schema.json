@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/schemas/plsql-path.schema.json",
+  "title": "PL/SQL dependency path result",
+  "description": "Bounded dependency-path envelopes for the PL/SQL analysis console (ADR 0013): ordered nodes and typed relationships with per-hop evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items", "truncated", "count"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plsqlPath" }
+    },
+    "truncated": { "type": "boolean" },
+    "count": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "plsqlPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "nodes", "relationships", "hopCount"],
+      "description": "One ordered dependency path between two objects. nodes lists endpoint references in traversal order (hopCount + 1 entries); relationships carries the ordered typed edges with resolution and evidence per hop.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "plsql-dependency.schema.json#/$defs/objectReference"
+          }
+        },
+        "relationships": {
+          "type": "array",
+          "items": {
+            "$ref": "plsql-dependency.schema.json#/$defs/plsqlDependency"
+          }
+        },
+        "hopCount": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

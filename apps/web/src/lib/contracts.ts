@@ -308,6 +308,127 @@ export const uploadSessionSchema = z.object({
     }),
   ),
 });
+export const plsqlObjectKindSchema = z.enum([
+  "Table",
+  "View",
+  "Package",
+  "Sequence",
+  "Trigger",
+  "Index",
+  "Synonym",
+  "Type",
+  "Procedure",
+  "Function",
+  "AnonymousBlock",
+]);
+export const plsqlSourceCoordinateSchema = z.object({
+  sourceFileId: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? null),
+  path: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? null),
+  startLine: z
+    .number()
+    .int()
+    .nullish()
+    .transform((value) => value ?? null),
+  startColumn: z
+    .number()
+    .int()
+    .nullish()
+    .transform((value) => value ?? null),
+  startOffset: z
+    .number()
+    .int()
+    .nullish()
+    .transform((value) => value ?? null),
+  endOffset: z
+    .number()
+    .int()
+    .nullish()
+    .transform((value) => value ?? null),
+});
+export const plsqlObjectSchema = z.object({
+  id: z.string(),
+  kind: plsqlObjectKindSchema,
+  name: z.string(),
+  schema: z.string(),
+  qualifiedName: z.string(),
+  projectId: z.string(),
+  owner: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? null),
+  signature: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? null),
+  returnType: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? null),
+  declaration: plsqlSourceCoordinateSchema
+    .nullish()
+    .transform((value) => value ?? null),
+});
+export const plsqlObjectSearchResultSchema = z.object({
+  items: z.array(plsqlObjectSchema),
+  truncated: z.boolean(),
+  count: z.number().int().nonnegative(),
+});
+export const plsqlRelationshipSchema = z.enum([
+  "CALLS",
+  "READS",
+  "WRITES",
+  "VIEW_DEPENDS_ON",
+  "TRIGGER_ON",
+  "INDEXES",
+  "SYNONYM_FOR",
+  "DECLARES",
+  "CONTAINS",
+]);
+export const plsqlResolutionSchema = z.enum([
+  "EXACT",
+  "INFERRED",
+  "AMBIGUOUS",
+  "UNRESOLVED",
+]);
+export const plsqlObjectReferenceSchema = z.object({
+  id: z.string(),
+  kind: plsqlObjectKindSchema,
+  name: z.string(),
+  schema: z.string(),
+  qualifiedName: z.string(),
+});
+export const plsqlDependencySchema = z.object({
+  id: z.string(),
+  relationship: plsqlRelationshipSchema,
+  source: plsqlObjectReferenceSchema,
+  target: plsqlObjectReferenceSchema,
+  resolution: plsqlResolutionSchema,
+  evidence: plsqlSourceCoordinateSchema
+    .nullish()
+    .transform((value) => value ?? null),
+});
+export const plsqlDependencyResultSchema = z.object({
+  items: z.array(plsqlDependencySchema),
+  truncated: z.boolean(),
+  count: z.number().int().nonnegative(),
+});
+export const plsqlPathSchema = z.object({
+  id: z.string(),
+  nodes: z.array(plsqlObjectReferenceSchema),
+  relationships: z.array(plsqlDependencySchema),
+  hopCount: z.number().int().positive(),
+});
+export const plsqlPathResultSchema = z.object({
+  items: z.array(plsqlPathSchema),
+  truncated: z.boolean(),
+  count: z.number().int().nonnegative(),
+});
 
 export type Project = z.infer<typeof projectSchema>;
 export type ProjectRole = z.infer<typeof projectRoleSchema>;
@@ -319,3 +440,16 @@ export type AccessActivity = z.infer<typeof accessActivitySchema>;
 export type GovernanceProject = z.infer<typeof governanceProjectSchema>;
 export type BuildSummary = z.infer<typeof buildSummarySchema>;
 export type SnapshotFile = z.infer<typeof snapshotFileSchema>;
+export type PlsqlSourceCoordinate = z.infer<typeof plsqlSourceCoordinateSchema>;
+export type PlsqlObjectKind = z.infer<typeof plsqlObjectKindSchema>;
+export type PlsqlObject = z.infer<typeof plsqlObjectSchema>;
+export type PlsqlObjectSearchResult = z.infer<
+  typeof plsqlObjectSearchResultSchema
+>;
+export type PlsqlRelationship = z.infer<typeof plsqlRelationshipSchema>;
+export type PlsqlResolution = z.infer<typeof plsqlResolutionSchema>;
+export type PlsqlObjectReference = z.infer<typeof plsqlObjectReferenceSchema>;
+export type PlsqlDependency = z.infer<typeof plsqlDependencySchema>;
+export type PlsqlDependencyResult = z.infer<typeof plsqlDependencyResultSchema>;
+export type PlsqlPath = z.infer<typeof plsqlPathSchema>;
+export type PlsqlPathResult = z.infer<typeof plsqlPathResultSchema>;

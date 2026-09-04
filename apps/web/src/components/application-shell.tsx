@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  Network,
   Pencil,
   Plus,
   Search,
@@ -172,6 +173,14 @@ function ApplicationNavigation({
             className="mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium text-text-secondary hover:bg-background"
           >
             <Users aria-hidden className="h-5 w-5" /> Tenant governance
+          </Link>
+        )}
+        {auth.config?.plsqlEnabled && (
+          <Link
+            href="/plsql"
+            className="mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium text-text-secondary hover:bg-background"
+          >
+            <Network aria-hidden className="h-5 w-5" /> PL/SQL analysis
           </Link>
         )}
       </nav>

@@ -76,6 +76,15 @@ async def readiness(request: Request, response: Response) -> Readiness:
         if settings and settings.llm_model
         else "unconfigured"
     )
+    analysis_status = (
+        {
+            "disabled": "disabled",
+            "synthetic": "synthetic",
+            "neo4j": "connected",
+        }.get(settings.plsql_adapter, "disabled")
+        if settings
+        else "disabled"
+    )
     return Readiness(
         ready=ready,
         components={
@@ -93,6 +102,7 @@ async def readiness(request: Request, response: Response) -> Readiness:
             },
             "knowledgeGraph": {"status": knowledge_graph_status},
             "graphifyMcp": {"status": graphify_status},
+            "analysis": {"status": analysis_status},
             "llm": {"status": llm_status},
         },
     )

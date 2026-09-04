@@ -13,9 +13,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
-from app.api.dependencies import build_model
+from app.api.dependencies import build_analysis_client, build_model
 from app.api.errors import (
     InvalidRequest,
+    analysis_not_configured_handler,
+    analysis_not_found_handler,
+    analysis_unavailable_handler,
     authentication_error_handler,
     authorization_error_handler,
     conflict_handler,
@@ -29,12 +32,14 @@ from app.api.errors import (
     validation_error_handler,
 )
 from app.api.routes.knowledge import router as knowledge_router
+from app.api.routes.plsql import router as plsql_router
 from app.api.routes.projects import router as projects_router
 from app.auth import TokenVerifier, require_admin
 from app.auth.dependencies import AuthorizationError
 from app.auth.verifier import AuthenticationError
 from app.config.settings import Settings, get_settings
 from app.integrations.directory import KeycloakDirectoryClient
+from app.integrations.plsql import PlsqlError, PlsqlNotConfigured, PlsqlObjectNotFound
 from app.knowledge.service import KnowledgeIngestionService
 from app.observability import configure_logging
 from app.projects import ProjectConflict, ProjectNotFound, ProjectRepository
@@ -96,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         application.state.model = build_model(configured)
         application.state.knowledge = KnowledgeIngestionService(configured, logger)
+        application.state.plsql_analysis = build_analysis_client(configured)
         application.state.initialized = True
         if (
             configured.knowledge_ingest_on_startup
@@ -193,9 +199,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_exception_handler(
         UploadValidationError, cast(Any, upload_validation_handler)
     )
+    application.add_exception_handler(
+        PlsqlNotConfigured, cast(Any, analysis_not_configured_handler)
+    )
+    application.add_exception_handler(
+        PlsqlObjectNotFound, cast(Any, analysis_not_found_handler)
+    )
+    application.add_exception_handler(
+        PlsqlError, cast(Any, analysis_unavailable_handler)
+    )
     application.add_exception_handler(Exception, unhandled_error_handler)
     application.include_router(api_router)
     application.include_router(projects_router)
+    application.include_router(plsql_router)
     if configured.knowledge_admin_endpoints_enabled:
         application.include_router(
             knowledge_router, dependencies=[Depends(require_admin)]

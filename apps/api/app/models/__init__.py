@@ -15,6 +15,17 @@ from .knowledge import (
     IngestionStatus,
     KnowledgeGraphStatus,
 )
+from .plsql import (
+    ObjectKind,
+    PlsqlDependency,
+    PlsqlDependencyResult,
+    PlsqlObject,
+    PlsqlObjectReference,
+    PlsqlObjectSearchResult,
+    PlsqlPath,
+    PlsqlPathResult,
+    PlsqlSourceCoordinate,
+)
 from .project import (
     AccessActivity,
     AccessRequestContext,
@@ -47,6 +58,15 @@ __all__ = [
     "IngestionStatus",
     "KnowledgeGraphStatus",
     "Message",
+    "ObjectKind",
+    "PlsqlDependency",
+    "PlsqlDependencyResult",
+    "PlsqlObject",
+    "PlsqlObjectReference",
+    "PlsqlObjectSearchResult",
+    "PlsqlPath",
+    "PlsqlPathResult",
+    "PlsqlSourceCoordinate",
     "Problem",
     "Readiness",
     "SendMessageRequest",

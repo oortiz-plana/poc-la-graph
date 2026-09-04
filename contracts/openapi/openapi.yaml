@@ -1173,6 +1173,328 @@ paths:
                 $ref: '#/components/schemas/KnowledgeGraphStatus'
       security:
       - HTTPBearer: []
+  /api/v1/plsql/callees:
+    get:
+      tags:
+      - plsql
+      summary: List Callees
+      description: Return routines called by the requested routine (outgoing CALLS).
+      operationId: list_callees_api_v1_plsql_callees_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: objectId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Objectid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 200
+            minimum: 1
+          - type: 'null'
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlDependencyResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/callers:
+    get:
+      tags:
+      - plsql
+      summary: List Callers
+      description: Return routines that call the requested routine (incoming CALLS).
+      operationId: list_callers_api_v1_plsql_callers_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: objectId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Objectid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 200
+            minimum: 1
+          - type: 'null'
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlDependencyResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/object:
+    get:
+      tags:
+      - plsql
+      summary: Get Object
+      description: 'Return one analyzed PL/SQL object by its opaque identifier.
+
+
+        Identifiers embed ``/`` characters (``plsql://...``), so the identifier
+
+        travels as a query parameter instead of a path segment to survive
+
+        proxies and routers without double encoding.'
+      operationId: get_object_api_v1_plsql_object_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: objectId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Objectid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlObject'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/objects:
+    get:
+      tags:
+      - plsql
+      summary: Search Objects
+      description: Deterministically search analyzed PL/SQL objects (bounded).
+      operationId: search_objects_api_v1_plsql_objects_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 200
+          default: ''
+          title: Q
+      - name: kinds
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              enum:
+              - Table
+              - View
+              - Package
+              - Sequence
+              - Trigger
+              - Index
+              - Synonym
+              - Type
+              - Procedure
+              - Function
+              - AnonymousBlock
+              type: string
+          - type: 'null'
+          title: Kinds
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 200
+            minimum: 1
+          - type: 'null'
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlObjectSearchResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/paths:
+    get:
+      tags:
+      - plsql
+      summary: Find Paths
+      description: |-
+        Return bounded dependency paths from one object to another.
+
+        Paths traverse typed dependency relationships (``CALLS | READS | WRITES |
+        VIEW_DEPENDS_ON``) within ``plsql_max_hops``, ordered by hop count then
+        lexicographic node ids, with duplicates collapsed and truncation reported
+        when the row cap is hit.
+      operationId: find_paths_api_v1_plsql_paths_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: From
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: To
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 200
+            minimum: 1
+          - type: 'null'
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlPathResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/table-access:
+    get:
+      tags:
+      - plsql
+      summary: List Table Access
+      description: Return READS/WRITES/TRIGGER_ON/VIEW_DEPENDS_ON edges of an object.
+      operationId: list_table_access_api_v1_plsql_table_access_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: objectId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Objectid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 200
+            minimum: 1
+          - type: 'null'
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlDependencyResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/unresolved:
+    get:
+      tags:
+      - plsql
+      summary: List Unresolved
+      description: |-
+        Return edges whose resolution is AMBIGUOUS or UNRESOLVED.
+
+        Uncertainty is surfaced as data: these edges are never presented as
+        certain relationships by the console.
+      operationId: list_unresolved_api_v1_plsql_unresolved_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 200
+            minimum: 1
+          - type: 'null'
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlDependencyResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AccessActivity:
@@ -2482,6 +2804,315 @@ components:
       - msg
       - type
       title: ValidationError
+    PlsqlDependency:
+      properties:
+        id:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Id
+        relationship:
+          type: string
+          enum:
+          - CALLS
+          - READS
+          - WRITES
+          - VIEW_DEPENDS_ON
+          - TRIGGER_ON
+          - INDEXES
+          - SYNONYM_FOR
+          - DECLARES
+          - CONTAINS
+          title: Relationship
+        source:
+          $ref: '#/components/schemas/PlsqlObjectReference'
+        target:
+          $ref: '#/components/schemas/PlsqlObjectReference'
+        resolution:
+          type: string
+          enum:
+          - EXACT
+          - INFERRED
+          - AMBIGUOUS
+          - UNRESOLVED
+          title: Resolution
+        evidence:
+          anyOf:
+          - $ref: '#/components/schemas/PlsqlSourceCoordinate'
+          - type: 'null'
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - relationship
+      - source
+      - target
+      - resolution
+      title: PlsqlDependency
+      description: One typed dependency edge with resolution and source evidence.
+
+    PlsqlDependencyResult:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/PlsqlDependency'
+          type: array
+          title: Items
+        truncated:
+          type: boolean
+          title: Truncated
+        count:
+          type: integer
+          minimum: 0.0
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - truncated
+      - count
+      title: PlsqlDependencyResult
+
+    PlsqlObject:
+      properties:
+        id:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Id
+        kind:
+          type: string
+          enum:
+          - Table
+          - View
+          - Package
+          - Sequence
+          - Trigger
+          - Index
+          - Synonym
+          - Type
+          - Procedure
+          - Function
+          - AnonymousBlock
+          title: Kind
+        name:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Name
+        schema:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Schema
+        qualifiedName:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Qualifiedname
+        projectId:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Projectid
+        owner:
+          anyOf:
+          - type: string
+            maxLength: 256
+          - type: 'null'
+          title: Owner
+        signature:
+          anyOf:
+          - type: string
+            maxLength: 1024
+          - type: 'null'
+          title: Signature
+        returnType:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Returntype
+        declaration:
+          anyOf:
+          - $ref: '#/components/schemas/PlsqlSourceCoordinate'
+          - type: 'null'
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - kind
+      - name
+      - schema
+      - qualifiedName
+      - projectId
+      title: PlsqlObject
+      description: Object summary/detail returned by search and object endpoints.
+
+    PlsqlObjectReference:
+      properties:
+        id:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Id
+        kind:
+          type: string
+          enum:
+          - Table
+          - View
+          - Package
+          - Sequence
+          - Trigger
+          - Index
+          - Synonym
+          - Type
+          - Procedure
+          - Function
+          - AnonymousBlock
+          title: Kind
+        name:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Name
+        schema:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Schema
+        qualifiedName:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Qualifiedname
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - kind
+      - name
+      - schema
+      - qualifiedName
+      title: PlsqlObjectReference
+      description: Lightweight endpoint reference used by typed dependency edges.
+
+    PlsqlObjectSearchResult:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/PlsqlObject'
+          type: array
+          title: Items
+        truncated:
+          type: boolean
+          title: Truncated
+        count:
+          type: integer
+          minimum: 0.0
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - truncated
+      - count
+      title: PlsqlObjectSearchResult
+
+    PlsqlPath:
+      properties:
+        id:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Id
+        nodes:
+          items:
+            $ref: '#/components/schemas/PlsqlObjectReference'
+          type: array
+          title: Nodes
+        relationships:
+          items:
+            $ref: '#/components/schemas/PlsqlDependency'
+          type: array
+          title: Relationships
+        hopCount:
+          type: integer
+          minimum: 1.0
+          title: Hopcount
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - nodes
+      - relationships
+      - hopCount
+      title: PlsqlPath
+      description: |-
+        One ordered dependency path between two objects.
+
+        ``nodes`` lists the endpoint references in traversal order (length
+        ``hopCount + 1``); ``relationships`` holds the ordered typed edges with
+        resolution and source evidence per hop.
+
+    PlsqlPathResult:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/PlsqlPath'
+          type: array
+          title: Items
+        truncated:
+          type: boolean
+          title: Truncated
+        count:
+          type: integer
+          minimum: 0.0
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - truncated
+      - count
+      title: PlsqlPathResult
+      description: Deterministic, bounded envelope of dependency paths.
+
+    PlsqlSourceCoordinate:
+      properties:
+        sourceFileId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sourcefileid
+        path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Path
+        startLine:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Startline
+        startColumn:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Startcolumn
+        startOffset:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Startoffset
+        endOffset:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Endoffset
+      additionalProperties: false
+      type: object
+      title: PlsqlSourceCoordinate
   securitySchemes:
     HTTPBearer:
       type: http

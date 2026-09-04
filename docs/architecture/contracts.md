@@ -52,3 +52,40 @@ zero or more `answer.delta` and `citation.available` events, then
 `message.completed`. A tool start must precede its matching completion. Citation
 events may arrive before or after answer deltas. An error terminates the stream
 with `message.failed`.
+
+## PL/SQL analysis contract (2026-09-04)
+
+Governed by [ADR 0011](../adr/0011-plsql-analysis-console-workspace.md) through
+[ADR 0015](../adr/0015-plsql-console-runtime-and-test-topology.md); full shape
+in [plsql-analysis-console.md](plsql-analysis-console.md). The additive,
+authenticated `/api/v1/plsql` surface serves the developer console:
+
+- `GET /objects` — deterministic bounded object search (`q`, `kinds`, `limit`).
+- `GET /object?objectId=…`, `/callers?objectId=…`, `/callees?objectId=…`,
+  `/table-access?objectId=…` — object detail and typed dependency lists.
+- `GET /paths?from=…&to=…` — bounded dependency paths over
+  `CALLS|READS|WRITES|VIEW_DEPENDS_ON` within `plsql_max_hops`, ordered by hop
+  count then lexicographic node ids, duplicates collapsed.
+- `GET /unresolved` — `AMBIGUOUS|UNRESOLVED` edges with evidence; uncertainty
+  is surfaced as data and never presented as certainty.
+- Opaque identifiers embed `/` (`plsql://…`), so identifier endpoints take
+  query parameters, never path segments.
+- Envelopes are `{items, truncated, count}`; results are bounded server-side
+  (`plsql_max_rows`, `plsql_max_hops`) and truncated results are flagged, never
+  silently clipped.
+- Public vocabulary follows the implemented graph: relationships
+  (`CALLS`, `READS`, `WRITES`, `VIEW_DEPENDS_ON`, `TRIGGER_ON`, …) and
+  `resolution` (`EXACT`, `INFERRED`, `AMBIGUOUS`, `UNRESOLVED`).
+- `/ready` reports `components.analysis.status` as
+  `disabled | synthetic | connected | unavailable`.
+- The analysis adapter is disabled by default
+  (`PLSQL_ADAPTER=disabled`); `PLSQL_ADAPTER=synthetic` is the deterministic
+  development/E2E mode and `neo4j` fails fast until the driver decision lands.
+
+Normative artifacts added for this contract:
+
+- `contracts/schemas/plsql-object.schema.json`: object and search envelope.
+- `contracts/schemas/plsql-dependency.schema.json`: typed dependency envelope.
+- `contracts/schemas/plsql-path.schema.json`: ordered dependency-path envelope.
+- `contracts/openapi/openapi.yaml`: `/api/v1/plsql` paths and `Plsql*`
+  schemas.

@@ -350,6 +350,20 @@ async def send_message(
                     store, conversation_id, event, principal.subject
                 )
                 terminal = event.type in {"message.completed", "message.failed"}
+                if event.type == "message.failed":
+                    request.app.state.logger.error(
+                        "model_request_failed",
+                        extra={
+                            "request_id": correlation_id,
+                            "conversation_id": conversation_id,
+                            "error_code": event.error.get("code")
+                            if event.error
+                            else "internal_error",
+                            "retryable": event.error.get("retryable")
+                            if event.error
+                            else False,
+                        },
+                    )
                 yield {
                     "event": event.type,
                     "data": json.dumps(

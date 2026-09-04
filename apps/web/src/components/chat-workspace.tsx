@@ -2,30 +2,24 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import Link from "next/link";
 import {
-  ArrowLeft,
   Archive,
   BookOpen,
   CircleAlert,
   CircleCheck,
   Ellipsis,
-  FileText,
   LoaderCircle,
   LogOut,
   Menu,
   MessageSquare,
-  Network,
   PanelRightOpen,
   Pencil,
   Plus,
   Search,
   Send,
-  Settings,
   Square,
   Trash2,
   Undo2,
-  Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -73,6 +67,10 @@ import { CitedAnswer } from "./cited-answer";
 import { useAuth } from "./auth-provider";
 import { ProjectContextPanel, type ContextTab } from "./project-context-panel";
 import {
+  ProjectNavigation,
+  ProjectNavigationHeader,
+} from "./project-navigation";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -118,13 +116,11 @@ export function ChatWorkspace({
   project: selectedProject,
   projectName: legacyProjectName,
   initialFiles = [],
-  onBack,
 }: {
   projectId?: string;
   project?: Project;
   projectName?: string;
   initialFiles?: SnapshotFile[];
-  onBack?: () => void;
 } = {}) {
   const auth = useAuth();
   const [conversationId, setConversationId] = useState<string>();
@@ -555,7 +551,6 @@ export function ChatWorkspace({
           projectState={project?.state}
           query={conversationQuery}
           showArchived={showArchived}
-          onBack={onBack}
           create={() => void startNewConversation()}
           loadMore={(state) => void loadMoreConversations(state)}
           purge={(id) => void permanentlyDelete(id)}
@@ -852,7 +847,6 @@ export function ChatWorkspace({
               projectState={project?.state}
               query={conversationQuery}
               showArchived={showArchived}
-              onBack={onBack}
               create={() => void startNewConversation()}
               loadMore={(state) => void loadMoreConversations(state)}
               purge={(id) => void permanentlyDelete(id)}
@@ -922,7 +916,6 @@ function NavigationContent({
   projectState,
   query,
   showArchived,
-  onBack,
   create,
   loadMore,
   purge,
@@ -945,7 +938,6 @@ function NavigationContent({
   projectState?: Project["state"];
   query: string;
   showArchived: boolean;
-  onBack?: () => void;
   create: () => void;
   loadMore: (state: "active" | "archived") => void;
   purge: (id: string) => void;
@@ -963,59 +955,16 @@ function NavigationContent({
   );
   return (
     <div className="flex min-h-full flex-col p-4">
-      <Link
-        href="/"
-        onClick={
-          onBack
-            ? (event) => {
-                event.preventDefault();
-                onBack();
-              }
-            : undefined
-        }
-        className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-medium text-text-secondary hover:bg-background"
-      >
-        <ArrowLeft aria-hidden className="h-4 w-4" /> All projects
-      </Link>
-      <Link
-        href={`/projects/${encodeURIComponent(projectId)}`}
-        className="mt-1 break-words px-2 py-2 text-base font-semibold leading-5 hover:text-primary"
-        title={projectName ?? projectId}
-      >
-        {projectName ?? projectId}
-      </Link>
-      <nav aria-label="Project" className="mt-2 border-t pt-3">
-        <ProjectNavigationLink
-          href={`/projects/${encodeURIComponent(projectId)}/chat`}
-          label="Conversation"
-          icon={MessageSquare}
-          selected
-        />
-        <ProjectNavigationLink
-          href={`/projects/${encodeURIComponent(projectId)}?section=documents`}
-          label="Files"
-          icon={FileText}
-          suffix={fileCount.toString()}
-          processing={projectState === "queued" || projectState === "building"}
-        />
-        <ProjectNavigationLink
-          href={`/projects/${encodeURIComponent(projectId)}?section=builds`}
-          label="Knowledge"
-          icon={Network}
-        />
-        <ProjectNavigationLink
-          href={`/projects/${encodeURIComponent(projectId)}?section=settings`}
-          label="Project settings"
-          icon={Settings}
-        />
-        <span
-          aria-disabled="true"
-          className="mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm text-text-muted opacity-60"
-          title="Access and sharing is coming soon"
-        >
-          <Users aria-hidden className="h-5 w-5" /> Access &amp; sharing
-        </span>
-      </nav>
+      <ProjectNavigationHeader
+        projectId={projectId}
+        projectName={projectName ?? projectId}
+      />
+      <ProjectNavigation
+        projectId={projectId}
+        selected="conversation"
+        fileCount={fileCount}
+        processing={projectState === "queued" || projectState === "building"}
+      />
       <section
         aria-labelledby="conversations-heading"
         className="mt-4 min-h-0 border-t pt-4"
@@ -1115,45 +1064,6 @@ function NavigationContent({
         )}
       </section>
     </div>
-  );
-}
-
-function ProjectNavigationLink({
-  href,
-  label,
-  icon: Icon,
-  selected = false,
-  suffix,
-  processing = false,
-}: {
-  href: string;
-  label: string;
-  icon: typeof MessageSquare;
-  selected?: boolean;
-  suffix?: string;
-  processing?: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={selected ? "page" : undefined}
-      className={`mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium ${
-        selected
-          ? "bg-selected text-primary"
-          : "text-text-secondary hover:bg-background"
-      }`}
-    >
-      <Icon aria-hidden className="h-5 w-5" />
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {processing ? (
-        <LoaderCircle
-          aria-label="Processing"
-          className="h-4 w-4 animate-spin text-warning"
-        />
-      ) : suffix ? (
-        <span className="text-xs text-text-muted">{suffix}</span>
-      ) : null}
-    </Link>
   );
 }
 

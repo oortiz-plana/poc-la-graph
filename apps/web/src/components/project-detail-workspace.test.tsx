@@ -120,6 +120,9 @@ describe("ProjectDetailWorkspace", () => {
       `/projects/${project.id}?section=documents`,
     );
     expect(
+      screen.getByRole("link", { name: "Access & sharing" }),
+    ).toHaveAttribute("href", `/projects/${project.id}?section=access`);
+    expect(
       screen.getByRole("navigation", { name: "Project" }),
     ).toBeInTheDocument();
     expect(

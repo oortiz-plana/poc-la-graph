@@ -1,13 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { listProjectFiles, listProjects } from "@/lib/api";
 import type { Project, SnapshotFile } from "@/lib/contracts";
 import { ChatWorkspace } from "./chat-workspace";
 
 export function ProjectChatWorkspace({ projectId }: { projectId: string }) {
-  const router = useRouter();
   const [project, setProject] = useState<Project>();
   const [files, setFiles] = useState<SnapshotFile[]>([]);
   const [error, setError] = useState(false);
@@ -29,13 +28,12 @@ export function ProjectChatWorkspace({ projectId }: { projectId: string }) {
       <main className="grid min-h-dvh place-items-center p-6">
         <div>
           <p role="alert">The project conversation could not be opened.</p>
-          <button
-            type="button"
-            className="mt-4 min-h-11 text-primary underline"
-            onClick={() => router.back()}
+          <Link
+            href={`/projects/${encodeURIComponent(projectId)}`}
+            className="mt-4 inline-flex min-h-11 items-center text-primary underline"
           >
             Return to project
-          </button>
+          </Link>
         </div>
       </main>
     );
@@ -54,7 +52,6 @@ export function ProjectChatWorkspace({ projectId }: { projectId: string }) {
       projectId={projectId}
       project={project}
       initialFiles={files}
-      onBack={() => router.back()}
     />
   );
 }

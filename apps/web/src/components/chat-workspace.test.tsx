@@ -156,6 +156,27 @@ describe("ChatWorkspace", () => {
     expect(screen.queryByText(projectId)).not.toBeInTheDocument();
   });
 
+  it("uses the shared project navigation with enabled access controls", async () => {
+    const projectId = "5ab3495a-51f0-43b8-a8af-d499cc9a5ba2";
+
+    render(
+      <ChatWorkspace projectId={projectId} projectName="Legal knowledge" />,
+    );
+
+    await screen.findByText("API connected");
+    expect(screen.getByRole("link", { name: "All projects" })).toHaveAttribute(
+      "href",
+      "/",
+    );
+    expect(
+      screen.getByRole("link", { name: "Access & sharing" }),
+    ).toHaveAttribute("href", `/projects/${projectId}?section=access`);
+    expect(screen.getByRole("link", { name: "Conversation" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
   it("persists the active conversation and submits with Enter", async () => {
     const user = userEvent.setup();
     render(<ChatWorkspace />);

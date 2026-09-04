@@ -6,8 +6,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.integrations.llm.client import FollowUpRequest, ModelRequest
-from app.integrations.llm.errors import ModelResponseError
-from app.integrations.llm.litellm_client import LiteLLMClient, _strict_response_format
+from app.integrations.llm.errors import ModelResponseError, ModelUnavailableError
+from app.integrations.llm.litellm_client import (
+    LiteLLMClient,
+    _is_retryable_provider_error,
+    _provider_error_kind,
+    _strict_response_format,
+)
 from app.integrations.llm.models import (
     AnswerDraft,
     ChatMessage,
@@ -204,3 +209,56 @@ def test_invalid_provider_response_is_sanitized(
     with pytest.raises(ModelResponseError) as caught:
         client._normalize(response)
     assert str(caught.value) == "The model returned an invalid structured response"
+
+
+@pytest.mark.parametrize(
+    ("status_code", "code", "expected"),
+    [
+        (401, None, False),
+        (400, "invalid_request_error", False),
+        (429, "insufficient_quota", False),
+        (429, "rate_limit_exceeded", True),
+        (500, None, True),
+    ],
+)
+def test_provider_retry_policy_distinguishes_permanent_errors(
+    status_code: int, code: str | None, expected: bool
+) -> None:
+    error = RuntimeError("provider failure")
+    error.status_code = status_code  # type: ignore[attr-defined]
+    if code is not None:
+        error.code = code  # type: ignore[attr-defined]
+    assert _is_retryable_provider_error(error) is expected
+
+
+def test_provider_error_kind_preserves_safe_authentication_category() -> None:
+    error = RuntimeError("provider failure")
+    error.status_code = 401  # type: ignore[attr-defined]
+    assert _provider_error_kind(error) == "authentication"
+
+
+async def test_permanent_provider_error_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import litellm
+
+    settings = SimpleNamespace(
+        model="openai-compatible/model",
+        api_base=None,
+        api_key=None,
+        timeout=1.0,
+        retries=2,
+    )
+    client = LiteLLMClient(settings)
+    error = RuntimeError("invalid api key")
+    error.status_code = 401  # type: ignore[attr-defined]
+    complete = AsyncMock(side_effect=error)
+    monkeypatch.setattr(litellm, "acompletion", complete)
+
+    with pytest.raises(ModelUnavailableError) as caught:
+        await client._complete([], 0.0, 10, response_format={})
+
+    assert complete.await_count == 1
+    assert caught.value.retryable is False
+    assert complete.await_args.kwargs["num_retries"] == 0
+    assert complete.await_args.kwargs["max_retries"] == 0

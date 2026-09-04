@@ -92,7 +92,11 @@ class LiteLLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "timeout": self._timeout,
-            "num_retries": self._retries,
+            # Keep retries under this adapter's policy. LiteLLM and the
+            # OpenAI SDK both have their own retry loops; leaving either
+            # enabled can retry permanent provider errors.
+            "num_retries": 0,
+            "max_retries": 0,
             "response_format": response_format,
         }
         if self._api_base:
@@ -100,19 +104,28 @@ class LiteLLMClient:
         if self._api_key:
             kwargs["api_key"] = self._api_key
 
-        try:
-            response = await asyncio.wait_for(
-                acompletion(**kwargs),
-                timeout=self._timeout * (self._retries + 1),
-            )
-        except TimeoutError as exc:
-            raise ModelTimeoutError("The model request timed out") from exc
-        except Exception as exc:
-            # Provider messages can contain URLs, request bodies, or credentials.
-            # Preserve the causal exception for server logs but expose no details.
-            raise ModelUnavailableError("The model provider is unavailable") from exc
+        for attempt in range(self._retries + 1):
+            try:
+                return await asyncio.wait_for(
+                    acompletion(**kwargs), timeout=self._timeout
+                )
+            except TimeoutError as exc:
+                if attempt < self._retries:
+                    continue
+                raise ModelTimeoutError("The model request timed out") from exc
+            except Exception as exc:
+                if attempt < self._retries and _is_retryable_provider_error(exc):
+                    continue
+                # Provider messages can contain URLs, request bodies, or
+                # credentials. Preserve the causal exception for diagnostics,
+                # but expose no details to the client.
+                raise ModelUnavailableError(
+                    "The model provider is unavailable",
+                    retryable=_is_retryable_provider_error(exc),
+                    provider_kind=_provider_error_kind(exc),
+                ) from exc
 
-        return response
+        raise AssertionError("model completion retry loop did not return")
 
     def _normalize(self, response: Any) -> ModelResult:
         try:
@@ -180,6 +193,80 @@ def _field(value: Any, name: str, default: Any = ...) -> Any:
     if default is ...:
         raise AttributeError(f"missing provider field: {name}")
     return default
+
+
+def _is_retryable_provider_error(exc: BaseException) -> bool:
+    """Return whether a provider exception is safe to retry."""
+    status_code = _provider_status_code(exc)
+    code = _provider_error_code(exc)
+    if code in {
+        "authentication_error",
+        "invalid_api_key",
+        "insufficient_quota",
+        "model_not_found",
+        "permission_denied",
+        "invalid_request_error",
+        "bad_request",
+    }:
+        return False
+    if status_code is not None:
+        return status_code in {408, 409, 429} or status_code >= 500
+
+    name = type(exc).__name__.lower()
+    if any(token in name for token in ("authentication", "permission", "badrequest")):
+        return False
+    return any(
+        token in name
+        for token in (
+            "timeout",
+            "ratelimit",
+            "connection",
+            "internalserver",
+            "serviceunavailable",
+        )
+    )
+
+
+def _provider_error_kind(exc: BaseException) -> str:
+    """Return a safe category for diagnostics and public error mapping."""
+    code = _provider_error_code(exc)
+    status_code = _provider_status_code(exc)
+    name = type(exc).__name__.lower()
+    if code in {"authentication_error", "invalid_api_key"} or status_code == 401:
+        return "authentication"
+    if code == "insufficient_quota":
+        return "quota"
+    if code in {"model_not_found"} or status_code == 404:
+        return "model_access"
+    if code in {"permission_denied"} or status_code == 403:
+        return "permission"
+    if code in {"invalid_request_error", "bad_request"} or status_code == 400:
+        return "invalid_request"
+    if "ratelimit" in name or status_code == 429:
+        return "rate_limit"
+    return "unavailable"
+
+
+def _provider_status_code(exc: BaseException) -> int | None:
+    for value in (getattr(exc, "status_code", None), getattr(exc, "http_status", None)):
+        if isinstance(value, int):
+            return value
+    response = getattr(exc, "response", None)
+    value = getattr(response, "status_code", None)
+    return value if isinstance(value, int) else None
+
+
+def _provider_error_code(exc: BaseException) -> str | None:
+    value = getattr(exc, "code", None)
+    if isinstance(value, str):
+        return value.lower()
+    body = getattr(exc, "body", None)
+    if isinstance(body, Mapping):
+        error = body.get("error")
+        error_code = error.get("code") if isinstance(error, Mapping) else None
+        if isinstance(error_code, str):
+            return error_code.lower()
+    return None
 
 
 def _first_choice(response: Any) -> Any:

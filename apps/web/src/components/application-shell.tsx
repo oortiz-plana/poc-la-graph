@@ -3,20 +3,15 @@
 import Link from "next/link";
 import {
   Archive,
-  ArrowLeft,
   CircleCheck,
   Ellipsis,
-  FileText,
   FolderKanban,
-  LoaderCircle,
   LogOut,
   Menu,
   MessageSquare,
-  Network,
   Pencil,
   Plus,
   Search,
-  Settings,
   Trash2,
   Undo2,
   Users,
@@ -47,6 +42,10 @@ import {
 } from "@/lib/api";
 import type { ConversationSummary, Project } from "@/lib/contracts";
 import { useAuth } from "./auth-provider";
+import {
+  ProjectNavigation,
+  ProjectNavigationHeader,
+} from "./project-navigation";
 
 type ProjectSection =
   "overview" | "documents" | "access" | "builds" | "settings";
@@ -258,55 +257,16 @@ function ProjectApplicationNavigation({
   const processing = project.state === "queued" || project.state === "building";
   return (
     <div className="flex min-h-full flex-col overflow-y-auto p-4">
-      <Link
-        href="/"
-        className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-medium text-text-secondary hover:bg-background"
-      >
-        <ArrowLeft aria-hidden className="h-4 w-4" /> All projects
-      </Link>
-      <Link
-        href={`/projects/${encodeURIComponent(project.id)}`}
-        className="px-2 py-2 text-base font-semibold hover:text-primary"
-      >
-        {project.name}
-      </Link>
-      <nav aria-label="Project" className="mt-2 border-t pt-3">
-        <ShellLink href={chatHref} icon={MessageSquare} label="Conversation" />
-        <ShellLink
-          href={`/projects/${encodeURIComponent(project.id)}?section=documents`}
-          icon={FileText}
-          label="Files"
-          selected={section === "documents"}
-          suffix={
-            processing ? (
-              <LoaderCircle
-                aria-label="Processing"
-                className="h-4 w-4 animate-spin text-warning"
-              />
-            ) : (
-              fileCount
-            )
-          }
-        />
-        <ShellLink
-          href={`/projects/${encodeURIComponent(project.id)}?section=builds`}
-          icon={Network}
-          label="Knowledge"
-          selected={section === "builds"}
-        />
-        <ShellLink
-          href={`/projects/${encodeURIComponent(project.id)}?section=settings`}
-          icon={Settings}
-          label="Project settings"
-          selected={section === "settings"}
-        />
-        <ShellLink
-          href={`/projects/${encodeURIComponent(project.id)}?section=access`}
-          icon={Users}
-          label="Access & sharing"
-          selected={section === "access"}
-        />
-      </nav>
+      <ProjectNavigationHeader
+        projectId={project.id}
+        projectName={project.name}
+      />
+      <ProjectNavigation
+        projectId={project.id}
+        selected={section}
+        fileCount={fileCount}
+        processing={processing}
+      />
       <section
         aria-labelledby="shell-conversations"
         className="mt-4 border-t pt-4"
@@ -434,33 +394,5 @@ function ProjectApplicationNavigation({
         </ul>
       </section>
     </div>
-  );
-}
-
-function ShellLink({
-  href,
-  icon: Icon,
-  label,
-  selected = false,
-  suffix,
-}: {
-  href: string;
-  icon: typeof MessageSquare;
-  label: string;
-  selected?: boolean;
-  suffix?: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={selected ? "page" : undefined}
-      className={`mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium ${selected ? "bg-selected text-primary" : "text-text-secondary hover:bg-background"}`}
-    >
-      <Icon aria-hidden className="h-5 w-5" />
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {suffix != null && (
-        <span className="text-xs text-text-muted">{suffix}</span>
-      )}
-    </Link>
   );
 }

@@ -1515,6 +1515,22 @@ function buildFailureMessage(errorCode: string | null | undefined) {
     return "One or more documents could not be validated or converted. Review the documents and retry.";
   if (errorCode === "limit_exceeded")
     return "The documents exceeded a configured build limit. Reduce the project size and retry.";
+  if (errorCode === "graphify_provider_authentication_failed")
+    return "The graph provider rejected its credentials. Update OPENAI_API_KEY for the knowledge worker, restart it, and retry.";
+  if (errorCode === "graphify_provider_credential_missing")
+    return "The graph provider credentials are missing. Configure OPENAI_API_KEY for the knowledge worker and retry.";
+  if (errorCode === "graphify_provider_model_or_endpoint_not_found")
+    return "The configured graph provider model or endpoint was not found. Review OPENAI_MODEL and OPENAI_BASE_URL, then retry.";
+  if (errorCode === "graphify_provider_base_url_invalid")
+    return "The configured graph provider base URL is invalid. Review OPENAI_BASE_URL and retry.";
+  if (errorCode === "graphify_provider_quota_or_rate_limit")
+    return "The graph provider rejected the request because of quota or rate limits. Review provider usage and retry later.";
+  if (errorCode === "graphify_provider_timeout")
+    return "The graph provider did not respond before the timeout. Check provider availability and retry.";
+  if (errorCode === "graphify_provider_connection_failed")
+    return "The knowledge worker could not connect to the graph provider. Review network and provider configuration, then retry.";
+  if (errorCode === "source_index_build_failed")
+    return "The source-text index could not be built. Review the documents and retry.";
   return "The project could not be indexed. Review the documents and provider configuration, then retry.";
 }
 

@@ -34,12 +34,24 @@ def get_app_settings(request: Request) -> Settings:
 def build_model(settings: Settings) -> LanguageModel:
     if settings.llm_adapter == "mock":
         return DeterministicModel()
+    # Keep one model attempt (including its bounded retries) inside the
+    # workflow deadline. Otherwise the default 45s timeout × 3 attempts can
+    # outlive the 60s request timeout and get reported only as a generic
+    # request timeout.
+    model_call_count = max(1, settings.agent_max_model_iterations)
+    retry_attempts = settings.llm_max_retries + 1
+    available_seconds = max(
+        settings.agent_request_timeout_seconds
+        - settings.graphify_request_timeout_seconds,
+        1.0,
+    )
+    bounded_timeout = available_seconds / (model_call_count * retry_attempts)
     return LiteLLMClient(
         _LiteLLMConfig(
             model=settings.llm_model,
             api_base=settings.llm_api_base,
             api_key=settings.llm_api_key,
-            timeout=settings.llm_request_timeout_seconds,
+            timeout=min(settings.llm_request_timeout_seconds, bounded_timeout),
             retries=settings.llm_max_retries,
         )
     )

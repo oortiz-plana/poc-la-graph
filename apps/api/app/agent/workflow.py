@@ -15,7 +15,11 @@ from langgraph.graph import END, START, StateGraph
 
 from app.integrations.haystack import RetrievalScope, SourceRetriever
 from app.integrations.llm.client import FollowUpRequest, LanguageModel, ModelRequest
-from app.integrations.llm.errors import ModelResponseError
+from app.integrations.llm.errors import (
+    ModelError,
+    ModelResponseError,
+    ModelUnavailableError,
+)
 from app.integrations.llm.models import ChatMessage
 from app.knowledge.source_index import SourcePassage
 from app.prompts import (
@@ -1079,6 +1083,23 @@ def _safe_error(exc: Exception) -> tuple[str, bool]:
         return "request_timeout", True
     if isinstance(exc, ValueError):
         return "invalid_request", False
+    if isinstance(exc, ModelError):
+        if isinstance(exc, ModelUnavailableError):
+            code = {
+                "authentication": "llm_authentication_failed",
+                "quota": "llm_quota_exceeded",
+                "model_access": "llm_model_access_failed",
+                "permission": "llm_permission_denied",
+                "invalid_request": "llm_invalid_request",
+                "rate_limit": "llm_rate_limited",
+            }.get(exc.provider_kind, "llm_unavailable")
+            return code, exc.retryable
+        return (
+            "invalid_model_response"
+            if isinstance(exc, ModelResponseError)
+            else "llm_unavailable",
+            exc.retryable,
+        )
     name = type(exc).__name__.lower()
     if "timeout" in name:
         return "mcp_timeout", True
@@ -1098,6 +1119,20 @@ def _error_message(code: str) -> str:
         "invalid_request": "The question is invalid.",
         "mcp_timeout": "Graphify did not respond in time.",
         "llm_unavailable": "The language model is temporarily unavailable.",
+        "llm_authentication_failed": (
+            "The language model provider rejected its credentials."
+        ),
+        "llm_quota_exceeded": "The language model provider quota is exhausted.",
+        "llm_model_access_failed": (
+            "The configured language model is unavailable or not authorized."
+        ),
+        "llm_permission_denied": (
+            "The language model provider denied access to this request."
+        ),
+        "llm_invalid_request": (
+            "The language model provider rejected the request configuration."
+        ),
+        "llm_rate_limited": "The language model provider is rate limiting requests.",
         "invalid_model_response": "The language model returned an invalid response.",
         "graphify_unavailable": "Graphify is temporarily unavailable.",
         "internal_error": "The request could not be completed.",

@@ -194,7 +194,7 @@ class KnowledgeWorker:
     @staticmethod
     def _error_code(exc: Exception) -> str:
         message = str(exc)
-        if message in _PASSTHROUGH_ERROR_CODES:
+        if message in _PASSTHROUGH_ERROR_CODES or message.startswith("graphify_"):
             return message
         if "limit" in message:
             return "limit_exceeded"

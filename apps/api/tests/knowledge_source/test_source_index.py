@@ -135,6 +135,29 @@ async def test_bm25_auto_merging_keeps_bounded_legal_article_context(
     assert "padres" in text
 
 
+async def test_bm25_finds_survivor_pension_for_natural_death_question(
+    tmp_path: Path,
+) -> None:
+    law_path = LAW_PATH.with_name("ley-100-de-1993.md")
+    law = document(law_path)
+    index_path = tmp_path / "source.sqlite"
+    SourceIndex(index_path).rebuild_version("v1", [law])
+    retriever = HaystackSourceRetriever(str(index_path), "v1")
+
+    passages = await retriever.retrieve(
+        "¿Cómo se asigna la pensión cuándo una persona fallece según la ley 100?",
+        RetrievalScope(documents=[law.relative_path]),
+    )
+
+    assert passages
+    assert all(passage.document == law.relative_path for passage in passages)
+    assert "47" in {passage.article for passage in passages}
+    assert any(
+        "beneficiarios de la pensión de sobrevivientes" in passage.text.lower()
+        for passage in passages
+    )
+
+
 async def test_auto_merge_is_strict_at_threshold_and_never_returns_a_root(
     tmp_path: Path,
 ) -> None:

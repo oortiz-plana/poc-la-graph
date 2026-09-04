@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import unicodedata
 from typing import Protocol
 
@@ -16,6 +17,55 @@ class RetrievalScope(BaseModel):
 
     documents: list[str] = Field(default_factory=list)
     articles: list[str] = Field(default_factory=list)
+
+
+_QUESTION_STOP_WORDS = frozenset(
+    {
+        "a",
+        "al",
+        "asigna",
+        "asignar",
+        "como",
+        "cuando",
+        "de",
+        "del",
+        "el",
+        "en",
+        "la",
+        "las",
+        "ley",
+        "lo",
+        "los",
+        "que",
+        "persona",
+        "se",
+        "segun",
+        "su",
+        "una",
+        "un",
+        "y",
+    }
+)
+
+
+def _retrieval_query(query: str) -> str:
+    """Return a compact lexical query suitable for Spanish legal BM25.
+
+    The durable index and Haystack both use lexical ranking. Remove question
+    glue that otherwise outranks the legal concepts, and add only bounded,
+    deterministic variants for death terminology. This does not broaden the
+    Graphify-derived document/article scope.
+    """
+    folded = _fold(query).lower()
+    terms = [
+        token
+        for token in re.findall(r"[\w]+", folded, flags=re.UNICODE)
+        if token not in _QUESTION_STOP_WORDS and not token.isdecimal()
+    ]
+    if any(token.startswith("fallec") for token in terms):
+        terms = [token for token in terms if not token.startswith("fallec")]
+        terms.extend(("muerte", "sobrevivientes", "beneficiarios"))
+    return " ".join(dict.fromkeys(terms)) or folded
 
 
 class SourceRetriever(Protocol):
@@ -34,8 +84,9 @@ class HaystackSourceRetriever:
     async def retrieve(
         self, query: str, scope: RetrievalScope, *, top_k: int = 8
     ) -> list[SourcePassage]:
+        lexical_query = _retrieval_query(query)
         passages = self.index.search(
-            query,
+            lexical_query,
             graph_version=self.graph_version,
             documents=scope.documents,
             articles=scope.articles,
@@ -80,7 +131,7 @@ class HaystackSourceRetriever:
             ]
         )
         retriever = InMemoryBM25Retriever(document_store=store, top_k=top_k)
-        result = retriever.run(query=_fold(query))
+        result = retriever.run(query=lexical_query)
         selected: list[SourcePassage] = []
         for document in result["documents"]:
             passage = by_id.get(document.id)

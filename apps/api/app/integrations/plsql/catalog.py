@@ -83,9 +83,29 @@ def _kind_filter(param: str) -> str:
     return f"(size(${param}) = 0 OR any(label IN labels(n) WHERE label IN ${param}))"
 
 
+def _known_kind_clause() -> str:
+    """Baseline constraint restricting search to addressable objects.
+
+    The extractor also creates unresolved/ambiguous call-target placeholder
+    nodes (labels such as ``Routine``, ``AmbiguousRoutine``) that carry no
+    ``qualifiedName`` and no recognized kind label. Without this clause they
+    sort first (missing qualifiedName coalesces to ``''``) and can fill an
+    entire results page before the Python-side kind mapping ever runs,
+    producing an empty page even though matching real objects exist. Those
+    placeholders remain reachable through ``unresolved_references`` edges;
+    they are simply not first-class searchable objects.
+    """
+    kinds_literal = "[" + ", ".join(f"'{kind}'" for kind in sorted(KIND_LABELS)) + "]"
+    return (
+        f"n.{SCHEMA_NODE_QUALIFIED_NAME} IS NOT NULL "
+        f"AND any(label IN labels(n) WHERE label IN {kinds_literal})"
+    )
+
+
 SEARCH_OBJECTS: Final = f"""
 MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
+  AND {_known_kind_clause()}
   AND {_name_search_clause()}
   AND {_kind_filter("kinds")}
 RETURN n, labels(n) AS nodeLabels
@@ -97,6 +117,7 @@ LIMIT $limit
 COUNT_SEARCH_OBJECTS: Final = f"""
 MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
+  AND {_known_kind_clause()}
   AND {_name_search_clause()}
   AND {_kind_filter("kinds")}
 RETURN count(n) AS total

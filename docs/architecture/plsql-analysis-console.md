@@ -107,7 +107,7 @@ Adapted to this repository:
 | Object search / detail | `search_objects`, `get_object` | Label-filtered lookup on `name`/`qualifiedName`; deterministic ordering | `PLSQL_MAX_ROWS` ≤ 200, truncation flag |
 | Callers of a routine | `callers_of` | `CALLS` into the target by `qualifiedName` (upstream `CALLERS_OF_ROUTINE`) | rows capped |
 | Callees of a routine | `callees_of` | Inverse reviewed path — `CALLS` out of the routine (added to the local catalog; not in upstream catalog) | rows capped |
-| Table access by object/package | `table_access_by` | `READS`/`WRITES` of contained units (upstream `TABLE_ACCESS_BY_PACKAGE`) | rows capped |
+| Table access by object/package | `table_access_of` | `READS`/`WRITES` of contained units (upstream `TABLE_ACCESS_BY_PACKAGE`) | rows capped |
 | Transitive impact | `impact_of` | `READS`, `WRITES`, `VIEW_DEPENDS_ON`, or `CALLS` up to 5 hops into the changed object (upstream `REVERSE_IMPACT`) | `PLSQL_MAX_HOPS` = 5 |
 | Dependency paths | `find_paths` | Bounded variable-length paths over the same typed relationships, `from`/`to` by id | hop and row caps, ordered output |
 | Unresolved/ambiguous | `unresolved_references` | `resolution IN (AMBIGUOUS, UNRESOLVED)` edges (upstream query) | rows capped |
@@ -175,6 +175,7 @@ GET  /api/v1/plsql/callees            ?objectId=…     outgoing CALLS
 GET  /api/v1/plsql/table-access       ?objectId=…     READS/WRITES grouped
 GET  /api/v1/plsql/impact             ?objectId=…     bounded transitive impact
 GET  /api/v1/plsql/source             ?objectId=…     read-only source text
+GET  /api/v1/plsql/files              ?fileId=…       read-only source text by file id
 GET  /api/v1/plsql/paths              ?from=…&to=…    bounded dependency paths
 GET  /api/v1/plsql/relationships/evidence ?relationshipId=…   evidence coordinates
 GET  /api/v1/plsql/unresolved                          ambiguous/unresolved edges
@@ -200,7 +201,7 @@ flowchart TB
     subgraph Integration["apps/api/app/integrations/plsql"]
         P["client.py · AnalysisGraphClient protocol"]
         NEOAD["neo4j_client.py<br/>Neo4j adapter (Bolt, read-only)"]
-        SYN["synthetic_client.py<br/>deterministic fixture adapter"]
+        SYN["synthetic.py<br/>deterministic fixture adapter"]
         CAT["catalog.py · allowlisted query paths"]
         M["models.py · internal Pydantic"]
         E["errors.py · PlsqlError categories"]
@@ -326,8 +327,9 @@ for rows/hops/bytes/timeout, the readiness matrix, the accessibility pass
 (polite live region, focus management on detail/source open and back/close,
 ≥44px targets, wrapping at 320px, aligned accessible names), the full
 synthetic E2E spec above, and the documentation sync. No contract artifact
-changed in phase 6. The `neo4j` adapter (ADR 0012 §0.1) is now implemented
-behind the confirmed `neo4j` 5.x driver: read-only Bolt sessions, the
+changed in phase 6. The `neo4j` adapter (dependency decision recorded in the
+[implementation plan](../plsql-analysis/implementation-plan.md) §0.1) is now
+implemented behind the confirmed `neo4j` 5.x driver: read-only Bolt sessions, the
 allowlisted parameterized catalog (`app/integrations/plsql/catalog.py`), the
 `AnalysisGraphClient` implementation (`neo4j_client.py`), normalized
 `connected`/`unavailable` readiness, and skip-gated real-graph integration
@@ -381,6 +383,7 @@ multi-graph support (replacing the single configured corpus).
 - Dependency extraction (`CALLS`/`READS`/`WRITES`/…) is upstream "remaining
   POC work"; until it lands, real graphs contain declarations only and
   deterministic fixtures carry the dependency behavior under test.
-- The official Python `neo4j` driver is a proposed dependency for the real
-  adapter and requires explicit confirmation (AGENTS.md) before installation;
-  the synthetic mode does not depend on it.
+- The official Python `neo4j` driver is a confirmed dependency for the real
+  adapter (see the implementation plan §0.1 for the confirmation record); the
+  synthetic mode does not depend on it. Schema alignment against a first live
+  `plsqlgraph`-synchronized instance is the remaining open item (§12).

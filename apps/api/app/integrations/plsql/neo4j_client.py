@@ -229,12 +229,16 @@ class Neo4jPlsqlAnalysisClient:
     # --- driver plumbing ---------------------------------------------------
 
     def _read_session(self, query: str, **params: object) -> list[dict[str, Any]]:
+        @neo4j.unit_of_work(timeout=self._timeout)
+        def _run(tx: neo4j.ManagedTransaction) -> list[dict[str, Any]]:
+            return list(tx.run(query, **params).data())
+
         with self._driver.session(
             default_access_mode=(
                 neo4j.READ_ACCESS if self._read_only else neo4j.WRITE_ACCESS
             )
         ) as session:
-            return session.execute_read(lambda tx: list(tx.run(query, **params).data()))
+            return session.execute_read(_run)
 
     def _map_driver_error(self, exc: BaseException) -> PlsqlUnavailable:
         """Normalize a driver failure into the analysis error taxonomy."""
@@ -257,6 +261,11 @@ class Neo4jPlsqlAnalysisClient:
 
     async def _execute(self, query: str, **params: object) -> list[dict[str, Any]]:
         try:
+            # The transaction carries its own server-side ``timeout`` (set in
+            # ``_read_session``), so the server itself terminates a slow query
+            # and the blocking thread returns promptly. ``asyncio.wait_for``
+            # is only a client-side backstop for a server that ignores it;
+            # it cannot interrupt the blocking thread on its own.
             return await asyncio.wait_for(
                 asyncio.to_thread(self._read_session, query, **params),
                 timeout=self._timeout + 1.0,
@@ -265,7 +274,7 @@ class Neo4jPlsqlAnalysisClient:
             raise PlsqlTimeout(
                 "The Neo4j analysis query exceeded its deadline."
             ) from exc
-        except neo4j.exceptions.DriverError as exc:
+        except neo4j.exceptions.GqlError as exc:
             raise self._map_driver_error(exc) from exc
 
     async def check_connectivity(self) -> str:
@@ -322,7 +331,10 @@ class Neo4jPlsqlAnalysisClient:
         )
 
     def _object_from_node(
-        self, node: Any, labels: Sequence[str]
+        self,
+        node: Any,
+        labels: Sequence[str],
+        file_paths: Mapping[str, str],
     ) -> PlsqlObjectRecord | None:
         kind = _kind_from_labels(labels)
         raw_qualified = _node_value(node, SCHEMA_NODE_QUALIFIED_NAME)
@@ -332,6 +344,16 @@ class Neo4jPlsqlAnalysisClient:
         name = _node_value(node, SCHEMA_NODE_NAME)
         if not name:
             name = qualified.rsplit(".", 1)[-1]
+        file_id = _str_or_none(_node_value(node, SCHEMA_EDGE_SOURCE_FILE_ID))
+        path = self._resolve_path_sync(file_id, file_paths)
+        evidence = self._evidence(
+            file_id=file_id,
+            path=path,
+            start_line=_int_or_none(_node_value(node, SCHEMA_EDGE_START_LINE)),
+            start_column=_int_or_none(_node_value(node, SCHEMA_EDGE_START_COLUMN)),
+            start_offset=_int_or_none(_node_value(node, SCHEMA_EDGE_START_OFFSET)),
+            end_offset=_int_or_none(_node_value(node, SCHEMA_EDGE_END_OFFSET)),
+        )
         return PlsqlObjectRecord(
             id=object_id(self._project_id, qualified),
             kind=kind,
@@ -340,7 +362,7 @@ class Neo4jPlsqlAnalysisClient:
             qualified_name=qualified,
             project_id=self._project_id,
             owner=_owner_of(qualified),
-            evidence=None,
+            evidence=evidence,
         )
 
     def _dependency_from_row(
@@ -455,8 +477,9 @@ class Neo4jPlsqlAnalysisClient:
                 qualifiedName=qualified_name,
             )
             if rows:
+                file_paths = await self._file_map()
                 record = self._object_from_node(
-                    rows[0].get("n"), rows[0].get("nodeLabels") or ()
+                    rows[0].get("n"), rows[0].get("nodeLabels") or (), file_paths
                 )
         self._object_cache[object_id] = record
         return record
@@ -493,9 +516,12 @@ class Neo4jPlsqlAnalysisClient:
             kinds=kind_list,
         )
         total = int(total_rows[0]["total"]) if total_rows else 0
+        file_paths = await self._file_map()
         items: list[PlsqlObjectRecord] = []
         for row in rows[:bounded]:
-            record = self._object_from_node(row.get("n"), row.get("nodeLabels") or ())
+            record = self._object_from_node(
+                row.get("n"), row.get("nodeLabels") or (), file_paths
+            )
             if record is not None:
                 items.append(record)
         return PlsqlSearchPage(

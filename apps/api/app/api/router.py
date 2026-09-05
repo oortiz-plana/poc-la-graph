@@ -67,7 +67,17 @@ async def readiness(request: Request, response: Response) -> Readiness:
         graph_ready=graph_ready,
         graph_version=graph.get("activeGraphVersion"),
     )
-    ready = initialized and graph_ready and graphify_status in {"available", "mock"}
+    analysis_client = getattr(request.app.state, "plsql_analysis", None)
+    analysis_status = await _analysis_readiness(
+        request.app.state.settings,
+        analysis_client,
+    )
+    ready = (
+        initialized
+        and graph_ready
+        and graphify_status in {"available", "mock"}
+        and analysis_status != "unavailable"
+    )
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     llm_status = (
@@ -76,11 +86,6 @@ async def readiness(request: Request, response: Response) -> Readiness:
         else "configured"
         if settings and settings.llm_model
         else "unconfigured"
-    )
-    analysis_client = getattr(request.app.state, "plsql_analysis", None)
-    analysis_status = await _analysis_readiness(
-        request.app.state.settings,
-        analysis_client,
     )
     return Readiness(
         ready=ready,

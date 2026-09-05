@@ -32,11 +32,11 @@ services:
       KNOWLEDGE_INGEST_ON_STARTUP: "false"
       # PL/SQL analysis console: deterministic fixture mode (ADR 0015).
       PLSQL_ADAPTER: synthetic
-      PLSQL_PROJECT_ID: alz
+      PLSQL_PROJECT_ID: sample
       PLSQL_SOURCE_ROOT: /app/plsql-fixtures/source
     volumes:
       # Read-only fixture source corpus for the source viewer (phase 4).
-      - /home/oortiz/oao/Backend:/app/plsql-fixtures:ro
+      - ./apps/api/tests/fixtures/plsql:/app/plsql-fixtures:ro
 
   knowledge-worker:
     environment:

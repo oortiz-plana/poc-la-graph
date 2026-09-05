@@ -57,9 +57,13 @@ def read_source_lines(resolved: Path, max_bytes: int) -> list[str]:
     determinism, mirroring the read-only text contract.
     """
     try:
+        size = resolved.stat().st_size
+    except OSError as exc:
+        raise PlsqlObjectNotFound("The requested source file is unavailable.") from exc
+    if size > max_bytes:
+        raise PlsqlLimitExceeded("The source file exceeds the configured byte cap.")
+    try:
         raw = resolved.read_bytes()
     except OSError as exc:
         raise PlsqlObjectNotFound("The requested source file is unavailable.") from exc
-    if len(raw) > max_bytes:
-        raise PlsqlLimitExceeded("The source file exceeds the configured byte cap.")
     return raw.decode("utf-8", errors="replace").splitlines()

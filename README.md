@@ -77,9 +77,10 @@ docker compose -f docker-compose.yml -f docker-compose.synthetic.yml up --build
 
 with `make e2e` covering search → detail → callers/callees → table access →
 paths → source → impact over the fixture corpus. Real mode
-(`PLSQL_ADAPTER=neo4j`, official `neo4j` 5.x driver, ADR 0012 §0.1) is
-implemented and opt-in: set `PLSQL_NEO4J_URI`/`PLSQL_NEO4J_USER`/
-`PLSQL_NEO4J_PASSWORD` (server-side only) plus `PLSQL_SOURCE_ROOT`; a missing
+(`PLSQL_ADAPTER=neo4j`, official `neo4j` 5.x driver, dependency decision
+recorded in the implementation plan §0.1) is implemented and opt-in: set
+`PLSQL_NEO4J_URI`/`PLSQL_NEO4J_USER`/`PLSQL_NEO4J_PASSWORD` (server-side only)
+plus `PLSQL_SOURCE_ROOT`; a missing
 URI or unreachable server reports the analysis state as `unavailable` in
 `/ready` and the console. The adapter's query catalog pins the documented
 graph model, with schema alignment validated against a live

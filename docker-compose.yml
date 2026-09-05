@@ -90,6 +90,15 @@ services:
       dockerfile: docker/api.Dockerfile
     image: graphify-agent-poc-api:local
     environment:
+      # PL/SQL analysis console (ships disabled by default; ADR 0011-0015).
+      # Neo4j runs outside this stack (sibling `plsqlgraph` repo); reach a
+      # host-published instance via the Docker host gateway, not `localhost`.
+      PLSQL_ADAPTER: ${PLSQL_ADAPTER:-disabled}
+      PLSQL_NEO4J_URI: ${PLSQL_NEO4J_URI:-bolt://host.docker.internal:7687}
+      PLSQL_NEO4J_USER: ${PLSQL_NEO4J_USER:-}
+      PLSQL_NEO4J_PASSWORD: ${PLSQL_NEO4J_PASSWORD:-}
+      PLSQL_PROJECT_ID: ${PLSQL_PROJECT_ID:-sample}
+      PLSQL_SOURCE_ROOT: ${PLSQL_SOURCE_ROOT:-/app/plsql-fixtures/source}
       LLM_ADAPTER: ${LLM_ADAPTER:-mock}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_BASE: ${LLM_API_BASE:-}
@@ -167,6 +176,14 @@ services:
     volumes:
       - graphify_knowledge:/knowledge
       - ./knowledge/input:/knowledge/input:ro
+      # Read-only PL/SQL source root for the analysis console; defaults to
+      # the repo's synthetic fixture corpus, override PLSQL_SOURCE_HOST_PATH
+      # in .env to point at a real analyzed corpus for PLSQL_ADAPTER=neo4j.
+      - ${PLSQL_SOURCE_HOST_PATH:-./apps/api/tests/fixtures/plsql}:/app/plsql-fixtures:ro
+    extra_hosts:
+      # Lets PLSQL_NEO4J_URI reach a Neo4j instance published on the Docker
+      # host (e.g. the sibling `plsqlgraph` stack) via host.docker.internal.
+      - "host.docker.internal:host-gateway"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:
@@ -190,6 +207,7 @@ services:
       dockerfile: docker/web.Dockerfile
     image: graphify-agent-poc-web:local
     environment:
+      PLSQL_ENABLED: ${PLSQL_ENABLED:-false}
       API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-graphify}

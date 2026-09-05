@@ -33,7 +33,7 @@ reviewed query paths:
   `integrations/graphify` layout: a `@runtime_checkable` protocol
   (`AnalysisGraphClient`) in `client.py` with domain methods
   (`check_connectivity`, `search_objects`, `get_object`, `callers_of`,
-  `callees_of`, `table_access_by`, `find_paths`, `impact_of`,
+  `callees_of`, `table_access_of`, `find_paths`, `impact_of`,
   `relationship_evidence`), plus `models.py`, `errors.py`, and `__init__.py`.
 - Two implementations: a **Neo4j adapter** (Bolt, official driver, read-only
   sessions — `AccessMode.READ` and a read-only database role when available)

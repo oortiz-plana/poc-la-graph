@@ -504,7 +504,7 @@ Create `apps/api/app/integrations/plsql/` mirroring
   not_found`, preserving causes for server logs only.
 - `client.py` — `@runtime_checkable class AnalysisGraphClient(Protocol)`:
   `check_connectivity`, `search_objects`, `get_object`, `callers_of`,
-  `callees_of`, `table_access_by`, `find_paths`, `impact_of`,
+  `callees_of`, `table_access_of`, `find_paths`, `impact_of`,
   `relationship_evidence`, `object_source`.
 - `catalog.py` — the allowlisted, parameterized query catalog. Phase 0 ships:
   callers (`CALLS` into target), callees (reviewed inverse `CALLS`), table

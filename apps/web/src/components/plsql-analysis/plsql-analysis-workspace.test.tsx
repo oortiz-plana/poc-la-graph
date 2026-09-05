@@ -95,6 +95,42 @@ async function runSearch(
   await user.click(screen.getByRole("button", { name: "Search objects" }));
 }
 
+/**
+ * Rejection carrying a backend Problem code, mirroring what the real API
+ * client throws (PlsqlApiError). The UI guard is structural, so a plain
+ * error object with a `code` property exercises the same branches.
+ */
+function problemError(
+  code: string,
+  message = "The analysis service is unavailable.",
+): Error & { code: string } {
+  const error = new Error(message) as Error & { code: string };
+  error.code = code;
+  return error;
+}
+
+const emptySearch: PlsqlObjectSearchResult = {
+  items: [],
+  truncated: false,
+  count: 0,
+};
+
+/** Type into one From/To picker and choose an option from its listbox. */
+async function pickPathObject(
+  user: ReturnType<typeof userEvent.setup>,
+  fieldLabel: string,
+  queryText: string,
+  optionName: string,
+): Promise<HTMLInputElement> {
+  const field = screen.getByLabelText(fieldLabel) as HTMLInputElement;
+  await user.type(field, queryText);
+  // The picker debounces for 300ms before searching; allow slack under load.
+  await user.click(
+    await screen.findByRole("option", { name: optionName }, { timeout: 5000 }),
+  );
+  return field;
+}
+
 describe("PlsqlAnalysisWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -253,7 +289,7 @@ describe("PlsqlAnalysisWorkspace", () => {
   it("shows an alert on search failure and retries the query", async () => {
     const user = userEvent.setup();
     mocks.searchPlsqlObjects
-      .mockRejectedValueOnce(new Error("analysis unavailable"))
+      .mockRejectedValueOnce(problemError("analysis_unavailable"))
       .mockResolvedValue(searchFixture);
     render(<PlsqlAnalysisWorkspace />);
 
@@ -268,6 +304,46 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await screen.findByRole("button", { name: /PKG_EMP/ }),
     ).toBeInTheDocument();
+  });
+
+  it("shows the deterministic size-limit error without a retry on search", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockRejectedValue(
+      problemError("analysis_limit_exceeded"),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "pkg");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This project is too large to compute this view right now.",
+    );
+    expect(
+      within(alert).queryByRole("button", { name: "Retry analysis query" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.searchPlsqlObjects).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the deterministic size-limit error without a retry on object detail", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockRejectedValue(
+      problemError("analysis_limit_exceeded"),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This project is too large to compute this view right now.",
+    );
+    expect(
+      within(alert).queryByRole("button", { name: "Retry analysis query" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.getPlsqlObject).toHaveBeenCalledTimes(1);
   });
 
   it("renders caller edges with resolution and evidence next to detail", async () => {
@@ -441,7 +517,29 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(await screen.findByText("No callees")).toBeInTheDocument();
   });
 
-  it("seeds path pickers from search results and renders ordered paths with hop counts", async () => {
+  it("shows the deterministic size-limit error without a retry in a dependency section", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(packageObject);
+    mocks.listPlsqlCallees.mockRejectedValue(
+      problemError("analysis_limit_exceeded"),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "pkg");
+    await user.click(await screen.findByRole("button", { name: /PKG_EMP/ }));
+
+    const detail = await screen.findByRole("region", { name: "PKG_EMP" });
+    const alert = await within(detail).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This project is too large to compute this view right now.",
+    );
+    expect(
+      within(alert).queryByRole("button", { name: "Retry analysis query" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("searches path endpoints through the pickers and renders ordered paths with hop counts", async () => {
     const user = userEvent.setup();
     const employeesRef = referenceFixture(
       "plsql://sample/HR/TABLE/EMPLOYEES",
@@ -500,16 +598,28 @@ describe("PlsqlAnalysisWorkspace", () => {
     mocks.findPlsqlPaths.mockResolvedValue(paths);
     render(<PlsqlAnalysisWorkspace />);
 
-    await runSearch(user, "pkg");
-
     const section = await screen.findByRole("region", {
       name: "Dependency paths",
     });
-    const fromSelect = within(section).getByLabelText("From object");
-    const toSelect = within(section).getByLabelText("To object");
-    await waitFor(() => {
-      expect(fromSelect).toHaveValue(packageObject.id);
-      expect(toSelect).toHaveValue(functionObject.id);
+    // The pickers search through the API on their own; the main results
+    // list is never involved.
+    const fromField = await pickPathObject(
+      user,
+      "From object",
+      "pkg",
+      "Package · HR.PKG_EMP",
+    );
+    const toField = await pickPathObject(
+      user,
+      "To object",
+      "salary",
+      "Function · HR.GET_SALARY",
+    );
+    expect(fromField).toHaveValue("Package · HR.PKG_EMP");
+    expect(toField).toHaveValue("Function · HR.GET_SALARY");
+    expect(mocks.searchPlsqlObjects).toHaveBeenCalledWith("pkg", { limit: 10 });
+    expect(mocks.searchPlsqlObjects).toHaveBeenCalledWith("salary", {
+      limit: 10,
     });
     await user.click(
       within(section).getByRole("button", { name: "Find paths" }),
@@ -548,10 +658,16 @@ describe("PlsqlAnalysisWorkspace", () => {
     });
     render(<PlsqlAnalysisWorkspace />);
 
-    await runSearch(user, "pkg");
     const section = await screen.findByRole("region", {
       name: "Dependency paths",
     });
+    await pickPathObject(user, "From object", "pkg", "Package · HR.PKG_EMP");
+    await pickPathObject(
+      user,
+      "To object",
+      "salary",
+      "Function · HR.GET_SALARY",
+    );
     await user.click(
       within(section).getByRole("button", { name: "Find paths" }),
     );
@@ -583,10 +699,11 @@ describe("PlsqlAnalysisWorkspace", () => {
     });
     render(<PlsqlAnalysisWorkspace />);
 
-    await runSearch(user, "pkg");
     const section = await screen.findByRole("region", {
       name: "Dependency paths",
     });
+    await pickPathObject(user, "From object", "pkg", "Package · HR.PKG_EMP");
+    await pickPathObject(user, "To object", "pkg", "Package · HR.PKG_EMP");
     expect(
       within(section).getByRole("button", { name: "Find paths" }),
     ).toBeDisabled();
@@ -606,10 +723,16 @@ describe("PlsqlAnalysisWorkspace", () => {
       .mockResolvedValue({ items: [emptyPath()], truncated: true, count: 1 });
     render(<PlsqlAnalysisWorkspace />);
 
-    await runSearch(user, "pkg");
     const section = await screen.findByRole("region", {
       name: "Dependency paths",
     });
+    await pickPathObject(user, "From object", "pkg", "Package · HR.PKG_EMP");
+    await pickPathObject(
+      user,
+      "To object",
+      "salary",
+      "Function · HR.GET_SALARY",
+    );
     await user.click(
       within(section).getByRole("button", { name: "Find paths" }),
     );
@@ -623,6 +746,146 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await within(section).findByText("Results truncated"),
     ).toBeInTheDocument();
+  });
+
+  it("shows the deterministic size-limit error without a retry for dependency paths", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.findPlsqlPaths.mockRejectedValue(
+      problemError("analysis_limit_exceeded"),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    const section = await screen.findByRole("region", {
+      name: "Dependency paths",
+    });
+    await pickPathObject(user, "From object", "pkg", "Package · HR.PKG_EMP");
+    await pickPathObject(
+      user,
+      "To object",
+      "salary",
+      "Function · HR.GET_SALARY",
+    );
+    await user.click(
+      within(section).getByRole("button", { name: "Find paths" }),
+    );
+
+    const alert = await within(section).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This project is too large to compute this view right now.",
+    );
+    expect(
+      within(alert).queryByRole("button", { name: "Retry analysis query" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("debounces picker searches while typing", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(emptySearch);
+    render(<PlsqlAnalysisWorkspace />);
+
+    const fromField = screen.getByLabelText("From object");
+    await user.type(fromField, "pk");
+    expect(mocks.searchPlsqlObjects).not.toHaveBeenCalled();
+    await user.type(fromField, "g");
+    expect(mocks.searchPlsqlObjects).not.toHaveBeenCalled();
+    await waitFor(
+      () => expect(mocks.searchPlsqlObjects).toHaveBeenCalledTimes(1),
+      { timeout: 5000 },
+    );
+    expect(mocks.searchPlsqlObjects).toHaveBeenCalledWith("pkg", { limit: 10 });
+  });
+
+  it("shows an empty state when no objects match a picker query", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(emptySearch);
+    render(<PlsqlAnalysisWorkspace />);
+
+    const fromField = screen.getByLabelText("From object");
+    await user.type(fromField, "zzz");
+
+    const listbox = await screen.findByRole("listbox", {
+      name: "From object matches",
+    });
+    expect(
+      await within(listbox).findByText("No matching objects", undefined, {
+        timeout: 5000,
+      }),
+    ).toBeInTheDocument();
+    expect(within(listbox).queryByRole("option")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes picker options that share a qualified name by kind", async () => {
+    const user = userEvent.setup();
+    const synonym: PlsqlObject = {
+      ...packageObject,
+      id: "plsql://sample/HR/SYNONYM/PKG_EMP",
+      kind: "Synonym",
+    };
+    mocks.searchPlsqlObjects.mockResolvedValue({
+      items: [packageObject, synonym],
+      truncated: false,
+      count: 2,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+
+    const fromField = screen.getByLabelText("From object");
+    await user.type(fromField, "pkg");
+
+    // Wait for the debounced search results before asserting the options.
+    await screen.findByRole(
+      "option",
+      { name: "Package · HR.PKG_EMP" },
+      { timeout: 5000 },
+    );
+    const listbox = screen.getByRole("listbox", {
+      name: "From object matches",
+    });
+    expect(
+      within(listbox).getByRole("option", { name: "Package · HR.PKG_EMP" }),
+    ).toBeInTheDocument();
+    expect(
+      within(listbox).getByRole("option", { name: "Synonym · HR.PKG_EMP" }),
+    ).toBeInTheDocument();
+    expect(within(listbox).getAllByRole("option")).toHaveLength(2);
+  });
+
+  it("supports keyboard selection in the pickers", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockImplementation(async (query: string) =>
+      query.includes("salary")
+        ? { items: [functionObject], truncated: false, count: 1 }
+        : searchFixture,
+    );
+    mocks.findPlsqlPaths.mockResolvedValue({
+      items: [emptyPath()],
+      truncated: false,
+      count: 1,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+
+    const fromField = screen.getByLabelText("From object");
+    await user.type(fromField, "pkg");
+    const option = await screen.findByRole(
+      "option",
+      { name: "Package · HR.PKG_EMP" },
+      { timeout: 5000 },
+    );
+    expect(option).toHaveAttribute("aria-selected", "false");
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(fromField).toHaveValue("Package · HR.PKG_EMP");
+
+    const toField = screen.getByLabelText("To object");
+    await user.type(toField, "salary");
+    await screen.findByRole(
+      "option",
+      { name: "Function · HR.GET_SALARY" },
+      { timeout: 5000 },
+    );
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(toField).toHaveValue("Function · HR.GET_SALARY");
+
+    expect(screen.getByRole("button", { name: "Find paths" })).toBeEnabled();
   });
 
   it("renders unresolved references as warnings with resolution labels", async () => {
@@ -739,6 +1002,22 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await screen.findByText("No unresolved references"),
     ).toBeInTheDocument();
+  });
+
+  it("shows the deterministic size-limit error without a retry in unresolved references", async () => {
+    mocks.listPlsqlUnresolved.mockRejectedValue(
+      problemError("analysis_limit_exceeded"),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This project is too large to compute this view right now.",
+    );
+    expect(
+      within(alert).queryByRole("button", { name: "Retry analysis query" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.listPlsqlUnresolved).toHaveBeenCalledTimes(1);
   });
 
   it("opens the object source viewer and highlights its declaration line", async () => {
@@ -952,6 +1231,32 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await screen.findByRole("region", { name: "Source" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows the deterministic size-limit error without a retry in the source viewer", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockRejectedValue(
+      problemError("analysis_limit_exceeded"),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This project is too large to compute this view right now.",
+    );
+    expect(
+      within(alert).queryByRole("button", { name: "Retry analysis query" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.getPlsqlObjectSource).toHaveBeenCalledTimes(1);
   });
 
   it("copies the source path and closes the panel", async () => {
@@ -1280,6 +1585,30 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await within(report).findByText("No impacted dependents"),
     ).toBeInTheDocument();
+  });
+
+  it("shows the deterministic size-limit error without a retry for impact analysis", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlImpact.mockRejectedValue(
+      problemError("analysis_limit_exceeded"),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const report = await screen.findByRole("region", {
+      name: "Impact analysis",
+    });
+    const alert = await within(report).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "This project is too large to compute this view right now.",
+    );
+    expect(
+      within(alert).queryByRole("button", { name: "Retry analysis query" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.getPlsqlImpact).toHaveBeenCalledTimes(1);
   });
 
   // --- Phase 6 accessibility regression cases -----------------------------

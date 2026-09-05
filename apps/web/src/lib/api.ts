@@ -487,6 +487,50 @@ export async function listProjectAccessActivity(
   return z.array(accessActivitySchema).parse(await response.json());
 }
 
+/**
+ * Parsed shape of a gateway Problem response (RFC-7807-style), mirroring
+ * apps/api/app/models/system.py's `Problem` literal: {requestId, code, message}.
+ * Kept local to the API client; the frozen public contracts are unchanged.
+ */
+const plsqlProblemSchema = z.object({
+  requestId: z.string(),
+  code: z.string(),
+  message: z.string(),
+});
+
+export type PlsqlProblem = z.infer<typeof plsqlProblemSchema>;
+export type PlsqlProblemCode = PlsqlProblem["code"];
+
+/**
+ * Error raised when the analysis gateway answers with a Problem body. Carries
+ * the backend code (e.g. `analysis_limit_exceeded` is deterministic while
+ * `analysis_unavailable` is transient) and the request id for support.
+ */
+export class PlsqlApiError extends Error {
+  readonly code?: PlsqlProblemCode;
+  readonly requestId?: string;
+
+  constructor(message: string, problem?: PlsqlProblem) {
+    super(message);
+    this.name = "PlsqlApiError";
+    this.code = problem?.code;
+    this.requestId = problem?.requestId;
+  }
+}
+
+async function plsqlFailure(
+  response: Response,
+  fallbackMessage: string,
+): Promise<never> {
+  let problem: PlsqlProblem | undefined;
+  try {
+    problem = plsqlProblemSchema.parse(await response.json());
+  } catch {
+    // Non-JSON or malformed error bodies keep the generic message.
+  }
+  throw new PlsqlApiError(problem?.message ?? fallbackMessage, problem);
+}
+
 export async function searchPlsqlObjects(
   query: string,
   options?: { kinds?: PlsqlObjectKind[]; limit?: number },
@@ -501,7 +545,8 @@ export async function searchPlsqlObjects(
     `/api/backend/api/v1/plsql/objects${suffix}`,
     { cache: "no-store" },
   );
-  if (!response.ok) throw new Error("Could not search PL/SQL objects.");
+  if (!response.ok)
+    return plsqlFailure(response, "Could not search PL/SQL objects.");
   return plsqlObjectSearchResultSchema.parse(await response.json());
 }
 
@@ -514,7 +559,8 @@ export async function getPlsqlObject(
     { cache: "no-store" },
   );
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error("Could not load the PL/SQL object.");
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load the PL/SQL object.");
   return plsqlObjectSchema.parse(await response.json());
 }
 
@@ -528,7 +574,7 @@ async function loadPlsqlDependencies(
     `/api/backend/api/v1/plsql/${path}?${params}`,
     { cache: "no-store" },
   );
-  if (!response.ok) throw new Error(errorMessage);
+  if (!response.ok) return plsqlFailure(response, errorMessage);
   return plsqlDependencyResultSchema.parse(await response.json());
 }
 
@@ -565,7 +611,8 @@ export async function findPlsqlPaths(
     `/api/backend/api/v1/plsql/paths?${params}`,
     { cache: "no-store" },
   );
-  if (!response.ok) throw new Error("Could not find dependency paths.");
+  if (!response.ok)
+    return plsqlFailure(response, "Could not find dependency paths.");
   return plsqlPathResultSchema.parse(await response.json());
 }
 
@@ -573,7 +620,8 @@ export async function listPlsqlUnresolved(): Promise<PlsqlDependencyResult> {
   const response = await safeFetch("/api/backend/api/v1/plsql/unresolved", {
     cache: "no-store",
   });
-  if (!response.ok) throw new Error("Could not load unresolved references.");
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load unresolved references.");
   return plsqlDependencyResultSchema.parse(await response.json());
 }
 
@@ -586,7 +634,8 @@ export async function getPlsqlObjectSource(
     { cache: "no-store" },
   );
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error("Could not load the source file.");
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load the source file.");
   return plsqlSourceContentSchema.parse(await response.json());
 }
 
@@ -601,7 +650,8 @@ export async function getPlsqlImpact(
     { cache: "no-store" },
   );
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error("Could not load the impact report.");
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load the impact report.");
   return plsqlImpactResultSchema.parse(await response.json());
 }
 
@@ -619,6 +669,7 @@ export async function getPlsqlFileSource(
     { cache: "no-store" },
   );
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error("Could not load the source file.");
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load the source file.");
   return plsqlSourceContentSchema.parse(await response.json());
 }

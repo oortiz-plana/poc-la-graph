@@ -8,7 +8,10 @@ async function proxy(
   context: { params: Promise<{ path: string[] }> },
 ) {
   const { path } = await context.params;
-  const target = `${API_URL}/${path.join("/")}`;
+  // Forward the query string too: PL/SQL (and directory) endpoints pass
+  // identifiers and filters as query parameters (q, kinds, limit, objectId,
+  // from, to, fileId, startLine, ...) rather than path segments.
+  const target = `${API_URL}/${path.join("/")}${request.nextUrl.search}`;
   const headers = new Headers();
   for (const name of [
     "authorization",

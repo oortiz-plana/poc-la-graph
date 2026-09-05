@@ -255,8 +255,9 @@ Phase 0.1 follow-up — Neo4j adapter (real mode):
 - `app/integrations/plsql/neo4j_client.py` — `Neo4jPlsqlAnalysisClient`
   implements the full `AnalysisGraphClient` protocol over Bolt: read-only
   sessions (`neo4j.READ_ACCESS`, enforced when `plsql_neo4j_read_only` is
-  set), the configured query timeout applied around driver calls, bounded
-  edge fetch (`MAX_EDGE_ROWS` guard), normalized driver errors
+  set), the configured query timeout applied around driver calls,
+  per-endpoint edge queries (see the edge-query scaling bullet below),
+  normalized driver errors
   (auth/configuration → `PlsqlConfigurationError`; connectivity →
   `PlsqlUnavailable`; timeout/terminated codes → `PlsqlTimeout`), lazy
   source-file id→path map with path-embedded file ids accepted, and
@@ -266,6 +267,16 @@ Phase 0.1 follow-up — Neo4j adapter (real mode):
   qualified names. Source text still comes from files under
   `PLSQL_SOURCE_ROOT` (decision: graph holds coordinates only), reusing the
   hardened `source.py` guards and byte caps.
+- Edge-query scaling (post-Phase 6): the whole-project edge load
+  (`MAX_EDGE_ROWS = 100_000` guard + client-side filtering) was replaced by
+  per-endpoint catalog queries — dependency lists run a targeted select
+  (`LIMIT page + 1`) with a count twin for the exact `total`, relationship
+  evidence matches the decoded `(relationship, source, target)` triple, and
+  path/impact expand one bounded frontier per hop instead of loading the
+  graph. The traversal budget is the `plsql_max_traversal_edges` Settings
+  parameter (default `20_000`); exceeding it raises `analysis_limit_exceeded`.
+  See `docs/plsql-analysis/max-edge-rows-proposal.md` for the design and
+  `tests/plsql/test_plsql_neo4j_adapter.py` for the hermetic coverage.
 - Wiring: `build_analysis_client` composes the Neo4j client from the
   `PLSQL_*` settings; `app/integrations/plsql/__init__.py` exports it; the
   API lifespan closes the Bolt driver on shutdown; `/ready` connectivity

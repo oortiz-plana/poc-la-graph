@@ -125,6 +125,10 @@ class Settings(BaseSettings):
     plsql_neo4j_read_only: bool = True
     plsql_max_rows: int = Field(default=200, ge=1, le=200)
     plsql_max_hops: int = Field(default=5, ge=1, le=5)
+    # Bounds how many typed-edge rows one path/impact traversal may pull from
+    # the graph (frontier expansion), replacing the old whole-project edge
+    # load cap. Config parameter, not a hardcoded adapter constant.
+    plsql_max_traversal_edges: int = Field(default=20_000, ge=1, le=1_000_000)
     plsql_query_timeout_seconds: float = Field(default=10.0, gt=0, le=300)
     plsql_max_source_bytes: int = Field(default=262_144, ge=1024, le=10_485_760)
 

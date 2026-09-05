@@ -19,6 +19,7 @@ import {
   listPlsqlCallees,
   listPlsqlUnresolved,
   searchPlsqlObjects,
+  type PlsqlProblemCode,
 } from "@/lib/api";
 import type {
   PlsqlDependency,
@@ -35,6 +36,8 @@ import type {
 import { useAuth } from "../auth-provider";
 import { SourceViewer, type SourceRequest } from "./source-viewer";
 import { ImpactReport } from "./impact-report";
+import { AnalysisError, problemCodeOf } from "./analysis-error";
+import { PlsqlObjectCombobox } from "./object-combobox";
 
 type SearchStatus = "idle" | "searching" | "ready" | "error";
 type DetailStatus = "idle" | "loading" | "ready" | "error";
@@ -44,9 +47,11 @@ export function PlsqlAnalysisWorkspace() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<SearchStatus>("idle");
   const [result, setResult] = useState<PlsqlObjectSearchResult>();
+  const [searchErrorCode, setSearchErrorCode] = useState<PlsqlProblemCode>();
   const [detailStatus, setDetailStatus] = useState<DetailStatus>("idle");
   const [detailId, setDetailId] = useState<string>();
   const [detail, setDetail] = useState<PlsqlObject>();
+  const [detailErrorCode, setDetailErrorCode] = useState<PlsqlProblemCode>();
   const [sourceRequest, setSourceRequest] = useState<SourceRequest>();
   // Persistent polite live region: announces search completion so screen
   // readers hear summaries even when the transient loading text unmounts.
@@ -58,6 +63,7 @@ export function PlsqlAnalysisWorkspace() {
     event?.preventDefault();
     setAnnouncement("");
     setStatus("searching");
+    setSearchErrorCode(undefined);
     setDetailId(undefined);
     setDetailStatus("idle");
     setDetail(undefined);
@@ -72,7 +78,8 @@ export function PlsqlAnalysisWorkspace() {
               found.items.length === 1 ? "" : "s"
             }.`,
       );
-    } catch {
+    } catch (error) {
+      setSearchErrorCode(problemCodeOf(error));
       setStatus("error");
     }
   }
@@ -85,12 +92,14 @@ export function PlsqlAnalysisWorkspace() {
     detailOpenerRef.current = opener ?? detailOpenerRef.current;
     setDetailId(objectId);
     setDetailStatus("loading");
+    setDetailErrorCode(undefined);
     try {
       const loaded = await getPlsqlObject(objectId);
       if (!loaded) throw new Error("Object not found");
       setDetail(loaded);
       setDetailStatus("ready");
-    } catch {
+    } catch (error) {
+      setDetailErrorCode(problemCodeOf(error));
       setDetailStatus("error");
     }
   }
@@ -187,7 +196,10 @@ export function PlsqlAnalysisWorkspace() {
                 </p>
               )}
               {status === "error" && (
-                <AnalysisError onRetry={() => void runSearch()} />
+                <AnalysisError
+                  code={searchErrorCode}
+                  onRetry={() => void runSearch()}
+                />
               )}
               {status === "ready" && result && (
                 <>
@@ -233,7 +245,10 @@ export function PlsqlAnalysisWorkspace() {
             )}
             {detailStatus === "error" && detailId && (
               <div className="mt-6">
-                <AnalysisError onRetry={() => void openDetail(detailId)} />
+                <AnalysisError
+                  code={detailErrorCode}
+                  onRetry={() => void openDetail(detailId)}
+                />
               </div>
             )}
 
@@ -248,7 +263,6 @@ export function PlsqlAnalysisWorkspace() {
             )}
 
             <DependencyPathsSection
-              candidates={result?.items ?? []}
               onOpenObject={(objectId, opener) =>
                 void openDetail(objectId, opener)
               }
@@ -265,20 +279,6 @@ export function PlsqlAnalysisWorkspace() {
         )}
       </main>
     </ApplicationShell>
-  );
-}
-
-function AnalysisError({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div
-      role="alert"
-      className="rounded-md border border-error-border bg-error-surface p-4 text-error"
-    >
-      <p className="text-sm">Analysis is unavailable</p>
-      <Button variant="outline" className="mt-3" onClick={onRetry}>
-        Retry analysis query
-      </Button>
-    </div>
   );
 }
 
@@ -437,11 +437,13 @@ function DependencySection({
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SectionStatus>("loading");
   const [result, setResult] = useState<PlsqlDependencyResult>();
+  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
   const headingId = `plsql-${section.kind}-heading`;
 
   useEffect(() => {
     let cancelled = false;
     setStatus("loading");
+    setErrorCode(undefined);
     DEPENDENCY_LOADERS[section.kind](objectId)
       .then((value) => {
         if (!cancelled) {
@@ -449,8 +451,11 @@ function DependencySection({
           setStatus("ready");
         }
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setErrorCode(problemCodeOf(error));
+          setStatus("error");
+        }
       });
     return () => {
       cancelled = true;
@@ -472,7 +477,10 @@ function DependencySection({
         </p>
       )}
       {status === "error" && (
-        <AnalysisError onRetry={() => setAttempt((current) => current + 1)} />
+        <AnalysisError
+          code={errorCode}
+          onRetry={() => setAttempt((current) => current + 1)}
+        />
       )}
       {status === "ready" && result && (
         <>
@@ -600,37 +608,29 @@ function ResolutionBadge({ resolution }: { resolution: PlsqlResolution }) {
 type PathStatus = "idle" | "loading" | "ready" | "error";
 
 function DependencyPathsSection({
-  candidates,
   onOpenObject,
 }: {
-  candidates: PlsqlObject[];
   onOpenObject: (objectId: string, opener?: HTMLButtonElement | null) => void;
 }) {
-  const [fromId, setFromId] = useState("");
-  const [toId, setToId] = useState("");
+  const [from, setFrom] = useState<PlsqlObject>();
+  const [to, setTo] = useState<PlsqlObject>();
   const [status, setStatus] = useState<PathStatus>("idle");
+  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
   const [result, setResult] = useState<PlsqlPathResult>();
   const headingId = "plsql-dependency-paths-heading";
 
-  useEffect(() => {
-    setFromId(candidates[0]?.id ?? "");
-    setToId(candidates[1]?.id ?? candidates[0]?.id ?? "");
-    setStatus("idle");
-    setResult(undefined);
-  }, [candidates]);
-
-  const fromObject = candidates.find((object) => object.id === fromId);
-  const toObject = candidates.find((object) => object.id === toId);
-  const canTrace = Boolean(fromObject && toObject && fromId !== toId);
+  const canTrace = Boolean(from && to && from.id !== to.id);
 
   async function tracePaths(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    if (!fromId || !toId || fromId === toId) return;
+    if (!from || !to || from.id === to.id) return;
     setStatus("loading");
+    setErrorCode(undefined);
     try {
-      setResult(await findPlsqlPaths(fromId, toId));
+      setResult(await findPlsqlPaths(from.id, to.id));
       setStatus("ready");
-    } catch {
+    } catch (error) {
+      setErrorCode(problemCodeOf(error));
       setStatus("error");
     }
   }
@@ -640,98 +640,72 @@ function DependencyPathsSection({
       <h2 id={headingId} className="text-xl font-semibold">
         Dependency paths
       </h2>
-      {candidates.length === 0 ? (
-        <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-          Search for PL/SQL objects above, then choose From and To objects to
-          trace dependency paths.
-        </p>
-      ) : (
-        <>
-          <form
-            onSubmit={(event) => void tracePaths(event)}
-            className="mt-3 max-w-3xl"
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm font-medium">
-                From object
-                <select
-                  value={fromId}
-                  onChange={(event) => setFromId(event.target.value)}
-                  className="mt-1 min-h-11 w-full rounded-md border bg-surface px-3 text-sm"
-                >
-                  {candidates.map((object) => (
-                    <option key={object.id} value={object.id}>
-                      {object.qualifiedName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-medium">
-                To object
-                <select
-                  value={toId}
-                  onChange={(event) => setToId(event.target.value)}
-                  className="mt-1 min-h-11 w-full rounded-md border bg-surface px-3 text-sm"
-                >
-                  {candidates.map((object) => (
-                    <option key={object.id} value={object.id}>
-                      {object.qualifiedName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <Button type="submit" disabled={!canTrace} className="mt-3">
-              Find paths
-            </Button>
-            {!canTrace && (
-              <p className="mt-2 text-xs text-text-secondary">
-                Choose two different searched objects to trace paths between
-                them.
-              </p>
-            )}
-          </form>
+      <form
+        onSubmit={(event) => void tracePaths(event)}
+        className="mt-3 max-w-3xl"
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <PlsqlObjectCombobox
+            id="plsql-path-from"
+            label="From object"
+            selected={from}
+            onSelect={setFrom}
+          />
+          <PlsqlObjectCombobox
+            id="plsql-path-to"
+            label="To object"
+            selected={to}
+            onSelect={setTo}
+          />
+        </div>
+        <Button type="submit" disabled={!canTrace} className="mt-3">
+          Find paths
+        </Button>
+        {!canTrace && (
+          <p className="mt-2 text-xs text-text-secondary">
+            Choose two different searched objects to trace paths between them.
+          </p>
+        )}
+      </form>
 
-          {status === "loading" && (
-            <p
-              role="status"
-              className="flex items-center gap-2 text-sm text-text-secondary"
-            >
-              <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-              Loading dependency paths…
+      {status === "loading" && (
+        <p
+          role="status"
+          className="flex items-center gap-2 text-sm text-text-secondary"
+        >
+          <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
+          Loading dependency paths…
+        </p>
+      )}
+      {status === "error" && (
+        <div className="mt-3">
+          <AnalysisError code={errorCode} onRetry={() => void tracePaths()} />
+        </div>
+      )}
+      {status === "ready" && result && (
+        <div className="mt-3">
+          {result.truncated && (
+            <p className="text-sm text-warning">Results truncated</p>
+          )}
+          {result.items.length === 0 ? (
+            <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
+              No dependency paths found
             </p>
+          ) : (
+            <ol
+              aria-label="Dependency paths between the selected objects"
+              className="mt-2 divide-y rounded-lg border bg-surface"
+            >
+              {result.items.map((path) => (
+                <PathRow
+                  key={path.id}
+                  path={path}
+                  onOpenObject={onOpenObject}
+                />
+              ))}
+            </ol>
           )}
-          {status === "error" && (
-            <div className="mt-3">
-              <AnalysisError onRetry={() => void tracePaths()} />
-            </div>
-          )}
-          {status === "ready" && result && (
-            <div className="mt-3">
-              {result.truncated && (
-                <p className="text-sm text-warning">Results truncated</p>
-              )}
-              {result.items.length === 0 ? (
-                <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-                  No dependency paths found
-                </p>
-              ) : (
-                <ol
-                  aria-label="Dependency paths between the selected objects"
-                  className="mt-2 divide-y rounded-lg border bg-surface"
-                >
-                  {result.items.map((path) => (
-                    <PathRow
-                      key={path.id}
-                      path={path}
-                      onOpenObject={onOpenObject}
-                    />
-                  ))}
-                </ol>
-              )}
-            </div>
-          )}
-        </>
+        </div>
       )}
     </section>
   );
@@ -782,11 +756,13 @@ function UnresolvedReferencesSection({
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SectionStatus>("loading");
   const [result, setResult] = useState<PlsqlDependencyResult>();
+  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
   const headingId = "plsql-unresolved-heading";
 
   useEffect(() => {
     let cancelled = false;
     setStatus("loading");
+    setErrorCode(undefined);
     listPlsqlUnresolved()
       .then((value) => {
         if (!cancelled) {
@@ -794,8 +770,11 @@ function UnresolvedReferencesSection({
           setStatus("ready");
         }
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setErrorCode(problemCodeOf(error));
+          setStatus("error");
+        }
       });
     return () => {
       cancelled = true;
@@ -822,7 +801,10 @@ function UnresolvedReferencesSection({
         </p>
       )}
       {status === "error" && (
-        <AnalysisError onRetry={() => setAttempt((current) => current + 1)} />
+        <AnalysisError
+          code={errorCode}
+          onRetry={() => setAttempt((current) => current + 1)}
+        />
       )}
       {status === "ready" && result && (
         <>

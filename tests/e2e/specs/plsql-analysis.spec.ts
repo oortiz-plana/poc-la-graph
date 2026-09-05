@@ -128,9 +128,16 @@ test("walks search, detail, dependencies, impact, paths, and source evidence", a
     archivePaths.getByRole("button", { name: "hr/pkg_employee.pkb:12" }),
   ).toBeVisible();
 
-  // Dependency paths: the search seeded From=COUNT_EMPLOYEES and
-  // To=EMPLOYEES, which resolves to exactly one READS path of one hop.
+  // Dependency paths: pick From=COUNT_EMPLOYEES and To=EMPLOYEES through the
+  // pickers' own type-ahead search, which resolves to exactly one READS path
+  // of one hop.
   const paths = page.getByRole("region", { name: "Dependency paths" });
+  await paths.getByRole("combobox", { name: "From object" }).fill("COUNT");
+  await paths
+    .getByRole("option", { name: "Function · HR.COUNT_EMPLOYEES" })
+    .click();
+  await paths.getByRole("combobox", { name: "To object" }).fill("EMPLOYEES");
+  await paths.getByRole("option", { name: "Table · HR.EMPLOYEES" }).click();
   await expect(paths.getByRole("button", { name: "Find paths" })).toBeEnabled();
   await paths.getByRole("button", { name: "Find paths" }).click();
   const pathList = page.getByRole("list", {

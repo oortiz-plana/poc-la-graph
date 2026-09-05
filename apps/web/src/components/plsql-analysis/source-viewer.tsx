@@ -10,8 +10,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { getPlsqlFileSource, getPlsqlObjectSource } from "@/lib/api";
+import {
+  getPlsqlFileSource,
+  getPlsqlObjectSource,
+  type PlsqlProblemCode,
+} from "@/lib/api";
 import type { PlsqlSourceContent } from "@/lib/contracts";
+import { AnalysisError, problemCodeOf } from "./analysis-error";
 
 export type SourceRequest =
   | { kind: "object"; objectId: string }
@@ -120,10 +125,12 @@ function SourceBody({ request }: { request: SourceRequest }) {
   const [status, setStatus] = useState<SourceStatus>("loading");
   const [content, setContent] = useState<PlsqlSourceContent>();
   const [copied, setCopied] = useState(false);
+  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
 
   useEffect(() => {
     let cancelled = false;
     setStatus("loading");
+    setErrorCode(undefined);
     const loader =
       request.kind === "object"
         ? getPlsqlObjectSource(request.objectId)
@@ -142,8 +149,11 @@ function SourceBody({ request }: { request: SourceRequest }) {
         setCopied(false);
         setStatus("ready");
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setErrorCode(problemCodeOf(error));
+          setStatus("error");
+        }
       });
     return () => {
       cancelled = true;
@@ -172,19 +182,10 @@ function SourceBody({ request }: { request: SourceRequest }) {
   }
   if (status === "error" || !content) {
     return (
-      <div
-        role="alert"
-        className="rounded-md border border-error-border bg-error-surface p-4 text-error"
-      >
-        <p className="text-sm">Analysis is unavailable</p>
-        <Button
-          variant="outline"
-          className="mt-3"
-          onClick={() => setAttempt((current) => current + 1)}
-        >
-          Retry analysis query
-        </Button>
-      </div>
+      <AnalysisError
+        code={errorCode}
+        onRetry={() => setAttempt((current) => current + 1)}
+      />
     );
   }
 

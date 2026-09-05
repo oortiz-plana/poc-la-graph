@@ -2,8 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { LoaderCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { getPlsqlImpact } from "@/lib/api";
+import { getPlsqlImpact, type PlsqlProblemCode } from "@/lib/api";
 import type {
   PlsqlImpactResult,
   PlsqlObjectReference,
@@ -11,6 +10,7 @@ import type {
   PlsqlRelationship,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
+import { AnalysisError, problemCodeOf } from "./analysis-error";
 
 type SectionStatus = "loading" | "ready" | "error";
 
@@ -29,11 +29,13 @@ export function ImpactReport({
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SectionStatus>("loading");
   const [result, setResult] = useState<PlsqlImpactResult>();
+  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
   const headingId = "plsql-impact-heading";
 
   useEffect(() => {
     let cancelled = false;
     setStatus("loading");
+    setErrorCode(undefined);
     getPlsqlImpact(objectId)
       .then((value) => {
         if (cancelled) return;
@@ -44,8 +46,11 @@ export function ImpactReport({
         setResult(value);
         setStatus("ready");
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setErrorCode(problemCodeOf(error));
+          setStatus("error");
+        }
       });
     return () => {
       cancelled = true;
@@ -67,18 +72,11 @@ export function ImpactReport({
         </p>
       )}
       {status === "error" && (
-        <div
-          role="alert"
-          className="mt-3 rounded-md border border-error-border bg-error-surface p-4 text-error"
-        >
-          <p className="text-sm">Analysis is unavailable</p>
-          <Button
-            variant="outline"
-            className="mt-3"
-            onClick={() => setAttempt((current) => current + 1)}
-          >
-            Retry analysis query
-          </Button>
+        <div className="mt-3">
+          <AnalysisError
+            code={errorCode}
+            onRetry={() => setAttempt((current) => current + 1)}
+          />
         </div>
       )}
       {status === "ready" && result && (

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PATCH } from "./route";
+import { PATCH, GET } from "./route";
 
 describe("backend proxy", () => {
   afterEach(() => {
@@ -41,5 +41,27 @@ describe("backend proxy", () => {
     const headers = init.headers as Headers;
     expect(headers.get("authorization")).toBe("Bearer memory-only-token");
     expect(headers.get("content-type")).toBe("application/json");
+  });
+
+  it("forwards the query string so filters and identifiers reach the API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [], truncated: false, count: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new NextRequest(
+      "http://localhost/api/backend/api/v1/plsql/objects?q=pkg&limit=10",
+      { method: "GET" },
+    );
+
+    const response = await GET(request, {
+      params: Promise.resolve({ path: ["api", "v1", "plsql", "objects"] }),
+    });
+
+    expect(response.status).toBe(200);
+    const [target] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(target).toContain("/api/v1/plsql/objects?q=pkg&limit=10");
   });
 });

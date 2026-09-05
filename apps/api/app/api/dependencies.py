@@ -132,6 +132,7 @@ def build_analysis_client(settings: Settings) -> AnalysisGraphClient | None:
                 query_timeout_seconds=settings.plsql_query_timeout_seconds,
                 max_rows=settings.plsql_max_rows,
                 max_hops=settings.plsql_max_hops,
+                max_traversal_edges=settings.plsql_max_traversal_edges,
                 source_root=settings.plsql_source_root,
                 max_source_bytes=settings.plsql_max_source_bytes,
             )

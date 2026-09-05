@@ -61,11 +61,16 @@ TABLE_ACCESS_RELATIONSHIPS: Final[frozenset[str]] = frozenset(
 )
 UNRESOLVED_RESOLUTIONS: Final[frozenset[str]] = frozenset({"AMBIGUOUS", "UNRESOLVED"})
 
-# The maximum number of typed edges a project may expose through the gateway.
-# The Neo4j adapter fetches the project's typed dependency edges and derives
-# deterministic pages/paths client-side (same semantics as the synthetic
-# adapter); this bound keeps that derivation bounded on large graphs.
-MAX_PROJECT_EDGES: Final = 20_000
+# The maximum number of typed edges a project may expose through the gateway
+# was previously enforced by loading every edge once (`MAX_EDGE_ROWS`); that
+# design is gone. Each endpoint now fetches only the rows it needs (LIMIT
+# page + 1) with a matching COUNT entry for the exact total, and path/impact
+# traversals expand one bounded frontier at a time. The traversal budget is a
+# Settings parameter (`plsql_max_traversal_edges`), not a catalog constant.
+
+KINDS_LITERAL: Final = (
+    "[" + ", ".join(f"'{kind}'" for kind in sorted(KIND_LABELS)) + "]"
+)
 
 
 def _name_search_clause() -> str:
@@ -83,8 +88,8 @@ def _kind_filter(param: str) -> str:
     return f"(size(${param}) = 0 OR any(label IN labels(n) WHERE label IN ${param}))"
 
 
-def _known_kind_clause() -> str:
-    """Baseline constraint restricting search to addressable objects.
+def _kind_constraint(alias: str) -> str:
+    """Baseline constraint restricting an endpoint to addressable objects.
 
     The extractor also creates unresolved/ambiguous call-target placeholder
     nodes (labels such as ``Routine``, ``AmbiguousRoutine``) that carry no
@@ -95,17 +100,16 @@ def _known_kind_clause() -> str:
     placeholders remain reachable through ``unresolved_references`` edges;
     they are simply not first-class searchable objects.
     """
-    kinds_literal = "[" + ", ".join(f"'{kind}'" for kind in sorted(KIND_LABELS)) + "]"
     return (
-        f"n.{SCHEMA_NODE_QUALIFIED_NAME} IS NOT NULL "
-        f"AND any(label IN labels(n) WHERE label IN {kinds_literal})"
+        f"{alias}.{SCHEMA_NODE_QUALIFIED_NAME} IS NOT NULL "
+        f"AND any(label IN labels({alias}) WHERE label IN {KINDS_LITERAL})"
     )
 
 
 SEARCH_OBJECTS: Final = f"""
 MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
-  AND {_known_kind_clause()}
+  AND {_kind_constraint("n")}
   AND {_name_search_clause()}
   AND {_kind_filter("kinds")}
 RETURN n, labels(n) AS nodeLabels
@@ -117,7 +121,7 @@ LIMIT $limit
 COUNT_SEARCH_OBJECTS: Final = f"""
 MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
-  AND {_known_kind_clause()}
+  AND {_kind_constraint("n")}
   AND {_name_search_clause()}
   AND {_kind_filter("kinds")}
 RETURN count(n) AS total
@@ -131,10 +135,16 @@ RETURN n, labels(n) AS nodeLabels
 LIMIT 1
 """
 
-PROJECT_EDGES: Final = f"""
-MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
-WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
-  AND type(r) IN $relationships
+# --- per-endpoint edge queries ---------------------------------------------
+#
+# Each list endpoint has a select twin (``LIMIT $limit`` = page size + 1 to
+# compute `truncated`) and a count twin (exact `total`), sharing the same
+# filters. ``_edge_validity_clause()`` keeps raw rows exactly mappable by the
+# client so totals and pages always agree. Traversal queries (``EDGE_OUTGOING``
+# / ``EDGE_INCOMING``) expand one bounded frontier per round instead of
+# loading the project's edges.
+
+EDGE_COLUMNS: Final = f"""
 RETURN s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
        s.{SCHEMA_NODE_NAME} AS sourceName,
        labels(s) AS sourceLabels,
@@ -148,6 +158,161 @@ RETURN s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
        r.{SCHEMA_EDGE_START_COLUMN} AS startColumn,
        r.{SCHEMA_EDGE_START_OFFSET} AS startOffset,
        r.{SCHEMA_EDGE_END_OFFSET} AS endOffset
+"""
+
+# Matches the client's sort keys (relationship, casefolded source qualified
+# name, casefolded target qualified name). ``toLower`` is exact for the ASCII
+# identifiers of this corpus, matching Python ``casefold`` there.
+EDGE_ORDER: Final = f"""
+ORDER BY type(r),
+         toLower(coalesce(s.{SCHEMA_NODE_QUALIFIED_NAME}, '')),
+         toLower(coalesce(t.{SCHEMA_NODE_QUALIFIED_NAME}, ''))
+"""
+
+
+def _edge_validity_clause() -> str:
+    """Constraints that keep returned rows exactly mappable by the client."""
+    return (
+        f"coalesce(r.{SCHEMA_EDGE_RESOLUTION}, 'EXACT') IN $resolutions "
+        f"AND {_kind_constraint('s')} "
+        f"AND {_kind_constraint('t')}"
+    )
+
+
+EDGE_CALLERS: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) = 'CALLS'
+  AND t.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+  AND {_edge_validity_clause()}
+{EDGE_COLUMNS}
+{EDGE_ORDER}
+LIMIT $limit
+"""
+
+COUNT_EDGE_CALLERS: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) = 'CALLS'
+  AND t.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+  AND {_edge_validity_clause()}
+RETURN count(*) AS total
+"""
+
+EDGE_CALLEES: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) = 'CALLS'
+  AND s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+  AND {_edge_validity_clause()}
+{EDGE_COLUMNS}
+{EDGE_ORDER}
+LIMIT $limit
+"""
+
+COUNT_EDGE_CALLEES: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) = 'CALLS'
+  AND s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+  AND {_edge_validity_clause()}
+RETURN count(*) AS total
+"""
+
+EDGE_TABLE_ACCESS: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND (
+    (
+      (s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+       OR s.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
+      AND any(label IN labels(t) WHERE label IN $tableKinds)
+    )
+    OR (t.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+        OR t.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
+  )
+  AND {_edge_validity_clause()}
+{EDGE_COLUMNS}
+{EDGE_ORDER}
+LIMIT $limit
+"""
+
+COUNT_EDGE_TABLE_ACCESS: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND (
+    (
+      (s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+       OR s.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
+      AND any(label IN labels(t) WHERE label IN $tableKinds)
+    )
+    OR (t.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+        OR t.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
+  )
+  AND {_edge_validity_clause()}
+RETURN count(*) AS total
+"""
+
+EDGE_UNRESOLVED: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND coalesce(r.{SCHEMA_EDGE_RESOLUTION}, 'EXACT') IN $unresolvedResolutions
+  AND {_edge_validity_clause()}
+{EDGE_COLUMNS}
+{EDGE_ORDER}
+LIMIT $limit
+"""
+
+COUNT_EDGE_UNRESOLVED: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND coalesce(r.{SCHEMA_EDGE_RESOLUTION}, 'EXACT') IN $unresolvedResolutions
+  AND {_edge_validity_clause()}
+RETURN count(*) AS total
+"""
+
+EDGE_BY_TRIPLE: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) = $relationship
+  AND s.{SCHEMA_NODE_QUALIFIED_NAME} = $sourceQualifiedName
+  AND t.{SCHEMA_NODE_QUALIFIED_NAME} = $targetQualifiedName
+{EDGE_COLUMNS}
+LIMIT 2
+"""
+
+EDGE_OUTGOING: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND s.{SCHEMA_NODE_QUALIFIED_NAME} IN $sources
+{EDGE_COLUMNS}
+{EDGE_ORDER}
+LIMIT $limit
+"""
+
+EDGE_INCOMING: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND t.{SCHEMA_NODE_QUALIFIED_NAME} IN $targets
+{EDGE_COLUMNS}
+{EDGE_ORDER}
+LIMIT $limit
+"""
+
+EDGE_MEMBER_ENDPOINTS: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND (s.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix
+       OR t.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
+RETURN s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
+       t.{SCHEMA_NODE_QUALIFIED_NAME} AS targetQualifiedName
 LIMIT $limit
 """
 

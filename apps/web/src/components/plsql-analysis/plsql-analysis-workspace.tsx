@@ -7,7 +7,7 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
-import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { ApplicationShell } from "@/components/application-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,8 +30,11 @@ import type {
   PlsqlPathResult,
   PlsqlRelationship,
   PlsqlResolution,
+  PlsqlSourceCoordinate,
 } from "@/lib/contracts";
 import { useAuth } from "../auth-provider";
+import { SourceViewer, type SourceRequest } from "./source-viewer";
+import { ImpactReport } from "./impact-report";
 
 type SearchStatus = "idle" | "searching" | "ready" | "error";
 type DetailStatus = "idle" | "loading" | "ready" | "error";
@@ -44,22 +47,42 @@ export function PlsqlAnalysisWorkspace() {
   const [detailStatus, setDetailStatus] = useState<DetailStatus>("idle");
   const [detailId, setDetailId] = useState<string>();
   const [detail, setDetail] = useState<PlsqlObject>();
+  const [sourceRequest, setSourceRequest] = useState<SourceRequest>();
+  // Persistent polite live region: announces search completion so screen
+  // readers hear summaries even when the transient loading text unmounts.
+  const [announcement, setAnnouncement] = useState("");
+  const detailOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const sourceOpenerRef = useRef<HTMLElement | null>(null);
 
   async function runSearch(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
+    setAnnouncement("");
     setStatus("searching");
     setDetailId(undefined);
     setDetailStatus("idle");
     setDetail(undefined);
     try {
-      setResult(await searchPlsqlObjects(query));
+      const found = await searchPlsqlObjects(query);
+      setResult(found);
       setStatus("ready");
+      setAnnouncement(
+        found.items.length === 0
+          ? "Search complete: no matching objects."
+          : `Search complete: ${found.items.length} matching object${
+              found.items.length === 1 ? "" : "s"
+            }.`,
+      );
     } catch {
       setStatus("error");
     }
   }
 
-  async function openDetail(objectId: string) {
+  async function openDetail(
+    objectId: string,
+    opener?: HTMLButtonElement | null,
+  ) {
+    // Keep the existing opener when retrying so Back restores the same row.
+    detailOpenerRef.current = opener ?? detailOpenerRef.current;
     setDetailId(objectId);
     setDetailStatus("loading");
     try {
@@ -76,11 +99,54 @@ export function PlsqlAnalysisWorkspace() {
     setDetailId(undefined);
     setDetailStatus("idle");
     setDetail(undefined);
+    // Restore focus to the control that opened the detail, falling back to
+    // the search field when it is gone (e.g. results were refreshed).
+    const opener = detailOpenerRef.current;
+    detailOpenerRef.current = null;
+    window.setTimeout(() => {
+      if (opener?.isConnected) {
+        opener.focus();
+      } else {
+        document.getElementById("plsql-search-input")?.focus();
+      }
+    }, 0);
+  }
+
+  function rememberSourceOpener() {
+    const active = document.activeElement;
+    sourceOpenerRef.current = active instanceof HTMLElement ? active : null;
+  }
+
+  function openObjectSource(objectId: string) {
+    rememberSourceOpener();
+    setSourceRequest({ kind: "object", objectId });
+  }
+
+  function openEvidenceSource(evidence: PlsqlSourceCoordinate | null) {
+    if (!evidence?.sourceFileId) return;
+    rememberSourceOpener();
+    setSourceRequest({
+      kind: "file",
+      fileId: evidence.sourceFileId,
+      startLine: evidence.startLine ?? undefined,
+    });
+  }
+
+  function closeSource() {
+    setSourceRequest(undefined);
+    const opener = sourceOpenerRef.current;
+    sourceOpenerRef.current = null;
+    window.setTimeout(() => {
+      if (opener?.isConnected) opener.focus();
+    }, 0);
   }
 
   return (
     <ApplicationShell>
       <main className="mx-auto max-w-[90rem] p-4 sm:p-6 lg:p-8">
+        <p aria-live="polite" className="sr-only">
+          {announcement}
+        </p>
         <header>
           <div className="flex items-center gap-3">
             <Network aria-hidden className="h-7 w-7 text-primary" />
@@ -97,6 +163,7 @@ export function PlsqlAnalysisWorkspace() {
               <label className="block max-w-2xl text-sm font-medium">
                 Search PL/SQL objects
                 <input
+                  id="plsql-search-input"
                   type="search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -137,11 +204,13 @@ export function PlsqlAnalysisWorkspace() {
                         <li key={object.id}>
                           <button
                             type="button"
-                            onClick={() => void openDetail(object.id)}
-                            className="flex min-h-11 w-full flex-wrap items-center gap-3 px-3 py-2 text-left hover:bg-background"
+                            onClick={(event) =>
+                              void openDetail(object.id, event.currentTarget)
+                            }
+                            className="flex min-h-11 w-full flex-wrap items-center gap-3 px-3 py-2 text-left hover:bg-background focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                           >
                             <ObjectKindBadge kind={object.kind} />
-                            <span className="min-w-0 flex-1 text-sm font-medium">
+                            <span className="min-w-0 flex-1 break-words text-sm font-medium">
                               {object.name} · {object.qualifiedName}
                             </span>
                           </button>
@@ -153,6 +222,15 @@ export function PlsqlAnalysisWorkspace() {
               )}
             </section>
 
+            {detailStatus === "loading" && (
+              <p
+                role="status"
+                className="mt-6 flex items-center gap-2 text-sm text-text-secondary"
+              >
+                <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
+                Loading object details…
+              </p>
+            )}
             {detailStatus === "error" && detailId && (
               <div className="mt-6">
                 <AnalysisError onRetry={() => void openDetail(detailId)} />
@@ -164,14 +242,21 @@ export function PlsqlAnalysisWorkspace() {
                 key={detail.id}
                 object={detail}
                 onBack={backToResults}
+                onViewSource={openObjectSource}
+                onOpenEvidence={openEvidenceSource}
               />
             )}
 
             <DependencyPathsSection
               candidates={result?.items ?? []}
-              onOpenObject={(objectId) => void openDetail(objectId)}
+              onOpenObject={(objectId, opener) =>
+                void openDetail(objectId, opener)
+              }
             />
-            <UnresolvedReferencesSection />
+            <UnresolvedReferencesSection onOpenEvidence={openEvidenceSource} />
+            {sourceRequest && (
+              <SourceViewer request={sourceRequest} onClose={closeSource} />
+            )}
           </>
         ) : (
           <p className="mt-6 rounded-lg border border-dashed p-6 text-sm text-text-secondary">
@@ -208,22 +293,37 @@ function ObjectKindBadge({ kind }: { kind: PlsqlObjectKind }) {
 function ObjectDetail({
   object,
   onBack,
+  onViewSource,
+  onOpenEvidence,
 }: {
   object: PlsqlObject;
   onBack: () => void;
+  onViewSource: (objectId: string) => void;
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
 }) {
   const headingId = "plsql-object-detail-heading";
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const declaration = object.declaration;
   const source = declaration?.path
     ? declaration.startLine == null
       ? declaration.path
       : `${declaration.path}:${declaration.startLine}`
     : undefined;
+  useEffect(() => {
+    // Move focus to the detail heading when it opens below the results so
+    // keyboard and screen-reader users follow the newly loaded content.
+    headingRef.current?.focus();
+  }, []);
   return (
     <section aria-labelledby={headingId} className="mt-8 border-t pt-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <h2 id={headingId} className="break-words text-xl font-semibold">
+          <h2
+            id={headingId}
+            ref={headingRef}
+            tabIndex={-1}
+            className="break-words text-xl font-semibold"
+          >
             {object.name}
           </h2>
           <Badge variant="outline">{object.kind}</Badge>
@@ -245,9 +345,28 @@ function ObjectDetail({
         {object.returnType !== null && (
           <DetailRow label="Return type" value={object.returnType} />
         )}
-        {source !== undefined && <DetailRow label="Source" value={source} />}
+        {source !== undefined && (
+          <div className="grid gap-1 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
+            <dt className="text-text-secondary">Source</dt>
+            <dd className="min-w-0">
+              <button
+                type="button"
+                onClick={() => onViewSource(object.id)}
+                className="min-h-11 break-words text-left underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              >
+                {source}
+              </button>
+            </dd>
+          </div>
+        )}
       </dl>
-      <DependencySections objectId={object.id} />
+      <DependencySections
+        objectId={object.id}
+        onOpenEvidence={onOpenEvidence}
+      />
+      <div className="mt-10 border-t pt-6">
+        <ImpactReport objectId={object.id} onOpenEvidence={onOpenEvidence} />
+      </div>
     </section>
   );
 }
@@ -285,7 +404,13 @@ const DEPENDENCY_SECTIONS: {
   },
 ];
 
-function DependencySections({ objectId }: { objectId: string }) {
+function DependencySections({
+  objectId,
+  onOpenEvidence,
+}: {
+  objectId: string;
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+}) {
   return (
     <div className="mt-10 space-y-8 border-t pt-6">
       {DEPENDENCY_SECTIONS.map((section) => (
@@ -293,6 +418,7 @@ function DependencySections({ objectId }: { objectId: string }) {
           key={section.kind}
           objectId={objectId}
           section={section}
+          onOpenEvidence={onOpenEvidence}
         />
       ))}
     </div>
@@ -302,9 +428,11 @@ function DependencySections({ objectId }: { objectId: string }) {
 function DependencySection({
   objectId,
   section,
+  onOpenEvidence,
 }: {
   objectId: string;
   section: { kind: DependencyKind; title: string; emptyText: string };
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SectionStatus>("loading");
@@ -356,9 +484,15 @@ function DependencySection({
               {section.emptyText}
             </p>
           ) : section.kind === "tableAccess" ? (
-            <TableAccessGroups items={result.items} />
+            <TableAccessGroups
+              items={result.items}
+              onOpenEvidence={onOpenEvidence}
+            />
           ) : (
-            <DependencyList items={result.items} />
+            <DependencyList
+              items={result.items}
+              onOpenEvidence={onOpenEvidence}
+            />
           )}
         </>
       )}
@@ -366,17 +500,33 @@ function DependencySection({
   );
 }
 
-function DependencyList({ items }: { items: PlsqlDependency[] }) {
+function DependencyList({
+  items,
+  onOpenEvidence,
+}: {
+  items: PlsqlDependency[];
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+}) {
   return (
     <ul className="mt-3 divide-y rounded-lg border bg-surface">
       {items.map((edge) => (
-        <DependencyRow key={edge.id} edge={edge} />
+        <DependencyRow
+          key={edge.id}
+          edge={edge}
+          onOpenEvidence={onOpenEvidence}
+        />
       ))}
     </ul>
   );
 }
 
-function TableAccessGroups({ items }: { items: PlsqlDependency[] }) {
+function TableAccessGroups({
+  items,
+  onOpenEvidence,
+}: {
+  items: PlsqlDependency[];
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+}) {
   const groups: {
     relationship: PlsqlRelationship;
     items: PlsqlDependency[];
@@ -395,14 +545,20 @@ function TableAccessGroups({ items }: { items: PlsqlDependency[] }) {
           <h4 className="text-sm font-semibold text-text-secondary">
             {group.relationship} ({group.items.length})
           </h4>
-          <DependencyList items={group.items} />
+          <DependencyList items={group.items} onOpenEvidence={onOpenEvidence} />
         </div>
       ))}
     </div>
   );
 }
 
-function DependencyRow({ edge }: { edge: PlsqlDependency }) {
+function DependencyRow({
+  edge,
+  onOpenEvidence,
+}: {
+  edge: PlsqlDependency;
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+}) {
   const location = edge.evidence?.path
     ? edge.evidence.startLine == null
       ? edge.evidence.path
@@ -418,9 +574,17 @@ function DependencyRow({ edge }: { edge: PlsqlDependency }) {
         {edge.target.qualifiedName}
       </span>
       <ResolutionBadge resolution={edge.resolution} />
-      {location !== undefined && (
+      {location !== undefined && edge.evidence?.sourceFileId ? (
+        <button
+          type="button"
+          onClick={() => onOpenEvidence(edge.evidence)}
+          className="min-h-11 min-w-0 max-w-full break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          {location}
+        </button>
+      ) : location !== undefined ? (
         <span className="text-xs text-text-secondary">{location}</span>
-      )}
+      ) : null}
     </li>
   );
 }
@@ -440,7 +604,7 @@ function DependencyPathsSection({
   onOpenObject,
 }: {
   candidates: PlsqlObject[];
-  onOpenObject: (objectId: string) => void;
+  onOpenObject: (objectId: string, opener?: HTMLButtonElement | null) => void;
 }) {
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState("");
@@ -491,7 +655,6 @@ function DependencyPathsSection({
               <label className="block text-sm font-medium">
                 From object
                 <select
-                  aria-label="Path from object"
                   value={fromId}
                   onChange={(event) => setFromId(event.target.value)}
                   className="mt-1 min-h-11 w-full rounded-md border bg-surface px-3 text-sm"
@@ -506,7 +669,6 @@ function DependencyPathsSection({
               <label className="block text-sm font-medium">
                 To object
                 <select
-                  aria-label="Path to object"
                   value={toId}
                   onChange={(event) => setToId(event.target.value)}
                   className="mt-1 min-h-11 w-full rounded-md border bg-surface px-3 text-sm"
@@ -580,7 +742,7 @@ function PathRow({
   onOpenObject,
 }: {
   path: PlsqlPath;
-  onOpenObject: (objectId: string) => void;
+  onOpenObject: (objectId: string, opener?: HTMLButtonElement | null) => void;
 }) {
   const hopText = path.hopCount === 1 ? "1 hop" : `${path.hopCount} hops`;
   return (
@@ -598,8 +760,8 @@ function PathRow({
           )}
           <button
             type="button"
-            onClick={() => onOpenObject(node.id)}
-            className="min-h-11 rounded underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            onClick={(event) => onOpenObject(node.id, event.currentTarget)}
+            className="min-h-11 min-w-0 max-w-full break-words rounded underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >
             {node.qualifiedName}
           </button>
@@ -612,7 +774,11 @@ function PathRow({
   );
 }
 
-function UnresolvedReferencesSection() {
+function UnresolvedReferencesSection({
+  onOpenEvidence,
+}: {
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+}) {
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SectionStatus>("loading");
   const [result, setResult] = useState<PlsqlDependencyResult>();
@@ -670,7 +836,11 @@ function UnresolvedReferencesSection() {
           ) : (
             <ul className="mt-3 divide-y overflow-hidden rounded-lg border border-warning-border bg-warning-surface">
               {result.items.map((edge) => (
-                <UnresolvedRow key={edge.id} edge={edge} />
+                <UnresolvedRow
+                  key={edge.id}
+                  edge={edge}
+                  onOpenEvidence={onOpenEvidence}
+                />
               ))}
             </ul>
           )}
@@ -680,7 +850,13 @@ function UnresolvedReferencesSection() {
   );
 }
 
-function UnresolvedRow({ edge }: { edge: PlsqlDependency }) {
+function UnresolvedRow({
+  edge,
+  onOpenEvidence,
+}: {
+  edge: PlsqlDependency;
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+}) {
   const location = edge.evidence?.path
     ? edge.evidence.startLine == null
       ? edge.evidence.path
@@ -696,9 +872,17 @@ function UnresolvedRow({ edge }: { edge: PlsqlDependency }) {
         {edge.target.qualifiedName}
       </span>
       <ResolutionBadge resolution={edge.resolution} />
-      {location !== undefined && (
+      {location !== undefined && edge.evidence?.sourceFileId ? (
+        <button
+          type="button"
+          onClick={() => onOpenEvidence(edge.evidence)}
+          className="min-h-11 min-w-0 max-w-full break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          {location}
+        </button>
+      ) : location !== undefined ? (
         <span className="text-xs text-text-secondary">{location}</span>
-      )}
+      ) : null}
     </li>
   );
 }

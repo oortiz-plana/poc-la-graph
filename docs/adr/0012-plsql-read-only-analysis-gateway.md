@@ -81,3 +81,16 @@ reviewed query paths:
   a fabricated answer or an unhandled error.
 - MCP, writes, and incremental re-analysis remain explicitly deferred (see
   "Future extensions" in the architecture document).
+
+## Status update (implementation)
+
+The dependency-confirmation gate in the decision above was approved: the
+official `neo4j` Python driver (`neo4j>=5.26,<6`) is pinned in
+`apps/api/pyproject.toml` and confined to `integrations/plsql/neo4j_client.py`.
+The Neo4j adapter is implemented per this ADR — read-only Bolt sessions
+(enforced from `plsql_neo4j_read_only`), the allowlisted parameterized
+catalog (`integrations/plsql/catalog.py`), normalized errors, and the
+`disabled | synthetic | connected | unavailable` readiness contract. Catalog
+node-property assumptions not pinned by the architecture document are
+isolated in `catalog.py` schema constants; the first real-graph validation
+against a `plsqlgraph`-synchronized instance remains the alignment gate.

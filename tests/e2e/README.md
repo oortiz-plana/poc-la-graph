@@ -8,7 +8,15 @@ stream frame ordering, Graphify tool activity, grounded completion, citations,
 textual graph evidence, browser-session history, and confirmed reset. Its
 assertions use committed synthetic graph facts, never real-provider prose.
 
-Run it after the synthetic Compose stack is healthy:
+`specs/chat.spec.ts` covers the chat product; `specs/plsql-analysis.spec.ts`
+covers the PL/SQL analysis console (search → detail → callers/callees → table
+access → dependency paths → source evidence → unresolved references → impact),
+asserting deterministic synthetic fixture facts end to end
+(`docker-compose.synthetic.yml` enables `PLSQL_ADAPTER=synthetic` and
+`PLSQL_ENABLED=true`). Run either spec on its own with
+`npm run test:plsql`.
+
+Run the suite after the synthetic Compose stack is healthy:
 
 ```bash
 npm ci

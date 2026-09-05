@@ -122,6 +122,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await application.state.projects.close()
             await application.state.token_verifier.close()
             await application.state.directory.close()
+            analysis_client = getattr(application.state, "plsql_analysis", None)
+            analysis_close = getattr(analysis_client, "close", None)
+            if callable(analysis_close):
+                await asyncio.to_thread(analysis_close)
             application.state.conversation_store_initialized = False
 
     application = FastAPI(

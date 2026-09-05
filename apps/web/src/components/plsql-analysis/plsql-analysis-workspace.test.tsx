@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   PlsqlDependency,
   PlsqlDependencyResult,
+  PlsqlImpactResult,
   PlsqlObject,
   PlsqlObjectReference,
   PlsqlObjectSearchResult,
   PlsqlPath,
   PlsqlPathResult,
+  PlsqlSourceContent,
 } from "@/lib/contracts";
 
 const mocks = vi.hoisted(() => ({
@@ -19,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   getPlsqlTableAccess: vi.fn(),
   findPlsqlPaths: vi.fn(),
   listPlsqlUnresolved: vi.fn(),
+  getPlsqlObjectSource: vi.fn(),
+  getPlsqlFileSource: vi.fn(),
+  getPlsqlImpact: vi.fn(),
 }));
 
 const authState = vi.hoisted(() => ({
@@ -98,6 +103,8 @@ describe("PlsqlAnalysisWorkspace", () => {
     mocks.listPlsqlCallees.mockResolvedValue(emptyDependencies);
     mocks.getPlsqlTableAccess.mockResolvedValue(emptyDependencies);
     mocks.listPlsqlUnresolved.mockResolvedValue(emptyDependencies);
+    mocks.getPlsqlImpact.mockResolvedValue(emptyImpactResult());
+    stubMatchMedia(true);
   });
 
   it("shows a non-interactive message when analysis is not configured", () => {
@@ -498,8 +505,8 @@ describe("PlsqlAnalysisWorkspace", () => {
     const section = await screen.findByRole("region", {
       name: "Dependency paths",
     });
-    const fromSelect = within(section).getByLabelText("Path from object");
-    const toSelect = within(section).getByLabelText("Path to object");
+    const fromSelect = within(section).getByLabelText("From object");
+    const toSelect = within(section).getByLabelText("To object");
     await waitFor(() => {
       expect(fromSelect).toHaveValue(packageObject.id);
       expect(toSelect).toHaveValue(functionObject.id);
@@ -733,6 +740,682 @@ describe("PlsqlAnalysisWorkspace", () => {
       await screen.findByText("No unresolved references"),
     ).toBeInTheDocument();
   });
+
+  it("opens the object source viewer and highlights its declaration line", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockResolvedValue(sourceContentFixture(42));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+
+    expect(mocks.getPlsqlObjectSource).toHaveBeenCalledWith(functionObject.id);
+    const source = await screen.findByRole("region", { name: "Source" });
+    expect(
+      within(source).getByRole("heading", { name: "Source" }),
+    ).toBeInTheDocument();
+    expect(within(source).getByText("hr/pkg_emp.pkb")).toBeInTheDocument();
+    const list = within(source).getByRole("list", { name: "File lines" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows).toHaveLength(42);
+    expect(rows[41]).toHaveAttribute("aria-current", "location");
+    expect(within(source).getByText("return l_salary;")).toBeInTheDocument();
+  });
+
+  it("focuses the highlighted line through the keyboard fallback", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockResolvedValue(sourceContentFixture(42));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+
+    const source = await screen.findByRole("region", { name: "Source" });
+    await user.click(
+      within(source).getByRole("button", { name: "Go to line 42" }),
+    );
+    await waitFor(() => {
+      expect(document.activeElement).toHaveAttribute(
+        "id",
+        "plsql-source-line-42",
+      );
+    });
+  });
+
+  it("opens the source viewer from an evidence location with its file and line", async () => {
+    const user = userEvent.setup();
+    const callEdge = dependencyFixture({
+      id: "edge://sample/CALLS/RUN_PAYROLL/GET_SALARY",
+      relationship: "CALLS",
+      resolution: "INFERRED",
+      source: referenceFixture(
+        "plsql://sample/HR/PACKAGE/PKG_PAYROLL/PROCEDURE/RUN_PAYROLL",
+        "Procedure",
+        "RUN_PAYROLL",
+        "HR.PKG_PAYROLL.RUN_PAYROLL",
+      ),
+      target: referenceFixture(
+        functionObject.id,
+        "Function",
+        "GET_SALARY",
+        "HR.GET_SALARY",
+      ),
+      evidence: {
+        sourceFileId: "file://sample/hr/pkg_emp.pkb",
+        path: "hr/pkg_emp.pkb",
+        startLine: 5,
+        startColumn: 1,
+        startOffset: 100,
+        endOffset: 120,
+      },
+    });
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.listPlsqlCallers.mockResolvedValue({
+      items: [callEdge],
+      truncated: false,
+      count: 1,
+    });
+    mocks.getPlsqlFileSource.mockResolvedValue(sourceContentFixture(5));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      await within(detail).findByRole("button", {
+        name: "hr/pkg_emp.pkb:5",
+      }),
+    );
+
+    expect(mocks.getPlsqlFileSource).toHaveBeenCalledWith(
+      "file://sample/hr/pkg_emp.pkb",
+      { startLine: 5 },
+    );
+    const source = await screen.findByRole("region", { name: "Source" });
+    expect(within(source).getByText("hr/pkg_emp.pkb")).toBeInTheDocument();
+    const list = within(source).getByRole("list", { name: "File lines" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows[4]).toHaveAttribute("aria-current", "location");
+  });
+
+  it("opens the source viewer from an unresolved reference row", async () => {
+    const user = userEvent.setup();
+    const unresolvedEdge = dependencyFixture({
+      id: "edge://sample/CALLS/CALCULATE_MORA/RUN_UNKNOWN",
+      relationship: "CALLS",
+      resolution: "UNRESOLVED",
+      source: referenceFixture(
+        "plsql://sample/HR/PACKAGE/PKG_PAYROLL/FUNCTION/CALCULATE_MORA",
+        "Function",
+        "CALCULATE_MORA",
+        "HR.PKG_PAYROLL.CALCULATE_MORA",
+      ),
+      target: referenceFixture(
+        "plsql://sample/HR/PKG_LEGACY/RUN_UNKNOWN",
+        "Procedure",
+        "RUN_UNKNOWN",
+        "HR.PKG_LEGACY.RUN_UNKNOWN",
+      ),
+      evidence: {
+        sourceFileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+        startLine: 40,
+        startColumn: 1,
+        startOffset: 512,
+        endOffset: 520,
+      },
+    });
+    mocks.listPlsqlUnresolved.mockResolvedValue({
+      items: [unresolvedEdge],
+      truncated: false,
+      count: 1,
+    });
+    mocks.getPlsqlFileSource.mockResolvedValue(
+      sourceContentFixture(
+        40,
+        "hr/pkg_payroll.pkb",
+        "file://sample/hr/pkg_payroll.pkb",
+      ),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    const unresolved = await screen.findByRole("region", {
+      name: "Unresolved references",
+    });
+    await user.click(
+      await within(unresolved).findByRole("button", {
+        name: "hr/pkg_payroll.pkb:40",
+      }),
+    );
+
+    expect(mocks.getPlsqlFileSource).toHaveBeenCalledWith(
+      "file://sample/hr/pkg_payroll.pkb",
+      { startLine: 40 },
+    );
+    const source = await screen.findByRole("region", { name: "Source" });
+    expect(within(source).getByText("hr/pkg_payroll.pkb")).toBeInTheDocument();
+    expect(within(source).getByText("Go to line 40")).toBeInTheDocument();
+  });
+
+  it("shows the source loading state and retries after a failure", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    let resolveSource: (value: PlsqlSourceContent) => void = () => undefined;
+    mocks.getPlsqlObjectSource.mockImplementationOnce(
+      () =>
+        new Promise<PlsqlSourceContent>((resolve) => {
+          resolveSource = resolve;
+        }),
+    );
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+
+    expect(await screen.findByText("Loading source…")).toBeInTheDocument();
+    resolveSource(sourceContentFixture(42));
+    expect(
+      await screen.findByRole("region", { name: "Source" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close source" }));
+    mocks.getPlsqlObjectSource
+      .mockRejectedValueOnce(new Error("analysis unavailable"))
+      .mockResolvedValue(sourceContentFixture(42));
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Analysis is unavailable");
+    await user.click(
+      within(alert).getByRole("button", { name: "Retry analysis query" }),
+    );
+    expect(mocks.getPlsqlObjectSource).toHaveBeenCalledTimes(3);
+    expect(
+      await screen.findByRole("region", { name: "Source" }),
+    ).toBeInTheDocument();
+  });
+
+  it("copies the source path and closes the panel", async () => {
+    const user = userEvent.setup();
+    const writeText = stubClipboard();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockResolvedValue(sourceContentFixture(42));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+
+    const source = await screen.findByRole("region", { name: "Source" });
+    await user.click(within(source).getByRole("button", { name: "Copy path" }));
+    expect(writeText).toHaveBeenCalledWith("hr/pkg_emp.pkb");
+    expect(
+      await within(source).findByRole("button", { name: "Copied" }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      within(source).getByRole("button", { name: "Close source" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Source" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("opens the source viewer in the sheet drawer on narrow screens", async () => {
+    stubMatchMedia(false);
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockResolvedValue(sourceContentFixture(42));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Source" });
+    expect(within(dialog).getByText("hr/pkg_emp.pkb")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("renders the impact report grouped with explaining paths and evidence links", async () => {
+    const user = userEvent.setup();
+    const moraRef = referenceFixture(
+      "plsql://sample/HR/PACKAGE/PKG_PAYROLL/FUNCTION/CALCULATE_MORA",
+      "Function",
+      "CALCULATE_MORA",
+      "HR.PKG_PAYROLL.CALCULATE_MORA",
+    );
+    const payrollRef = referenceFixture(
+      "plsql://sample/HR/PACKAGE/PKG_PAYROLL/PROCEDURE/RUN_PAYROLL",
+      "Procedure",
+      "RUN_PAYROLL",
+      "HR.PKG_PAYROLL.RUN_PAYROLL",
+    );
+    const callEdge = (
+      id: string,
+      source: PlsqlObjectReference,
+      startLine: number,
+    ) =>
+      dependencyFixture({
+        id,
+        relationship: "CALLS",
+        resolution: "EXACT",
+        source,
+        target: packageRef(functionObject),
+        evidence: {
+          sourceFileId: "file://sample/hr/pkg_payroll.pkb",
+          path: "hr/pkg_payroll.pkb",
+          startLine,
+          startColumn: 1,
+          startOffset: 100,
+          endOffset: 120,
+        },
+      });
+    const directPath: PlsqlPath = {
+      id: "path://sample/direct-mora",
+      hopCount: 1,
+      nodes: [moraRef, packageRef(functionObject)],
+      relationships: [
+        callEdge("edge://sample/CALLS/MORA/GET_SALARY", moraRef, 11),
+      ],
+    };
+    const transitPath: PlsqlPath = {
+      id: "path://sample/transit-run",
+      hopCount: 2,
+      nodes: [payrollRef, moraRef, packageRef(functionObject)],
+      relationships: [
+        callEdge("edge://sample/CALLS/RUN/MORA", payrollRef, 11),
+        callEdge("edge://sample/CALLS/MORA/GET_SALARY", moraRef, 34),
+      ],
+    };
+    const impact: PlsqlImpactResult = {
+      object: packageRef(functionObject),
+      items: [
+        {
+          id: "impact://sample/mora/d1",
+          dependent: moraRef,
+          distance: 1,
+          paths: [directPath],
+        },
+        {
+          id: "impact://sample/run/d2",
+          dependent: payrollRef,
+          distance: 2,
+          paths: [transitPath],
+        },
+      ],
+      truncated: false,
+      count: 2,
+    };
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlImpact.mockResolvedValue(impact);
+    mocks.getPlsqlFileSource.mockResolvedValue(sourceContentFixture(11));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    const report = await within(detail).findByRole("region", {
+      name: "Impact analysis",
+    });
+    expect(mocks.getPlsqlImpact).toHaveBeenCalledWith(functionObject.id);
+    expect(
+      within(report).getByText(
+        /2 dependents — 1 direct, 1 in-transit, 0 tables read or written/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(report).getByRole("heading", { name: "Direct dependents" }),
+    ).toBeInTheDocument();
+    expect(
+      within(report).getByRole("heading", { name: "In-transit dependents" }),
+    ).toBeInTheDocument();
+    const rows = within(report).getAllByRole("listitem");
+    const text = rows.map((row) => row.textContent ?? "").join("\n");
+    expect(text).toContain("HR.PKG_PAYROLL.CALCULATE_MORA");
+    expect(text).toContain("1 hop");
+    expect(text).toContain("HR.PKG_PAYROLL.RUN_PAYROLL");
+    expect(text).toContain("2 hops");
+    expect(text).toContain("CALLS");
+
+    // The final hop's evidence links into the source viewer.
+    await user.click(
+      within(report).getByRole("button", { name: "hr/pkg_payroll.pkb:34" }),
+    );
+    expect(mocks.getPlsqlFileSource).toHaveBeenCalledWith(
+      "file://sample/hr/pkg_payroll.pkb",
+      { startLine: 34 },
+    );
+    expect(
+      await screen.findByRole("region", { name: "Source" }),
+    ).toBeInTheDocument();
+  });
+
+  it("lists tables read or modified on explaining paths", async () => {
+    const user = userEvent.setup();
+    const employeesRef = referenceFixture(
+      "plsql://sample/HR/TABLE/EMPLOYEES",
+      "Table",
+      "EMPLOYEES",
+      "HR.EMPLOYEES",
+    );
+    const writerRef = referenceFixture(
+      "plsql://sample/HR/PACKAGE/PKG_EMPLOYEE/PROCEDURE/CREATE_EMPLOYEE",
+      "Procedure",
+      "CREATE_EMPLOYEE",
+      "HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
+    );
+    const writePath: PlsqlPath = {
+      id: "path://sample/writes-employees",
+      hopCount: 1,
+      nodes: [writerRef, employeesRef],
+      relationships: [
+        dependencyFixture({
+          id: "edge://sample/WRITES/CREATE_EMPLOYEE/EMPLOYEES",
+          relationship: "WRITES",
+          resolution: "EXACT",
+          source: writerRef,
+          target: employeesRef,
+          evidence: {
+            sourceFileId: "file://sample/hr/pkg_employee.pkb",
+            path: "hr/pkg_employee.pkb",
+            startLine: 12,
+            startColumn: 1,
+            startOffset: 90,
+            endOffset: 110,
+          },
+        }),
+      ],
+    };
+    const impact: PlsqlImpactResult = {
+      object: employeesRef,
+      items: [
+        {
+          id: "impact://sample/writer/d1",
+          dependent: writerRef,
+          distance: 1,
+          paths: [writePath],
+        },
+      ],
+      truncated: false,
+      count: 1,
+    };
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlImpact.mockResolvedValue(impact);
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const report = await screen.findByRole("region", {
+      name: "Impact analysis",
+    });
+    expect(
+      within(report).getByText("Tables read or modified on paths"),
+    ).toBeInTheDocument();
+    const text = within(report)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent ?? "")
+      .join("\n");
+    expect(text).toContain("HR.EMPLOYEES");
+    expect(text).toContain("WRITES");
+  });
+
+  it("flags truncated impact reports and shows the empty state", async () => {
+    const user = userEvent.setup();
+    const moraRef = referenceFixture(
+      "plsql://sample/HR/PACKAGE/PKG_PAYROLL/FUNCTION/CALCULATE_MORA",
+      "Function",
+      "CALCULATE_MORA",
+      "HR.PKG_PAYROLL.CALCULATE_MORA",
+    );
+    const directPath: PlsqlPath = {
+      id: "path://sample/direct-mora",
+      hopCount: 1,
+      nodes: [moraRef, packageRef(functionObject)],
+      relationships: [
+        dependencyFixture({
+          id: "edge://sample/CALLS/MORA/GET_SALARY",
+          relationship: "CALLS",
+          resolution: "EXACT",
+          source: moraRef,
+          target: packageRef(functionObject),
+          evidence: {
+            sourceFileId: "file://sample/hr/pkg_payroll.pkb",
+            path: "hr/pkg_payroll.pkb",
+            startLine: 11,
+            startColumn: 1,
+            startOffset: 100,
+            endOffset: 120,
+          },
+        }),
+      ],
+    };
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlImpact.mockResolvedValue({
+      object: packageRef(functionObject),
+      items: [
+        {
+          id: "impact://sample/mora/d1",
+          dependent: moraRef,
+          distance: 1,
+          paths: [directPath],
+        },
+      ],
+      truncated: true,
+      count: 3,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const report = await screen.findByRole("region", {
+      name: "Impact analysis",
+    });
+    expect(within(report).getByText("Results truncated")).toBeInTheDocument();
+    expect(
+      within(report).getByText(/3 dependents — 1 direct, 0 in-transit/),
+    ).toBeInTheDocument();
+  });
+
+  it("retries a failed impact analysis section", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlImpact
+      .mockRejectedValueOnce(new Error("analysis unavailable"))
+      .mockResolvedValue({
+        object: packageRef(functionObject),
+        items: [],
+        truncated: false,
+        count: 0,
+      });
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const report = await screen.findByRole("region", {
+      name: "Impact analysis",
+    });
+    const alert = await within(report).findByRole("alert");
+    expect(alert).toHaveTextContent("Analysis is unavailable");
+    await user.click(
+      within(alert).getByRole("button", { name: "Retry analysis query" }),
+    );
+    expect(mocks.getPlsqlImpact).toHaveBeenCalledTimes(2);
+    expect(
+      await within(report).findByText("No impacted dependents"),
+    ).toBeInTheDocument();
+  });
+
+  // --- Phase 6 accessibility regression cases -----------------------------
+
+  it("announces search completion through a polite live region", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+
+    const announcement = await screen.findByText(
+      "Search complete: 2 matching objects.",
+    );
+    expect(announcement).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("moves focus to the object detail heading when it opens", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+
+    const heading = await screen.findByRole("heading", { name: "GET_SALARY" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it("restores focus to the result row with Back to results", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    const row = await screen.findByRole("button", { name: /GET_SALARY/ });
+    await user.click(row);
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "Back to results" }),
+    );
+
+    await waitFor(() => expect(row).toHaveFocus());
+    expect(
+      screen.queryByRole("region", { name: "GET_SALARY" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("moves focus to the source panel heading when it opens", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockResolvedValue(sourceContentFixture(42));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+
+    const heading = await screen.findByRole("heading", { name: "Source" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it("restores focus to the evidence link when the source panel closes", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockResolvedValue(sourceContentFixture(42));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    const evidence = within(detail).getByRole("button", {
+      name: "hr/pkg_emp.pkb:42",
+    });
+    await user.click(evidence);
+
+    const source = await screen.findByRole("region", { name: "Source" });
+    await user.click(
+      within(source).getByRole("button", { name: "Close source" }),
+    );
+
+    await waitFor(() => expect(evidence).toHaveFocus());
+    expect(
+      screen.queryByRole("region", { name: "Source" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("moves focus to the source sheet heading on narrow screens", async () => {
+    stubMatchMedia(false);
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockResolvedValue(sourceContentFixture(42));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Source" });
+    const heading = within(dialog).getByRole("heading", { name: "Source" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it("announces the copied source path politely", async () => {
+    stubClipboard();
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue(searchFixture);
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlObjectSource.mockResolvedValue(sourceContentFixture(42));
+    render(<PlsqlAnalysisWorkspace />);
+
+    await runSearch(user, "salary");
+    await user.click(await screen.findByRole("button", { name: /GET_SALARY/ }));
+    const detail = await screen.findByRole("region", { name: "GET_SALARY" });
+    await user.click(
+      within(detail).getByRole("button", { name: "hr/pkg_emp.pkb:42" }),
+    );
+    const source = await screen.findByRole("region", { name: "Source" });
+    await user.click(within(source).getByRole("button", { name: "Copy path" }));
+
+    const notice = await within(source).findByText(
+      "Source path copied to clipboard.",
+    );
+    expect(notice).toHaveAttribute("aria-live", "polite");
+  });
 });
 
 function referenceFixture(
@@ -780,4 +1463,56 @@ function emptyPath(): PlsqlPath {
       }),
     ],
   };
+}
+
+function emptyImpactResult(): PlsqlImpactResult {
+  return {
+    object: packageRef(packageObject),
+    items: [],
+    truncated: false,
+    count: 0,
+  };
+}
+
+function sourceContentFixture(
+  highlightLine: number,
+  path = "hr/pkg_emp.pkb",
+  fileId = "file://sample/hr/pkg_emp.pkb",
+): PlsqlSourceContent {
+  const total = Math.max(highlightLine, 7);
+  const lines = Array.from({ length: total }, (_, index) =>
+    index + 1 === highlightLine
+      ? "    return l_salary;"
+      : `    -- synthetic line ${index + 1}`,
+  );
+  return {
+    file: { fileId, path },
+    lines,
+    highlight: { startLine: highlightLine, endLine: highlightLine },
+  };
+}
+
+function stubMatchMedia(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
+function stubClipboard() {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+  return writeText;
 }

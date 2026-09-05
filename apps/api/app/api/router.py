@@ -15,6 +15,7 @@ from app.agent.workflow import KnowledgeWorkflow
 from app.auth import AuthPrincipal, require_viewer
 from app.config.settings import Settings
 from app.integrations.graphify import GraphifyConfigurationError, GraphifyError
+from app.integrations.plsql import PlsqlError, SyntheticPlsqlAnalysisClient
 from app.models import (
     Conversation,
     ConversationList,
@@ -76,14 +77,10 @@ async def readiness(request: Request, response: Response) -> Readiness:
         if settings and settings.llm_model
         else "unconfigured"
     )
-    analysis_status = (
-        {
-            "disabled": "disabled",
-            "synthetic": "synthetic",
-            "neo4j": "connected",
-        }.get(settings.plsql_adapter, "disabled")
-        if settings
-        else "disabled"
+    analysis_client = getattr(request.app.state, "plsql_analysis", None)
+    analysis_status = await _analysis_readiness(
+        request.app.state.settings,
+        analysis_client,
     )
     return Readiness(
         ready=ready,
@@ -106,6 +103,30 @@ async def readiness(request: Request, response: Response) -> Readiness:
             "llm": {"status": llm_status},
         },
     )
+
+
+async def _analysis_readiness(
+    settings: Settings | None,
+    analysis_client: object | None,
+) -> str:
+    """Map the analysis adapter state to a readiness label (ADR 0012/0015).
+
+    ``disabled``: the adapter is not configured (no client is composed).
+    ``synthetic``: the deterministic fixture client is in use. ``connected``:
+    a real adapter answered a connectivity probe. ``unavailable``: a real
+    adapter failed its probe, or the Neo4j adapter is configured but could
+    not be composed at startup.
+    """
+    adapter = settings.plsql_adapter if settings else "disabled"
+    if analysis_client is None:
+        return "unavailable" if adapter == "neo4j" else "disabled"
+    if isinstance(analysis_client, SyntheticPlsqlAnalysisClient):
+        return "synthetic"
+    try:
+        await analysis_client.check_connectivity()  # type: ignore[attr-defined]
+    except PlsqlError:
+        return "unavailable"
+    return "connected"
 
 
 async def _graphify_readiness(

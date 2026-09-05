@@ -429,6 +429,33 @@ export const plsqlPathResultSchema = z.object({
   truncated: z.boolean(),
   count: z.number().int().nonnegative(),
 });
+export const plsqlSourceFileSchema = z.object({
+  fileId: z.string(),
+  path: z.string(),
+});
+export const plsqlSourceHighlightSchema = z.object({
+  startLine: z.number().int().positive(),
+  endLine: z.number().int().positive(),
+});
+export const plsqlSourceContentSchema = z.object({
+  file: plsqlSourceFileSchema,
+  lines: z.array(z.string()),
+  highlight: plsqlSourceHighlightSchema
+    .nullish()
+    .transform((value) => value ?? null),
+});
+export const plsqlImpactItemSchema = z.object({
+  id: z.string(),
+  dependent: plsqlObjectReferenceSchema,
+  distance: z.number().int().positive(),
+  paths: z.array(plsqlPathSchema),
+});
+export const plsqlImpactResultSchema = z.object({
+  object: plsqlObjectReferenceSchema,
+  items: z.array(plsqlImpactItemSchema),
+  truncated: z.boolean(),
+  count: z.number().int().nonnegative(),
+});
 
 export type Project = z.infer<typeof projectSchema>;
 export type ProjectRole = z.infer<typeof projectRoleSchema>;
@@ -453,3 +480,8 @@ export type PlsqlDependency = z.infer<typeof plsqlDependencySchema>;
 export type PlsqlDependencyResult = z.infer<typeof plsqlDependencyResultSchema>;
 export type PlsqlPath = z.infer<typeof plsqlPathSchema>;
 export type PlsqlPathResult = z.infer<typeof plsqlPathResultSchema>;
+export type PlsqlSourceFile = z.infer<typeof plsqlSourceFileSchema>;
+export type PlsqlSourceHighlight = z.infer<typeof plsqlSourceHighlightSchema>;
+export type PlsqlSourceContent = z.infer<typeof plsqlSourceContentSchema>;
+export type PlsqlImpactItem = z.infer<typeof plsqlImpactItemSchema>;
+export type PlsqlImpactResult = z.infer<typeof plsqlImpactResultSchema>;

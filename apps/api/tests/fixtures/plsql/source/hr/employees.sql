@@ -1,0 +1,33 @@
+create table employees (
+  -- synthetic filler line (no proprietary content)
+  employee_id  number        not null,
+
+-- synthetic payroll fixture padding 001: no proprietary content
+-- synthetic payroll fixture padding 002: no proprietary content
+-- synthetic payroll fixture padding 003: no proprietary content
+-- synthetic payroll fixture padding 004: no proprietary content
+-- synthetic payroll fixture padding 005: no proprietary content
+-- synthetic payroll fixture padding 006: no proprietary content
+-- synthetic payroll fixture padding 007: no proprietary content
+-- synthetic payroll fixture padding 008: no proprietary content
+-- synthetic payroll fixture padding 009: no proprietary content
+-- synthetic payroll fixture padding 010: no proprietary content
+-- synthetic payroll fixture padding 011: no proprietary content
+-- synthetic payroll fixture padding 012: no proprietary content
+-- synthetic payroll fixture padding 013: no proprietary content
+-- synthetic payroll fixture padding 014: no proprietary content
+-- synthetic payroll fixture padding 015: no proprietary content
+-- synthetic payroll fixture padding 016: no proprietary content
+-- synthetic payroll fixture padding 017: no proprietary content
+-- synthetic payroll fixture padding 018: no proprietary content
+-- synthetic payroll fixture padding 019: no proprietary content
+-- synthetic payroll fixture padding 020: no proprietary content
+-- synthetic payroll fixture padding 021: no proprietary content
+-- synthetic payroll fixture padding 022: no proprietary content
+-- synthetic payroll fixture padding 023: no proprietary content
+-- synthetic payroll fixture padding 024: no proprietary content
+-- synthetic payroll fixture padding 025: no proprietary content
+-- synthetic payroll fixture padding 026: no proprietary content
+-- synthetic payroll fixture padding 027: no proprietary content
+-- synthetic payroll fixture padding 028: no proprietary content
+-- synthetic payroll fixture padding 029: no proprietary content

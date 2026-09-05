@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Sequence
 
@@ -9,10 +10,20 @@ from app.integrations.plsql.fixtures import build_corpus, build_edges
 from app.integrations.plsql.models import (
     PlsqlDependencyPage,
     PlsqlDependencyRecord,
+    PlsqlFileRecord,
+    PlsqlImpactItemRecord,
+    PlsqlImpactPage,
     PlsqlObjectRecord,
     PlsqlPathPage,
     PlsqlPathRecord,
     PlsqlSearchPage,
+    PlsqlSourceHighlight,
+    PlsqlSourceRecord,
+)
+from app.integrations.plsql.source import (
+    read_source_lines,
+    resolve_source_file,
+    source_root,
 )
 from app.models.plsql import ObjectKind, PlsqlRelationship, PlsqlResolution
 
@@ -27,6 +38,23 @@ UNRESOLVED_RESOLUTIONS: frozenset[PlsqlResolution] = frozenset(
 )
 TABLE_OR_VIEW: frozenset[ObjectKind] = frozenset({"Table", "View"})
 
+DEFAULT_MAX_SOURCE_BYTES = 262_144
+
+
+def _path_record(
+    project_id: str,
+    edge_by_id: dict[str, PlsqlDependencyRecord],
+    trail: tuple[str, ...],
+) -> PlsqlPathRecord:
+    """Build a deterministic path record from an ordered trail of edge ids."""
+    digest = hashlib.sha1("\x1f".join(trail).encode("utf-8")).hexdigest()[:16]
+    steps = [edge_by_id[edge_id] for edge_id in trail]
+    return PlsqlPathRecord(
+        id=f"path://{project_id}/{digest}",
+        steps=steps,
+        hop_count=len(steps),
+    )
+
 
 class SyntheticPlsqlAnalysisClient:
     """Serves a fixed synthetic corpus with deterministic ordering.
@@ -40,9 +68,13 @@ class SyntheticPlsqlAnalysisClient:
         *,
         project_id: str,
         max_rows: int = 200,
+        source_root: str | None = None,
+        max_source_bytes: int = DEFAULT_MAX_SOURCE_BYTES,
     ) -> None:
         self._project_id = project_id
         self._max_rows = max(1, max_rows)
+        self._source_root = source_root
+        self._max_source_bytes = max(1, max_source_bytes)
         self._corpus: tuple[PlsqlObjectRecord, ...] = tuple(
             sorted(
                 build_corpus(project_id),
@@ -61,6 +93,18 @@ class SyntheticPlsqlAnalysisClient:
                 ),
             )
         )
+        self._edge_by_id = {edge.id: edge for edge in self._edges}
+        source_files = {
+            (record.evidence.source_file_id, record.evidence.path)
+            for record in self._corpus
+            if record.evidence is not None
+        }
+        source_files.update(
+            (edge.evidence.source_file_id, edge.evidence.path)
+            for edge in self._edges
+            if edge.evidence is not None
+        )
+        self._file_by_id = {file_id: path for file_id, path in sorted(source_files)}
 
     async def check_connectivity(self) -> str:
         return "synthetic"
@@ -241,18 +285,211 @@ class SyntheticPlsqlAnalysisClient:
             discovered, key=lambda trail: (len(trail), node_ids(trail), trail)
         )
 
-        def path_record(trail: tuple[str, ...]) -> PlsqlPathRecord:
-            digest = hashlib.sha1("\x1f".join(trail).encode("utf-8")).hexdigest()[:16]
-            steps = [edge_by_id[edge_id] for edge_id in trail]
-            return PlsqlPathRecord(
-                id=f"path://{self._project_id}/{digest}",
-                steps=steps,
-                hop_count=len(steps),
-            )
-
         bounded_limit = max(1, min(limit, self._max_rows))
         return PlsqlPathPage(
-            items=[path_record(trail) for trail in ordered[:bounded_limit]],
+            items=[
+                _path_record(self._project_id, edge_by_id, trail)
+                for trail in ordered[:bounded_limit]
+            ],
             truncated=len(ordered) > bounded_limit,
             total=len(ordered),
+        )
+
+    async def relationship_evidence(
+        self, relationship_id: str
+    ) -> PlsqlDependencyRecord | None:
+        """Return one typed edge by opaque id, or None when unknown."""
+        return self._edge_by_id.get(relationship_id)
+
+    def _highlight(
+        self,
+        *,
+        start_line: int | None,
+        end_line: int | None,
+    ) -> PlsqlSourceHighlight | None:
+        if start_line is None:
+            return None
+        end = max(start_line, end_line or start_line)
+        return PlsqlSourceHighlight(start_line=start_line, end_line=end)
+
+    async def _load_source(
+        self,
+        *,
+        file_id: str,
+        path: str,
+        start_line: int | None,
+        end_line: int | None,
+    ) -> PlsqlSourceRecord:
+        root = source_root(self._source_root)
+
+        def read() -> list[str]:
+            resolved = resolve_source_file(root, path)
+            return read_source_lines(resolved, self._max_source_bytes)
+
+        lines = await asyncio.to_thread(read)
+        return PlsqlSourceRecord(
+            file=PlsqlFileRecord(file_id=file_id, path=path),
+            lines=lines,
+            highlight=self._highlight(start_line=start_line, end_line=end_line),
+        )
+
+    async def object_source(self, *, object_id: str) -> PlsqlSourceRecord | None:
+        """Return read-only content for an object's declaration file.
+
+        The highlight covers the object's declaration line. Returns None when
+        the object is unknown or carries no source evidence.
+        """
+        record = self._by_id.get(object_id)
+        if record is None or record.evidence is None:
+            return None
+        evidence = record.evidence
+        return await self._load_source(
+            file_id=evidence.source_file_id,
+            path=evidence.path,
+            start_line=evidence.start_line,
+            end_line=None,
+        )
+
+    async def file_source(
+        self,
+        *,
+        file_id: str,
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> PlsqlSourceRecord | None:
+        """Return read-only content for a known file id.
+
+        ``start_line``/``end_line`` are optional request ranges echoed back as
+        the highlight; returns None for unknown file ids.
+        """
+        path = self._file_by_id.get(file_id)
+        if path is None:
+            return None
+        return await self._load_source(
+            file_id=file_id,
+            path=path,
+            start_line=start_line,
+            end_line=end_line,
+        )
+
+    def _impact_anchors(self, object_id: str) -> list[str]:
+        """Return the node ids impact walks backwards from.
+
+        A package impacts through all of its member routines; any other
+        object impacts through itself.
+        """
+        record = self._by_id.get(object_id)
+        if record is None:
+            return []
+        if record.kind != "Package":
+            return [object_id]
+        return sorted(
+            (
+                candidate.id
+                for candidate in self._corpus
+                if candidate.id != object_id
+                and self._container_belongs(candidate, object_id)
+            ),
+            key=lambda item: item,
+        )
+
+    async def impact_of(
+        self,
+        *,
+        object_id: str,
+        max_hops: int,
+        limit: int,
+    ) -> PlsqlImpactPage:
+        """Return transitive dependents of a changed object within max hops.
+
+        A dependent is any corpus object that reaches the changed object (or,
+        for packages, one of its members) over typed dependency relationships
+        (``CALLS | READS | WRITES | VIEW_DEPENDS_ON``). Each item carries the
+        shortest explaining path(s), ordered dependent → … → changed object,
+        with per-hop evidence. Items are grouped by distance (shortest hops)
+        and then lexicographic dependent ids; no severity is computed or
+        persisted — scope comes from paths and relationship types only.
+        """
+        bounded_hops = max(1, max_hops)
+        edge_by_id = {edge.id: edge for edge in self._edges}
+        reverse: dict[str, list[PlsqlDependencyRecord]] = {}
+        for edge in self._edges:
+            if edge.relationship not in PATH_RELATIONSHIPS:
+                continue
+            if edge.source_id not in self._by_id:
+                continue
+            if edge.target_id not in self._by_id:
+                continue
+            reverse.setdefault(edge.target_id, []).append(edge)
+        for in_edges in reverse.values():
+            in_edges.sort(key=lambda edge: edge.id)
+
+        # Forward trails (dependent → anchor) of edge ids, per dependent.
+        trails_by_dependent: dict[str, set[tuple[str, ...]]] = {}
+
+        def visit(
+            current: str,
+            seen: frozenset[str],
+            backward: tuple[PlsqlDependencyRecord, ...],
+        ) -> None:
+            for edge in reverse.get(current, ()):
+                if edge.source_id in seen:
+                    continue
+                if len(backward) >= bounded_hops:
+                    continue
+                chain = backward + (edge,)
+                forward = tuple(reversed(chain))
+                trails_by_dependent.setdefault(edge.source_id, set()).add(
+                    tuple(forward_edge.id for forward_edge in forward)
+                )
+                visit(
+                    edge.source_id,
+                    seen | {edge.source_id},
+                    chain,
+                )
+
+        for anchor in self._impact_anchors(object_id):
+            visit(anchor, frozenset({anchor}), ())
+
+        items: list[PlsqlImpactItemRecord] = []
+        for dependent_id, forward_trails in trails_by_dependent.items():
+            dependent = self._by_id.get(dependent_id)
+            if dependent is None:
+                continue
+            shortest = min(len(trail) for trail in forward_trails)
+            shortest_trails = [
+                trail for trail in forward_trails if len(trail) == shortest
+            ]
+
+            ordered_paths = sorted(
+                shortest_trails,
+                key=lambda trail: (
+                    tuple(edge_by_id[edge_id].target_id for edge_id in trail),
+                    trail,
+                ),
+            )
+            items.append(
+                PlsqlImpactItemRecord(
+                    id=f"impact://{self._project_id}/{dependent_id}/d{shortest}",
+                    dependent=dependent,
+                    distance=shortest,
+                    paths=[
+                        _path_record(self._project_id, edge_by_id, trail)
+                        for trail in ordered_paths
+                    ],
+                )
+            )
+
+        items.sort(
+            key=lambda item: (
+                item.distance,
+                item.dependent.qualified_name.casefold(),
+                item.dependent.id,
+            )
+        )
+        bounded_limit = max(1, min(limit, self._max_rows))
+        return PlsqlImpactPage(
+            items=items[:bounded_limit],
+            truncated=len(items) > bounded_limit,
+            total=len(items),
         )

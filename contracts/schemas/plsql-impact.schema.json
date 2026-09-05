@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/schemas/plsql-impact.schema.json",
+  "title": "PL/SQL impact report",
+  "description": "Bounded transitive-impact report for the PL/SQL analysis console (ADR 0013): dependents grouped by distance, each carrying shortest explaining paths with per-hop evidence. No severity is stored or fabricated.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["object", "items", "truncated", "count"],
+  "properties": {
+    "object": {
+      "$ref": "plsql-dependency.schema.json#/$defs/objectReference"
+    },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plsqlImpactItem" }
+    },
+    "truncated": { "type": "boolean" },
+    "count": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "plsqlImpactItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "dependent", "distance", "paths"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "dependent": {
+          "$ref": "plsql-dependency.schema.json#/$defs/objectReference"
+        },
+        "distance": { "type": "integer", "minimum": 1 },
+        "paths": {
+          "type": "array",
+          "items": { "$ref": "plsql-path.schema.json#/$defs/plsqlPath" }
+        }
+      }
+    }
+  }
+}

@@ -68,8 +68,17 @@ authenticated `/api/v1/plsql` surface serves the developer console:
   count then lexicographic node ids, duplicates collapsed.
 - `GET /unresolved` — `AMBIGUOUS|UNRESOLVED` edges with evidence; uncertainty
   is surfaced as data and never presented as certainty.
-- Opaque identifiers embed `/` (`plsql://…`), so identifier endpoints take
-  query parameters, never path segments.
+- `GET /relationships/evidence?relationshipId=…` — one typed edge with its
+  evidence coordinates.
+- `GET /source?objectId=…` and `GET /files?fileId=…[&startLine=…][&endLine=…]`
+  — read-only source text (`{file, lines, highlight}`) served strictly under
+  the configured `PLSQL_SOURCE_ROOT` with traversal guards and the
+  `plsql_max_source_bytes` cap.
+- `GET /impact?objectId=…` — transitive dependents within `plsql_max_hops`
+  grouped by distance, each item carrying its shortest explaining path(s)
+  with per-hop evidence; no severity is stored or fabricated.
+- Opaque identifiers embed `/` (`plsql://…`, `edge://…`, `file://…`), so
+  identifier endpoints take query parameters, never path segments.
 - Envelopes are `{items, truncated, count}`; results are bounded server-side
   (`plsql_max_rows`, `plsql_max_hops`) and truncated results are flagged, never
   silently clipped.
@@ -80,12 +89,30 @@ authenticated `/api/v1/plsql` surface serves the developer console:
   `disabled | synthetic | connected | unavailable`.
 - The analysis adapter is disabled by default
   (`PLSQL_ADAPTER=disabled`); `PLSQL_ADAPTER=synthetic` is the deterministic
-  development/E2E mode and `neo4j` fails fast until the driver decision lands.
+  development/E2E mode and `PLSQL_ADAPTER=neo4j` uses the confirmed official
+  `neo4j` 5.x driver (read-only sessions, allowlisted parameterized catalog,
+  normalized errors) with real-graph schema alignment still pending a first
+  live `plsqlgraph` instance.
+- Source text is never raw HTML in the browser: the console renders the
+  viewer's `lines` as text (ADR 0014).
 
 Normative artifacts added for this contract:
 
 - `contracts/schemas/plsql-object.schema.json`: object and search envelope.
 - `contracts/schemas/plsql-dependency.schema.json`: typed dependency envelope.
 - `contracts/schemas/plsql-path.schema.json`: ordered dependency-path envelope.
+- `contracts/schemas/plsql-source.schema.json`: read-only source content.
+- `contracts/schemas/plsql-impact.schema.json`: bounded impact report.
 - `contracts/openapi/openapi.yaml`: `/api/v1/plsql` paths and `Plsql*`
   schemas.
+
+Hardening (phase 6 of the
+[implementation plan](../plsql-analysis/implementation-plan.md)) added no
+contract surface: the five schemas, the OpenAPI splice, and the frozen
+`{items, truncated, count}` envelope rules are unchanged. Configuration caps
+(`plsql_max_rows`, `plsql_max_hops`, `plsql_max_source_bytes`,
+`plsql_query_timeout_seconds`) are asserted at their bounds by
+`apps/api/tests/plsql/test_plsql_hardening_api.py`, and the readiness matrix
+(`disabled | synthetic | connected | unavailable`) is covered there too; the
+deterministic console journey is exercised end to end by
+`tests/e2e/specs/plsql-analysis.spec.ts` under the synthetic overlay.

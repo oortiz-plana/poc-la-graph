@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/schemas/plsql-source.schema.json",
+  "title": "PL/SQL source content",
+  "description": "Read-only source content responses (object source and file source) for the PL/SQL analysis console (ADR 0013): file identity, whole-file lines, and an optional highlight range.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["file", "lines"],
+  "properties": {
+    "file": { "$ref": "#/$defs/plsqlSourceFile" },
+    "lines": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "highlight": {
+      "anyOf": [
+        { "$ref": "#/$defs/plsqlSourceHighlight" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "plsqlSourceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fileId", "path"],
+      "properties": {
+        "fileId": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "plsqlSourceHighlight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startLine", "endLine"],
+      "properties": {
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

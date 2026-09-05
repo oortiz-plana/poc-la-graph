@@ -30,3 +30,17 @@ export async function waitForCompletedAnswer(page: Page) {
   await expect(assistant.getByRole("button", { name: "View sources" })).toBeVisible();
   return assistant;
 }
+
+export async function openPlsqlConsole(page: Page) {
+  await openReadyApp(page);
+  await page.goto("/plsql");
+  await expect(
+    page.getByRole("heading", { name: "PL/SQL analysis" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Search PL/SQL objects")).toBeVisible();
+}
+
+export async function searchPlsqlObjects(page: Page, query: string) {
+  await page.getByLabel("Search PL/SQL objects").fill(query);
+  await page.getByRole("button", { name: "Search objects" }).click();
+}

@@ -55,6 +55,36 @@ With `LLM_ADAPTER=litellm`, answers use the configured model. With
 `LLM_ADAPTER=mock`, deterministic answers exercise streaming and citation
 contracts without an external answer model.
 
+### PL/SQL analysis console (developer tool)
+
+The authenticated `/plsql` console (ADR 0011) is an additive developer tool for
+read-only PL/SQL analysis: deterministic object search, callers/callees and
+table access with typed relationships, bounded dependency paths, unresolved
+references, an evidence-linked read-only source viewer, and a bounded impact
+report — never a graph editor. Design and vocabulary:
+[docs/architecture/plsql-analysis-console.md](docs/architecture/plsql-analysis-console.md);
+contract: [docs/architecture/contracts.md](docs/architecture/contracts.md);
+status: [docs/plsql-analysis/implementation-plan.md](docs/plsql-analysis/implementation-plan.md).
+
+It ships disabled by default and adds no behavior to the chat product. Enable it
+deterministically on the synthetic stack (`PLSQL_ADAPTER=synthetic`,
+`PLSQL_PROJECT_ID=sample`, `PLSQL_SOURCE_ROOT=/app/plsql-fixtures/source` on the
+API; `PLSQL_ENABLED=true` on the web), or run
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.synthetic.yml up --build
+```
+
+with `make e2e` covering search → detail → callers/callees → table access →
+paths → source → impact over the fixture corpus. Real mode
+(`PLSQL_ADAPTER=neo4j`, official `neo4j` 5.x driver, ADR 0012 §0.1) is
+implemented and opt-in: set `PLSQL_NEO4J_URI`/`PLSQL_NEO4J_USER`/
+`PLSQL_NEO4J_PASSWORD` (server-side only) plus `PLSQL_SOURCE_ROOT`; a missing
+URI or unreachable server reports the analysis state as `unavailable` in
+`/ready` and the console. The adapter's query catalog pins the documented
+graph model, with schema alignment validated against a live
+`plsqlgraph`-synchronized instance.
+
 ## Runtime architecture
 
 The browser authenticates with Keycloak Authorization Code + PKCE S256, keeps

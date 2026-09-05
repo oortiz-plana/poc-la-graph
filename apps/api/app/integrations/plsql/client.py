@@ -12,9 +12,12 @@ from typing import Protocol, runtime_checkable
 
 from app.integrations.plsql.models import (
     PlsqlDependencyPage,
+    PlsqlDependencyRecord,
+    PlsqlImpactPage,
     PlsqlObjectRecord,
     PlsqlPathPage,
     PlsqlSearchPage,
+    PlsqlSourceRecord,
 )
 from app.models.plsql import ObjectKind
 
@@ -91,4 +94,42 @@ class AnalysisGraphClient(Protocol):
         limit: int,
     ) -> PlsqlDependencyPage:
         """Return edges whose resolution is AMBIGUOUS or UNRESOLVED."""
+        ...
+
+    async def impact_of(
+        self,
+        *,
+        object_id: str,
+        max_hops: int,
+        limit: int,
+    ) -> PlsqlImpactPage:
+        """Return transitive dependents of a changed object within max hops.
+
+        Each dependent item carries its shortest explaining path(s) with
+        per-hop evidence; scope is computed from paths and relationship
+        types, never a stored severity.
+        """
+        ...
+
+    async def relationship_evidence(
+        self, relationship_id: str
+    ) -> PlsqlDependencyRecord | None:
+        """Return one typed edge by opaque id, or None when unknown."""
+        ...
+
+    async def object_source(self, *, object_id: str) -> PlsqlSourceRecord | None:
+        """Return read-only content for an object's declaration file.
+
+        None when the object is unknown or carries no source evidence.
+        """
+        ...
+
+    async def file_source(
+        self,
+        *,
+        file_id: str,
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> PlsqlSourceRecord | None:
+        """Return read-only content for a known file id, or None when unknown."""
         ...

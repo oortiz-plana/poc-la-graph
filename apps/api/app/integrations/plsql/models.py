@@ -104,3 +104,57 @@ class PlsqlPathPage(BaseModel):
     items: list[PlsqlPathRecord]
     truncated: bool
     total: int
+
+
+class PlsqlFileRecord(BaseModel):
+    """One project-relative source file known to the analyzed corpus."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    file_id: str
+    path: str
+
+
+class PlsqlSourceHighlight(BaseModel):
+    """Inclusive line range to highlight in a source response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_line: int
+    end_line: int
+
+
+class PlsqlSourceRecord(BaseModel):
+    """Read-only file content plus an optional highlight range."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    file: PlsqlFileRecord
+    lines: list[str]
+    highlight: PlsqlSourceHighlight | None = None
+
+
+class PlsqlImpactItemRecord(BaseModel):
+    """One transitive dependent of a changed object.
+
+    ``distance`` is the shortest number of hops from the dependent to the
+    changed object; ``paths`` holds the shortest explaining paths
+    (dependent → … → changed object) with evidence on every hop.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    dependent: PlsqlObjectRecord
+    distance: int
+    paths: list[PlsqlPathRecord]
+
+
+class PlsqlImpactPage(BaseModel):
+    """Deterministic, bounded page of impact items."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[PlsqlImpactItemRecord]
+    truncated: bool
+    total: int

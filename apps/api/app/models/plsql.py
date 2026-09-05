@@ -118,3 +118,58 @@ class PlsqlPathResult(ApiModel):
     items: list[PlsqlPath]
     truncated: bool
     count: int = Field(ge=0)
+
+
+class PlsqlSourceFile(ApiModel):
+    """Project-relative source file identity returned with content."""
+
+    file_id: str = Field(alias="fileId", min_length=1, max_length=512)
+    path: str = Field(min_length=1, max_length=512)
+
+
+class PlsqlSourceHighlight(ApiModel):
+    """Inclusive line range a client should highlight in the viewer."""
+
+    start_line: int = Field(alias="startLine", ge=1)
+    end_line: int = Field(alias="endLine", ge=1)
+
+
+class PlsqlSourceContent(ApiModel):
+    """Read-only file content with an optional highlight range.
+
+    ``lines`` holds the whole file split at line breaks; the viewer renders
+    line numbers itself. Raw text is served only through this endpoint,
+    scoped strictly under the configured source root.
+    """
+
+    file: PlsqlSourceFile
+    lines: list[str]
+    highlight: PlsqlSourceHighlight | None = None
+
+
+class PlsqlImpactItem(ApiModel):
+    """One transitive dependent of a changed object.
+
+    ``distance`` is the shortest number of hops from the dependent to the
+    changed object; ``paths`` holds the shortest explaining paths
+    (dependent → … → changed object) with per-hop evidence. No severity is
+    attached: scope is explained by the paths alone.
+    """
+
+    id: str = Field(min_length=1, max_length=512)
+    dependent: PlsqlObjectReference
+    distance: int = Field(ge=1)
+    paths: list[PlsqlPath]
+
+
+class PlsqlImpactResult(ApiModel):
+    """Deterministic, bounded impact report for one changed object.
+
+    ``object`` identifies the analyzed object; ``items`` are its transitive
+    dependents ordered by distance and then lexicographic ids.
+    """
+
+    object: PlsqlObjectReference
+    items: list[PlsqlImpactItem]
+    truncated: bool
+    count: int = Field(ge=0)

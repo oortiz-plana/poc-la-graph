@@ -292,9 +292,12 @@ apps/web/src/components/plsql-analysis/
 - **Web** (`apps/web/src/components/plsql-analysis/*.test.tsx`): mock
   `@/lib/api`; assert accessible names, ordering, resolution badges,
   truncation notices, and state transitions.
-- **E2E** (`tests/e2e/specs/plsql-analysis.spec.ts`): runs under the existing
-  synthetic overlay (`PLSQL_ADAPTER=synthetic`) and verifies deterministic
-  application behavior end to end.
+- **E2E** (`tests/e2e/specs/plsql-analysis.spec.ts`): runs with the synthetic
+  overlay (`PLSQL_ADAPTER=synthetic`, `PLSQL_ENABLED=true`) as part of the
+  deterministic suite (`npm run test:synthetic`, also standalone via
+  `npm run test:plsql`) and verifies search → detail → callers/callees →
+  table access → dependency paths → source evidence → unresolved references →
+  impact over committed fixture facts.
 - **Real-graph verification** is an explicit, documented developer step against
   a `plsqlgraph`-synchronized Neo4j (`PLSQL_ADAPTER=neo4j`); it is never part
   of `make e2e`.
@@ -315,6 +318,21 @@ MVP capabilities (mapped to the
 
 Interactive graph visualization (Cytoscape.js) and advanced source editing are
 explicitly **not** in the MVP (ADR 0014).
+
+Implementation status is tracked in the
+[implementation plan](../plsql-analysis/implementation-plan.md): phases 0–5
+are shipped and verified, and phase 6 (hardening) is complete — bounds sweep
+for rows/hops/bytes/timeout, the readiness matrix, the accessibility pass
+(polite live region, focus management on detail/source open and back/close,
+≥44px targets, wrapping at 320px, aligned accessible names), the full
+synthetic E2E spec above, and the documentation sync. No contract artifact
+changed in phase 6. The `neo4j` adapter (ADR 0012 §0.1) is now implemented
+behind the confirmed `neo4j` 5.x driver: read-only Bolt sessions, the
+allowlisted parameterized catalog (`app/integrations/plsql/catalog.py`), the
+`AnalysisGraphClient` implementation (`neo4j_client.py`), normalized
+`connected`/`unavailable` readiness, and skip-gated real-graph integration
+tests; the remaining step is schema alignment against a first live
+`plsqlgraph`-synchronized instance.
 
 ## 13. ADRs
 

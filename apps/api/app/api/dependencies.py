@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, cast
 
 from fastapi import Depends, Request
@@ -21,11 +22,14 @@ from app.integrations.haystack import HaystackSourceRetriever
 from app.integrations.llm import DeterministicModel, LanguageModel, LiteLLMClient
 from app.integrations.plsql import (
     AnalysisGraphClient,
+    Neo4jPlsqlAnalysisClient,
     PlsqlConfigurationError,
     SyntheticPlsqlAnalysisClient,
 )
 from app.projects import ProjectConflict
 from app.store import ConversationStore
+
+logger = logging.getLogger("graphify_agent.api")
 
 
 def get_store(request: Request) -> ConversationStore:
@@ -100,19 +104,43 @@ def build_graph_client(
 def build_analysis_client(settings: Settings) -> AnalysisGraphClient | None:
     """Compose the read-only analysis client; ``None`` means disabled.
 
-    The Neo4j adapter is deferred behind a dependency decision (ADR 0012,
-    ADR 0015): configuring it now fails fast instead of degrading silently.
+    A configured-but-unusable Neo4j adapter composes to ``None`` (with a
+    server log) so the API keeps serving and ``/ready`` reports
+    ``analysis.status == "unavailable"`` instead of failing startup.
     """
     if settings.plsql_adapter == "synthetic":
         return SyntheticPlsqlAnalysisClient(
             project_id=settings.plsql_project_id,
             max_rows=settings.plsql_max_rows,
+            source_root=settings.plsql_source_root,
+            max_source_bytes=settings.plsql_max_source_bytes,
         )
     if settings.plsql_adapter == "neo4j":
-        raise PlsqlConfigurationError(
-            "PLSQL_ADAPTER=neo4j is not implemented yet; use synthetic or "
-            "disabled while the Neo4j driver decision is pending."
-        )
+        if not settings.plsql_neo4j_uri:
+            logger.warning(
+                "PLSQL_ADAPTER=neo4j requires PLSQL_NEO4J_URI; "
+                "analysis reports unavailable.",
+            )
+            return None
+        try:
+            return Neo4jPlsqlAnalysisClient(
+                project_id=settings.plsql_project_id,
+                uri=settings.plsql_neo4j_uri,
+                user=settings.plsql_neo4j_user,
+                password=settings.plsql_neo4j_password,
+                read_only=settings.plsql_neo4j_read_only,
+                query_timeout_seconds=settings.plsql_query_timeout_seconds,
+                max_rows=settings.plsql_max_rows,
+                max_hops=settings.plsql_max_hops,
+                source_root=settings.plsql_source_root,
+                max_source_bytes=settings.plsql_max_source_bytes,
+            )
+        except PlsqlConfigurationError as exc:
+            logger.warning(
+                "The Neo4j analysis client could not be composed: %s",
+                exc.message,
+            )
+            return None
     return None
 
 

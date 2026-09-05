@@ -243,6 +243,46 @@ Another process may already own ports 3000 or 8000. Identify and stop that
 process, or change the published port in a local Compose override. If the web
 origin changes, update CORS and public URL configuration too.
 
+## The PL/SQL console is missing, not configured, or unavailable
+
+The console is a separate developer tool under `/plsql`; it does not affect the
+chat surface. Start from the two switches that gate it:
+
+```env
+# api service
+PLSQL_ADAPTER=synthetic        # disabled (default) | synthetic | neo4j (fails fast)
+PLSQL_PROJECT_ID=sample
+PLSQL_SOURCE_ROOT=/app/plsql-fixtures/source
+# web service
+PLSQL_ENABLED=true
+```
+
+Check `GET /ready` → `components.analysis.status` to tell the four states apart
+(`disabled | synthetic | connected | unavailable`):
+
+- **No “PL/SQL analysis” entry in the navigation** — the web service did not
+  start with `PLSQL_ENABLED=true` (never a `NEXT_PUBLIC_*` variable). Restart
+  the web container with the variable set.
+- **“Analysis is not configured”** in the console — the API has no analysis
+  client on `request.app.state`: `PLSQL_ADAPTER` is `disabled`, or the settings
+  did not reach the API. The API answers every `/api/v1/plsql/*` route with
+  `503 analysis_not_configured`; check inside the container that the variable is
+  present (without printing values):
+  `docker compose exec api sh -c 'test -n "$PLSQL_ADAPTER" && echo set'`.
+- **“Analysis is unavailable” / `503 analysis_unavailable`** — the adapter is
+  configured but the connectivity check failed. In synthetic mode this is
+  unexpected: verify the API reached startup and the fixture corpus is mounted.
+- **Source viewer errors (`404 analysis_not_found`) on known objects** —
+  `PLSQL_SOURCE_ROOT` is unset or does not point at the mounted corpus. The
+  overlay mounts `apps/api/tests/fixtures/plsql` read-only at
+  `/app/plsql-fixtures` and sets `PLSQL_SOURCE_ROOT` to its `source/` child.
+- **`503 analysis_limit_exceeded` while viewing a file** — the file exceeds
+  `PLSQL_MAX_SOURCE_BYTES` (default 262144). This is a per-file cap, not a
+  corruption.
+
+Error text never exposes filesystem paths, provider credentials, or raw graph
+payloads; correlation uses `X-Request-ID` as elsewhere.
+
 ## Reset the environment
 
 First use the non-destructive stop:

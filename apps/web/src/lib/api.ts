@@ -18,6 +18,8 @@ import {
   plsqlObjectSearchResultSchema,
   plsqlDependencyResultSchema,
   plsqlPathResultSchema,
+  plsqlSourceContentSchema,
+  plsqlImpactResultSchema,
   type BuildSummary,
   type AccessActivity,
   type AccessRequestContext,
@@ -28,9 +30,11 @@ import {
   type GovernanceProject,
   type PlsqlObject,
   type PlsqlDependencyResult,
+  type PlsqlImpactResult,
   type PlsqlObjectKind,
   type PlsqlObjectSearchResult,
   type PlsqlPathResult,
+  type PlsqlSourceContent,
   type ProjectAccessRequest,
   type ProjectMembership,
   type ProjectRole,
@@ -571,4 +575,50 @@ export async function listPlsqlUnresolved(): Promise<PlsqlDependencyResult> {
   });
   if (!response.ok) throw new Error("Could not load unresolved references.");
   return plsqlDependencyResultSchema.parse(await response.json());
+}
+
+export async function getPlsqlObjectSource(
+  objectId: string,
+): Promise<PlsqlSourceContent | null> {
+  const params = new URLSearchParams({ objectId });
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/source?${params}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Could not load the source file.");
+  return plsqlSourceContentSchema.parse(await response.json());
+}
+
+export async function getPlsqlImpact(
+  objectId: string,
+  options?: { limit?: number },
+): Promise<PlsqlImpactResult | null> {
+  const params = new URLSearchParams({ objectId });
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/impact?${params}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Could not load the impact report.");
+  return plsqlImpactResultSchema.parse(await response.json());
+}
+
+export async function getPlsqlFileSource(
+  fileId: string,
+  options?: { startLine?: number; endLine?: number },
+): Promise<PlsqlSourceContent | null> {
+  const params = new URLSearchParams({ fileId });
+  if (options?.startLine !== undefined)
+    params.set("startLine", String(options.startLine));
+  if (options?.endLine !== undefined)
+    params.set("endLine", String(options.endLine));
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/files?${params}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Could not load the source file.");
+  return plsqlSourceContentSchema.parse(await response.json());
 }

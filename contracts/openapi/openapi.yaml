@@ -1257,6 +1257,111 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
 
+  /api/v1/plsql/files:
+    get:
+      tags:
+      - plsql
+      summary: Get File Source
+      description: |-
+        Return read-only source text for one file of the analyzed corpus.
+
+        ``startLine``/``endLine`` are optional request ranges echoed as the
+        highlight for the viewer. Unknown file ids and traversal attempts are
+        rejected as ``analysis_not_found``; oversized files are capped by
+        ``plsql_max_source_bytes``.
+      operationId: get_file_source_api_v1_plsql_files_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: fileId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Fileid
+      - name: startLine
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Startline
+      - name: endLine
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Endline
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlSourceContent'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/impact:
+    get:
+      tags:
+      - plsql
+      summary: Get Impact
+      description: |-
+        Return bounded transitive dependents of a changed object.
+
+        Dependents reach the changed object over typed dependency relationships
+        (``CALLS | READS | WRITES | VIEW_DEPENDS_ON``) within
+        ``plsql_max_hops``; items are ordered by distance and then lexicographic
+        ids, and every item carries its shortest explaining path(s) with per-hop
+        evidence. No severity is computed or persisted.
+      operationId: get_impact_api_v1_plsql_impact_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: objectId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Objectid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 200
+            minimum: 1
+          - type: 'null'
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlImpactResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
   /api/v1/plsql/object:
     get:
       tags:
@@ -1409,6 +1514,79 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PlsqlPathResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/relationships/evidence:
+    get:
+      tags:
+      - plsql
+      summary: Get Relationship Evidence
+      description: |-
+        Return one typed relationship with its source evidence coordinates.
+
+        Identifiers embed ``/`` characters (``edge://...``), so the identifier
+        travels as a query parameter instead of a path segment.
+      operationId: get_relationship_evidence_api_v1_plsql_relationships_evidence_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: relationshipId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Relationshipid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlDependency'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/plsql/source:
+    get:
+      tags:
+      - plsql
+      summary: Get Object Source
+      description: |-
+        Return read-only source text for an analyzed object.
+
+        The response highlights the object's declaration line. Content is served
+        strictly under the configured ``plsql_source_root`` with traversal guards
+        and the configured byte cap.
+      operationId: get_object_source_api_v1_plsql_source_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: objectId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Objectid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlSourceContent'
         '422':
           description: Validation Error
           content:
@@ -2873,6 +3051,70 @@ components:
       - count
       title: PlsqlDependencyResult
 
+    PlsqlImpactItem:
+      properties:
+        id:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Id
+        dependent:
+          $ref: '#/components/schemas/PlsqlObjectReference'
+        distance:
+          type: integer
+          minimum: 1.0
+          title: Distance
+        paths:
+          items:
+            $ref: '#/components/schemas/PlsqlPath'
+          type: array
+          title: Paths
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - dependent
+      - distance
+      - paths
+      title: PlsqlImpactItem
+      description: |-
+        One transitive dependent of a changed object.
+
+        ``distance`` is the shortest number of hops from the dependent to the
+        changed object; ``paths`` holds the shortest explaining paths
+        (dependent → … → changed object) with per-hop evidence. No severity is
+        attached: scope is explained by the paths alone.
+
+    PlsqlImpactResult:
+      properties:
+        object:
+          $ref: '#/components/schemas/PlsqlObjectReference'
+        items:
+          items:
+            $ref: '#/components/schemas/PlsqlImpactItem'
+          type: array
+          title: Items
+        truncated:
+          type: boolean
+          title: Truncated
+        count:
+          type: integer
+          minimum: 0.0
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - object
+      - items
+      - truncated
+      - count
+      title: PlsqlImpactResult
+      description: |-
+        Deterministic, bounded impact report for one changed object.
+
+        ``object`` identifies the analyzed object; ``items`` are its transitive
+        dependents ordered by distance and then lexicographic ids.
+
     PlsqlObject:
       properties:
         id:
@@ -3078,6 +3320,32 @@ components:
       title: PlsqlPathResult
       description: Deterministic, bounded envelope of dependency paths.
 
+    PlsqlSourceContent:
+      properties:
+        file:
+          $ref: '#/components/schemas/PlsqlSourceFile'
+        lines:
+          items:
+            type: string
+          type: array
+          title: Lines
+        highlight:
+          anyOf:
+          - $ref: '#/components/schemas/PlsqlSourceHighlight'
+          - type: 'null'
+      additionalProperties: false
+      type: object
+      required:
+      - file
+      - lines
+      title: PlsqlSourceContent
+      description: |-
+        Read-only file content with an optional highlight range.
+
+        ``lines`` holds the whole file split at line breaks; the viewer renders
+        line numbers itself. Raw text is served only through this endpoint,
+        scoped strictly under the configured source root.
+
     PlsqlSourceCoordinate:
       properties:
         sourceFileId:
@@ -3113,6 +3381,44 @@ components:
       additionalProperties: false
       type: object
       title: PlsqlSourceCoordinate
+
+    PlsqlSourceFile:
+      properties:
+        fileId:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Fileid
+        path:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Path
+      additionalProperties: false
+      type: object
+      required:
+      - fileId
+      - path
+      title: PlsqlSourceFile
+      description: Project-relative source file identity returned with content.
+
+    PlsqlSourceHighlight:
+      properties:
+        startLine:
+          type: integer
+          minimum: 1.0
+          title: Startline
+        endLine:
+          type: integer
+          minimum: 1.0
+          title: Endline
+      additionalProperties: false
+      type: object
+      required:
+      - startLine
+      - endLine
+      title: PlsqlSourceHighlight
+      description: Inclusive line range a client should highlight in the viewer.
   securitySchemes:
     HTTPBearer:
       type: http

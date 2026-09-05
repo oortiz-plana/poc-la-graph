@@ -22,13 +22,13 @@ Legend: ✅ implemented and verified · ◐ partial (foundation slices shipped) 
 
 | Phase | Status | Notes |
 | --- | --- | --- |
-| 0 — Foundation and contract | ✅ (except Neo4j adapter) | Readiness reporting, contract schemas, OpenAPI, contracts.md addendum, compose overlay shipped; `neo4j` adapter remains behind the dependency gate |
+| 0 — Foundation and contract | ✅ | Readiness reporting, contract schemas, OpenAPI, contracts.md addendum, compose overlay, and the `neo4j` adapter (dependency confirmed, phase 0.1 resolved) shipped; real-graph schema alignment pending a live instance |
 | 1 — Object search and detail | ✅ | Backend endpoints + deterministic synthetic search; web `/plsql` console; tests on both sides |
 | 2 — Callers, callees, table access | ✅ | Typed-edge routes and textual views with resolution/evidence; tests on both sides |
 | 3 — Paths and unresolved | ✅ | Backend `find_paths`/`/paths` + `unresolved_references`/`/unresolved`; web pickers + ordered path lists + unresolved warnings; see shipped notes below |
-| 4 — Source evidence and viewer | ○ | Next: read-only source endpoint + viewer |
-| 5 — Impact analysis | ○ | Next: bounded impact with explaining paths |
-| 6 — Hardening | ○ | Bounds sweep, a11y, full E2E, docs/Compose sync, deferred spikes |
+| 4 — Source evidence and viewer | ✅ | Backend `/source` + `/files` + `/relationships/evidence` with root guards and byte caps; fixture source corpus; web source viewer wired to every evidence link; see shipped notes below |
+| 5 — Impact analysis | ✅ | Backend `/impact` (dependents grouped by distance, shortest explaining paths, no fabricated severity); web impact report with groups, path text, evidence links; see shipped notes below |
+| 6 — Hardening | ✅ | Bounds sweep + readiness matrix, a11y pass, full E2E spec wired into the synthetic suite, docs/Compose sync; see shipped notes below |
 
 ### Shipped — backend (`apps/api`)
 
@@ -131,21 +131,170 @@ Phase 3 additions:
   empty/retry states; the not-configured case now also asserts the Phase 3
   sections stay out of the DOM).
 
+Phase 4 additions:
+
+- Backend — `app/integrations/plsql/source.py` (strict root resolver: rejects
+  absolute paths and `..` components, rejects symlink escapes and missing
+  files as `404 analysis_not_found`, enforces `plsql_max_source_bytes` as
+  `analysis_limit_exceeded`); protocol + synthetic client gain
+  `relationship_evidence`, `object_source`, and `file_source` over a registry
+  of corpus file ids. Public `PlsqlSourceFile`/`PlsqlSourceHighlight`/
+  `PlsqlSourceContent` models. Routes `GET /relationships/evidence`,
+  `GET /source?objectId=…`, and `GET /files?fileId=…&startLine=…&endLine=…`.
+  New fixture source corpus `apps/api/tests/fixtures/plsql/source/hr/*`
+  (synthetic text aligned 1:1 with the object/edge coordinates). Tests:
+  `tests/plsql/test_plsql_source_api.py` (8) — content + highlight echoes,
+  relationship evidence, 404/503, `../`/absolute traversal rejection, symlink
+  escape without leaking, byte cap, missing source root.
+- Web — `contracts.ts` `plsqlSource*` schemas/types; `api.ts`
+  `getPlsqlObjectSource`/`getPlsqlFileSource` (404 → `null`);
+  `source-viewer.tsx` (read-only line-numbered viewer, header path + copy-path
+  action, highlight target with keyboard fallback "Go to line", loading/
+  error/retry states; inline panel on wide screens, existing Sheet drawer on
+  narrow screens); every evidence location (dependency rows, unresolved rows)
+  and the object-detail Source row now opens the viewer at its exact file:line.
+- `plsql-analysis-workspace.test.tsx` grows from 17 to 24 cases (viewer
+  states, highlight, evidence links, unresolved link, copy/close, drawer).
+- Contract artifacts and docs kept in sync (see verification below); the
+  synthetic compose overlay mounts the fixture corpus read-only and sets
+  `PLSQL_SOURCE_ROOT` for the containerized demo.
+
+Phase 5 additions:
+
+- Backend — `app/integrations/plsql/` gains `impact_of(object_id, max_hops,
+  limit)`: reverse traversal over the typed dependency set
+  (`CALLS|READS|WRITES|VIEW_DEPENDS_ON`) up to `plsql_max_hops`, grouping
+  transitive dependents by distance; every item carries its shortest
+  explaining path(s) (dependent → … → changed object) with per-hop evidence.
+  Packages expand to their member anchors so package detail shows the
+  package's real callers. No severity is computed or persisted — scope comes
+  from paths and relationship types. Public `PlsqlImpactItem`/`PlsqlImpactResult`
+  models and `GET /impact?objectId=…&limit=…`. Tests:
+  `tests/plsql/test_plsql_impact_api.py` (5) — distance grouping and every
+  item having an explaining path, hop bound (`plsql_max_hops=1`), package
+  member expansion, row truncation, determinism, 404/503.
+- Web — `contracts.ts` `plsqlImpact*` schemas/types; `api.ts`
+  `getPlsqlImpact` (404 → `null`); `impact-report.tsx` renders the **Impact
+  analysis** section under object detail: textual summary
+  ("… dependents — direct, in-transit, tables read or written on the paths
+  below"), grouped **Direct dependents** / **In-transit dependents** rows,
+  explaining `source → relationship → target` paths whose final-hop evidence
+  links open the source viewer, and a **Tables read or modified on paths**
+  group — with loading/error/retry/empty/truncated states.
+- `plsql-analysis-workspace.test.tsx` grows from 24 to 28 cases (group
+  headings, summary, path rendering + evidence link into the viewer, tables
+  group, truncation, retry).
+- Contract artifacts and docs kept in sync (see verification below).
+
+Phase 6 additions (hardening):
+
+- Backend — `apps/api/tests/plsql/test_plsql_hardening_api.py` grew from 7 to
+  10 tests and now sweeps every cap plus the readiness matrix:
+  - Configuration: every out-of-range value is rejected by the settings
+    validators (rows `0/201`, hops `0/6`, source bytes below `1024`/above
+    `10485760`, timeout `0/300.1`) and the exact edge values are accepted.
+  - Readiness: `/ready` `components.analysis.status` covered for all four
+    states (`disabled`/`synthetic` from real settings, `connected`/`unavailable`
+    from stub clients).
+  - Rows: config-cap truncation on search, table access, unresolved, paths,
+    impact, and callees envelopes plus a per-request `limit` truncation;
+    callers verified non-truncating at its true count. Every list route
+    rejects a `limit` above the fixed Query cap with `422 invalid_request`.
+  - Hops: paths and impact bounded by a reduced `plsql_max_hops`.
+  - Bytes: `/source` and `/files` both reject an oversized fixture file with
+    `503 analysis_limit_exceeded` under a reduced `plsql_max_source_bytes`.
+  No router/settings change was needed: the caps were already enforced; this
+  phase turned each bound into an executable assertion.
+- Web — accessibility pass over the console (Phase 6): a persistent polite
+  live region (`aria-live="polite"`, sr-only) announces search completion;
+  opening an object detail now moves focus to the detail heading and renders a
+  visible "Loading object details…" status; "Back to results" restores focus to
+  the result row that opened the detail (falling back to the search input);
+  the wide source panel focuses its "Source" heading on open and returns focus
+  to the evidence/source link on close; the narrow sheet focuses its title on
+  open instead of Radix's Close button; "Copied" is announced through a polite
+  live region; From/To select accessible names match their visible labels;
+  result rows, path-node buttons, and evidence links got explicit
+  `focus-visible` styling and wrap (no clipped tokens) with ≥44px targets.
+  `plsql-analysis-workspace.test.tsx` grows from 28 to 35 cases (live-region
+  announcement, detail-heading focus, back/close focus restoration, sheet
+  heading focus, copied announcement).
+- E2E — `tests/e2e/specs/plsql-analysis.spec.ts` (2 deterministic journeys:
+  EMPLOYEES search → detail → callers/callees/table access → dependency paths
+  → source evidence → unresolved references → impact; CALCULATE_MORA
+  resolution badges/directional views/impact), wired into
+  `test`/`test:synthetic`/`test:headed` of `tests/e2e/package.json` (and a
+  standalone `test:plsql`); `helpers.ts` grew only additively
+  (`openPlsqlConsole`, `searchPlsqlObjects`). The synthetic Compose overlay
+  needed no change — it already enables `PLSQL_ADAPTER=synthetic` and
+  `PLSQL_ENABLED=true`.
+- Docs sync — `docs/architecture/contracts.md` gained a hardening note (no
+  contract surface changed); `docs/architecture/plsql-analysis-console.md`
+  §11/§12 updated to shipped state; `README.md` gained a "PL/SQL analysis
+  console (developer tool)" blurb; `docs/troubleshooting.md` gained an
+  "analysis states" section; ADRs 0011–0015 were reviewed and remain accurate
+  (hardening made no new architectural decision).
+
+Phase 0.1 follow-up — Neo4j adapter (real mode):
+
+- Dependency decision resolved: the official `neo4j` Python driver was
+  confirmed and pinned (`neo4j>=5.26,<6`) in `apps/api/pyproject.toml`,
+  confined to the adapter. Configuring `PLSQL_ADAPTER=neo4j` no longer fails
+  fast; a client is composed when `PLSQL_NEO4J_URI` is set, and a
+  misconfigured/missing-URI adapter composes to ``None`` so `/ready` reports
+  `analysis.status == "unavailable"` instead of failing API startup (the
+  driver itself connects lazily, so the API boots regardless of reachability).
+- `app/integrations/plsql/catalog.py` — the allowlisted, parameterized query
+  catalog (the only Cypher in the gateway): object search with server-side
+  name/qualified-name containment + kind-label filtering and total counts,
+  object lookup by qualified name, one bounded project edge query over the
+  typed relationships, and the source-file scan. Schema assumptions that the
+  architecture document does not pin (node property names, file-id shape) are
+  isolated in `SCHEMA_*` constants with a confirmation note for the first real
+  graph.
+- `app/integrations/plsql/neo4j_client.py` — `Neo4jPlsqlAnalysisClient`
+  implements the full `AnalysisGraphClient` protocol over Bolt: read-only
+  sessions (`neo4j.READ_ACCESS`, enforced when `plsql_neo4j_read_only` is
+  set), the configured query timeout applied around driver calls, bounded
+  edge fetch (`MAX_EDGE_ROWS` guard), normalized driver errors
+  (auth/configuration → `PlsqlConfigurationError`; connectivity →
+  `PlsqlUnavailable`; timeout/terminated codes → `PlsqlTimeout`), lazy
+  source-file id→path map with path-embedded file ids accepted, and
+  deterministic client-side derivation of dependency pages, dependency paths,
+  and impact (mirroring the synthetic adapter's ordering semantics). Opaque
+  `plsql://…`/`edge://…` identifiers round-trip through base64url-encoded
+  qualified names. Source text still comes from files under
+  `PLSQL_SOURCE_ROOT` (decision: graph holds coordinates only), reusing the
+  hardened `source.py` guards and byte caps.
+- Wiring: `build_analysis_client` composes the Neo4j client from the
+  `PLSQL_*` settings; `app/integrations/plsql/__init__.py` exports it; the
+  API lifespan closes the Bolt driver on shutdown; `/ready` connectivity
+  already maps a non-synthetic client probe to `connected`/`unavailable`.
+- Tests: `tests/plsql/test_plsql_neo4j_adapter.py` (hermetic — identifier
+  round-trips, pure row mapping incl. evidence/path resolution and skipped
+  unknown rows, composition and readiness wiring) and
+  `tests/plsql/test_plsql_neo4j_api.py` (skip-gated on
+  `PLSQL_NEO4J_TEST_URI`: connectivity, `/ready connected`, well-formed
+  envelopes, deterministic repeated search) as the real-graph alignment
+  harness.
+
 ### Run it (local demo)
 
 ```bash
 # api service environment
 PLSQL_ADAPTER=synthetic
 PLSQL_PROJECT_ID=sample
+PLSQL_SOURCE_ROOT=/path/to/apps/api/tests/fixtures/plsql/source
 # web service environment
 PLSQL_ENABLED=true
 ```
 
 Default remains `disabled` (no behavior change to the chat product). The
 `docker-compose.synthetic.yml` overlay now enables the console deterministically
-(api: `PLSQL_ADAPTER: synthetic`, `PLSQL_PROJECT_ID: sample`; web:
-`PLSQL_ENABLED: true`) and both compose models validate
-(`docker compose ... config`).
+(api: `PLSQL_ADAPTER: synthetic`, `PLSQL_PROJECT_ID: sample`,
+`PLSQL_SOURCE_ROOT: /app/plsql-fixtures/source` with the fixture corpus mounted
+read-only at `/app/plsql-fixtures`; web: `PLSQL_ENABLED: true`) and both compose
+models validate (`docker compose ... config`).
 
 ### Verification (2026-09-04)
 
@@ -183,17 +332,100 @@ Default remains `disabled` (no behavior change to the chat product). The
   `contracts/openapi/openapi.yaml` extended with `/paths`, `/unresolved`,
   `PlsqlPath`, and `PlsqlPathResult` and is semantically identical to the
   OpenAPI generated by the running app (verified by recursive comparison).
-- E2E note: the Phase 3 Playwright spec (`tests/e2e/specs/plsql-analysis.spec.ts`)
-  from the plan is not part of this diff — E2E needs the synthetic compose
-  stack and was not runnable/requested in this sandbox; it remains the next
-  incremental step before the phase-6 sweep.
+- E2E note (historic): the Phase 3 Playwright spec
+  (`tests/e2e/specs/plsql-analysis.spec.ts`) was not part of that phase's diff
+  because E2E needs the synthetic compose stack, which was not runnable in
+  that sandbox; the spec shipped with the Phase 6 sweep instead (see
+  "Verification — Phase 6" below).
+
+### Verification — Phase 4
+
+- Backend: `ruff check app tests` clean and `ruff format --check` clean;
+  `pytest apps/api/tests/plsql` → 30/30 (22 prior + `test_plsql_source_api.py`);
+  regression subset `test_projects_api.py` + `test_graphify_adapter.py` →
+  53 passed total. `mypy app` still crashes with an internal mypy error in
+  this sandbox (documented pre-existing signal); containerized
+  `make lint` remains authoritative.
+- Web: `npx prettier --check` clean; `npm run typecheck` clean; full
+  `npx vitest run` → 75/75 (24 PL/SQL console cases, up from 17).
+- Contracts: `contracts/schemas/plsql-source.schema.json` added and all four
+  `plsql-*.schema.json` documents validate (draft 2020-12, cross-file `$ref`
+  resolution); `contracts/openapi/openapi.yaml` extended with `/source`,
+  `/files`, `/relationships/evidence`, `PlsqlSourceContent`,
+  `PlsqlSourceFile`, and `PlsqlSourceHighlight` and is semantically identical
+  to the OpenAPI generated by the running app (recursive comparison, 0 diffs).
+- Compose: `docker-compose.synthetic.yml` mounts
+  `apps/api/tests/fixtures/plsql` read-only and sets `PLSQL_SOURCE_ROOT`;
+  `docker compose ... config` itself was not runnable in this sandbox, so the
+  overlay was kept to plain additive YAML (env keys + one volume entry).
+
+### Verification — Phase 5
+
+- Backend: `ruff check app tests` clean and `ruff format --check` clean;
+  `pytest apps/api/tests/plsql` → 35/35 (30 prior + `test_plsql_impact_api.py`);
+  regression subset `test_projects_api.py` + `test_graphify_adapter.py` →
+  58 passed total. `mypy app` still crashes with an internal mypy error in
+  this sandbox (documented pre-existing signal); containerized
+  `make lint` remains authoritative.
+- Web: `npx prettier --check` clean; `npm run typecheck` clean; full
+  `npx vitest run` → 79/79 (28 PL/SQL console cases, up from 24).
+- Contracts: `contracts/schemas/plsql-impact.schema.json` added and all five
+  `plsql-*.schema.json` documents validate (draft 2020-12, cross-file `$ref`
+  resolution); `contracts/openapi/openapi.yaml` extended with `/impact`,
+  `PlsqlImpactItem`, and `PlsqlImpactResult` and is semantically identical to
+  the OpenAPI generated by the running app (recursive comparison, 0 diffs).
+
+### Verification — Phase 6
+
+- Backend: `ruff check app tests` clean and `ruff format --check app tests`
+  clean; `pytest apps/api/tests/plsql` → 45/45 (35 prior +
+  `test_plsql_hardening_api.py` grew from 7 to 10); regression subset
+  `test_projects_api.py` + `test_graphify_adapter.py` unchanged → 68 passed
+  total. `mypy app` still crashes with an internal mypy error in this sandbox
+  (documented pre-existing signal); containerized `make lint` remains
+  authoritative.
+- Web: `npx prettier --check` clean on the changed components and test;
+  `npm run typecheck` clean; full `npx vitest run` → 86/86 (79 prior + 7 new
+  Phase 6 accessibility cases in `plsql-analysis-workspace.test.tsx`, which
+  grows from 28 to 35).
+- E2E: `tests/e2e/specs/plsql-analysis.spec.ts` collects via
+  `npx playwright test --list` (2 tests) and `npx tsc --noEmit` passes in
+  `tests/e2e`; the spec itself needs the synthetic Compose stack plus an
+  authenticated browser session (the same Keycloak precondition as
+  `chat.spec.ts`) and was not runnable in this sandbox — run
+  `make e2e` (or `npm run test:plsql`) against a healthy synthetic stack as
+  the authoritative gate, matching the phase-3 note below.
+- Contracts: no artifact changed in Phase 6 (hardening is behavioral +
+  documentation only); the five `plsql-*.schema.json` documents and
+  `contracts/openapi/openapi.yaml` remain as verified in Phase 5.
+
+### Verification — Neo4j adapter
+
+- Dependency: `neo4j>=5.26,<6` added to `apps/api/pyproject.toml`; the
+  workspace-local API environment reinstalled and the import chain (catalog,
+  client, `__init__`, dependencies, `main`) loads cleanly.
+- Backend: `ruff check app tests` clean and `ruff format --check app tests`
+  clean; `pytest apps/api/tests/plsql` → 55 passed + 3 skipped (45 prior +
+  10 hermetic adapter tests in `test_plsql_neo4j_adapter.py`; the 3
+  `test_plsql_neo4j_api.py` integration tests skip without
+  `PLSQL_NEO4J_TEST_URI`).
+- The real-graph integration suite and the first `/ready connected` run
+  against a `plsqlgraph` instance remain the alignment gate; until they run,
+  catalog node-property assumptions are documented in
+  `app/integrations/plsql/catalog.py`.
 
 ### Remaining items
 
-- Neo4j adapter (`neo4j_client.py`) behind the dependency-confirmation gate
-  (0.1); `plsql_adapter=neo4j` currently fails fast by design.
-- Phases 4–6 below (source viewer, impact, hardening) and the Phase 3 E2E
-  spec noted above.
+- Neo4j adapter real-graph alignment: the adapter (`neo4j_client.py`) is
+  implemented behind the confirmed `neo4j` 5.x driver (phase 0.1 resolved) and
+  its catalog pins the graph model documented in
+  `docs/architecture/plsql-analysis-console.md` §5, with the remaining
+  node-property assumptions isolated in `catalog.py` schema constants. First
+  real-graph validation against a `plsqlgraph`-synchronized instance (see the
+  skip-gated integration tests in
+  `apps/api/tests/plsql/test_plsql_neo4j_api.py`) is the alignment gate; until
+  then real mode may surface empty results or missing declaration evidence
+  where the catalog assumptions do not match.
 
 ## Constraints carried into every phase
 
@@ -234,10 +466,12 @@ that phase are updated.
 
 The real Neo4j adapter requires the official **`neo4j` Python driver** (5.x,
 matching the server generation `neo4j:2026.07.1-community` that `plsqlgraph`
-runs). No existing dependency covers Bolt, and the driver is confined to the
-new adapter. Per AGENTS.md this is a proposal to confirm with the user before
-adding to `apps/api/requirements*.txt`. Nothing else in this plan needs a new
-dependency; the synthetic mode and all tests run without it.
+runs). **Resolved:** the dependency was confirmed and pinned
+(`neo4j>=5.26,<6`, added to `apps/api/pyproject.toml`); the driver is confined
+to the adapter (`app/integrations/plsql/neo4j_client.py`). The synthetic mode
+and all default tests still run without any Neo4j server; only the
+skip-gated real-graph integration tests (`PLSQL_NEO4J_TEST_URI`) require one.
+No other dependency is needed by this plan.
 
 ### 0.2 Configuration
 

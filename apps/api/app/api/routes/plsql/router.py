@@ -17,19 +17,26 @@ from app.integrations.plsql import (
 from app.integrations.plsql.models import (
     PlsqlDependencyRecord,
     PlsqlEvidence,
+    PlsqlImpactItemRecord,
     PlsqlObjectRecord,
     PlsqlPathRecord,
+    PlsqlSourceRecord,
 )
 from app.models import (
     ObjectKind,
     PlsqlDependency,
     PlsqlDependencyResult,
+    PlsqlImpactItem,
+    PlsqlImpactResult,
     PlsqlObject,
     PlsqlObjectReference,
     PlsqlObjectSearchResult,
     PlsqlPath,
     PlsqlPathResult,
+    PlsqlSourceContent,
     PlsqlSourceCoordinate,
+    PlsqlSourceFile,
+    PlsqlSourceHighlight,
 )
 
 router = APIRouter(prefix="/api/v1/plsql", tags=["plsql"])
@@ -52,6 +59,22 @@ def _coordinate(evidence: PlsqlEvidence | None) -> PlsqlSourceCoordinate | None:
         startColumn=evidence.start_column,
         startOffset=evidence.start_offset,
         endOffset=evidence.end_offset,
+    )
+
+
+def _source(record: PlsqlSourceRecord) -> PlsqlSourceContent:
+    highlight = (
+        PlsqlSourceHighlight(
+            startLine=record.highlight.start_line,
+            endLine=record.highlight.end_line,
+        )
+        if record.highlight is not None
+        else None
+    )
+    return PlsqlSourceContent(
+        file=PlsqlSourceFile(fileId=record.file.file_id, path=record.file.path),
+        lines=record.lines,
+        highlight=highlight,
     )
 
 
@@ -312,6 +335,123 @@ async def list_unresolved(
     page = await analysis.unresolved_references(limit=_effective_limit(settings, limit))
     return PlsqlDependencyResult(
         items=[_dependency(edge) for edge in page.items],
+        truncated=page.truncated,
+        count=page.total,
+    )
+
+
+@router.get("/relationships/evidence", response_model=PlsqlDependency)
+async def get_relationship_evidence(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    relationship_id: Annotated[
+        str, Query(alias="relationshipId", min_length=1, max_length=512)
+    ],
+) -> PlsqlDependency:
+    """Return one typed relationship with its source evidence coordinates.
+
+    Identifiers embed ``/`` characters (``edge://...``), so the identifier
+    travels as a query parameter instead of a path segment.
+    """
+    del principal
+    edge = await analysis.relationship_evidence(relationship_id)
+    if edge is None:
+        raise PlsqlObjectNotFound("The requested relationship was not found.")
+    return _dependency(edge)
+
+
+@router.get("/source", response_model=PlsqlSourceContent)
+async def get_object_source(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    object_id: ObjectIdentifier,
+) -> PlsqlSourceContent:
+    """Return read-only source text for an analyzed object.
+
+    The response highlights the object's declaration line. Content is served
+    strictly under the configured ``plsql_source_root`` with traversal guards
+    and the configured byte cap.
+    """
+    del principal
+    await _require_object(analysis, object_id)
+    record = await analysis.object_source(object_id=object_id)
+    if record is None:
+        raise PlsqlObjectNotFound("The requested PL/SQL object has no source evidence.")
+    return _source(record)
+
+
+@router.get("/files", response_model=PlsqlSourceContent)
+async def get_file_source(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    file_id: Annotated[str, Query(alias="fileId", min_length=1, max_length=512)],
+    start_line: Annotated[int | None, Query(alias="startLine", ge=1)] = None,
+    end_line: Annotated[int | None, Query(alias="endLine", ge=1)] = None,
+) -> PlsqlSourceContent:
+    """Return read-only source text for one file of the analyzed corpus.
+
+    ``startLine``/``endLine`` are optional request ranges echoed as the
+    highlight for the viewer. Unknown file ids and traversal attempts are
+    rejected as ``analysis_not_found``; oversized files are capped by
+    ``plsql_max_source_bytes``.
+    """
+    del principal
+    record = await analysis.file_source(
+        file_id=file_id,
+        start_line=start_line,
+        end_line=end_line,
+    )
+    if record is None:
+        raise PlsqlObjectNotFound("The requested source file was not found.")
+    return _source(record)
+
+
+def _impact_item(record: PlsqlImpactItemRecord) -> PlsqlImpactItem:
+    dependent = record.dependent
+    return PlsqlImpactItem(
+        id=record.id,
+        dependent=_reference(
+            object_id=dependent.id,
+            kind=dependent.kind,
+            name=dependent.name,
+            qualified_name=dependent.qualified_name,
+        ),
+        distance=record.distance,
+        paths=[_path(path_record) for path_record in record.paths],
+    )
+
+
+@router.get("/impact", response_model=PlsqlImpactResult)
+async def get_impact(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    object_id: ObjectIdentifier,
+    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+) -> PlsqlImpactResult:
+    """Return bounded transitive dependents of a changed object.
+
+    Dependents reach the changed object over typed dependency relationships
+    (``CALLS | READS | WRITES | VIEW_DEPENDS_ON``) within
+    ``plsql_max_hops``; items are ordered by distance and then lexicographic
+    ids, and every item carries its shortest explaining path(s) with per-hop
+    evidence. No severity is computed or persisted.
+    """
+    del principal
+    record = await _require_object(analysis, object_id)
+    page = await analysis.impact_of(
+        object_id=object_id,
+        max_hops=settings.plsql_max_hops,
+        limit=_effective_limit(settings, limit),
+    )
+    return PlsqlImpactResult(
+        object=_reference(
+            object_id=record.id,
+            kind=record.kind,
+            name=record.name,
+            qualified_name=record.qualified_name,
+        ),
+        items=[_impact_item(item) for item in page.items],
         truncated=page.truncated,
         count=page.total,
     )

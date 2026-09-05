@@ -30,9 +30,9 @@
     "semantic_hash": "6851cc8691efae259682764555f59bbe"
   },
   "apps/api/app/api/dependencies.py": {
-    "mtime": 1788580450.85981,
-    "ast_hash": "83b19ecb9ac5d2483ed810e1fa4957a8",
-    "semantic_hash": "83b19ecb9ac5d2483ed810e1fa4957a8"
+    "mtime": 1788586911.835156,
+    "ast_hash": "6d9cdc70bfde36f79a79d9da3c818944",
+    "semantic_hash": "6d9cdc70bfde36f79a79d9da3c818944"
   },
   "apps/api/app/api/errors.py": {
     "mtime": 1788544223.3980608,
@@ -65,9 +65,9 @@
     "semantic_hash": "21b2d51b20748ea6b5295edbfa3cac17"
   },
   "apps/api/app/api/routes/plsql/router.py": {
-    "mtime": 1788553098.177058,
-    "ast_hash": "ca736e33a79fb52ef2cde491ef48f3a0",
-    "semantic_hash": "ca736e33a79fb52ef2cde491ef48f3a0"
+    "mtime": 1788649738.7473507,
+    "ast_hash": "2f2f482f239337ca824a885db185388a",
+    "semantic_hash": ""
   },
   "apps/api/app/api/routes/projects/__init__.py": {
     "mtime": 1785815699.6134257,
@@ -100,9 +100,9 @@
     "semantic_hash": "3f25798c59fce005e1605a50b17ab614"
   },
   "apps/api/app/config/settings.py": {
-    "mtime": 1788544223.3980608,
-    "ast_hash": "373d3a29f3abd303d79a7762e051f5be",
-    "semantic_hash": "373d3a29f3abd303d79a7762e051f5be"
+    "mtime": 1788586922.5717263,
+    "ast_hash": "770f3c57ebcfd81ac977622197d4afc2",
+    "semantic_hash": "770f3c57ebcfd81ac977622197d4afc2"
   },
   "apps/api/app/integrations/directory/__init__.py": {
     "mtime": 1785890124.817376,
@@ -190,14 +190,14 @@
     "semantic_hash": "e50f0a843e9c493c5515a53ea964d007"
   },
   "apps/api/app/integrations/plsql/catalog.py": {
-    "mtime": 1788582519.8221087,
-    "ast_hash": "3d084bf1cec828cf5759d16b6993956d",
-    "semantic_hash": "3d084bf1cec828cf5759d16b6993956d"
+    "mtime": 1788651079.288816,
+    "ast_hash": "6b0273c97c804f41aecab4ecd3b24c06",
+    "semantic_hash": ""
   },
   "apps/api/app/integrations/plsql/client.py": {
-    "mtime": 1788553048.8020153,
-    "ast_hash": "9de794ad14f9ae8d54da039d5d9ee70d",
-    "semantic_hash": "9de794ad14f9ae8d54da039d5d9ee70d"
+    "mtime": 1788618690.1300535,
+    "ast_hash": "fa030777b4e1d069a616990a9f0a9b78",
+    "semantic_hash": "fa030777b4e1d069a616990a9f0a9b78"
   },
   "apps/api/app/integrations/plsql/errors.py": {
     "mtime": 1788544038.2744844,
@@ -210,14 +210,14 @@
     "semantic_hash": "1f5848fc07a7476008882fc3f2318c76"
   },
   "apps/api/app/integrations/plsql/models.py": {
-    "mtime": 1788552937.0618532,
-    "ast_hash": "5cb3ff85654b05816c196534a79ea182",
-    "semantic_hash": "5cb3ff85654b05816c196534a79ea182"
+    "mtime": 1788618690.1260524,
+    "ast_hash": "7892b0389a1b45c3ec28d96e83c9abb0",
+    "semantic_hash": "7892b0389a1b45c3ec28d96e83c9abb0"
   },
   "apps/api/app/integrations/plsql/neo4j_client.py": {
-    "mtime": 1788581556.8234315,
-    "ast_hash": "ff1407e50c4e0485ca3de7ef12ee3841",
-    "semantic_hash": "ff1407e50c4e0485ca3de7ef12ee3841"
+    "mtime": 1788650936.3654995,
+    "ast_hash": "32589a994eabc37ac1f5d7481b8fd08a",
+    "semantic_hash": ""
   },
   "apps/api/app/integrations/plsql/source.py": {
     "mtime": 1788581530.3937776,
@@ -225,9 +225,9 @@
     "semantic_hash": "e88df287a40e6f0cd055cf0c78d0418f"
   },
   "apps/api/app/integrations/plsql/synthetic.py": {
-    "mtime": 1788553129.8334074,
-    "ast_hash": "ad143544242206c89ac086bf9654aadb",
-    "semantic_hash": "ad143544242206c89ac086bf9654aadb"
+    "mtime": 1788649684.9202676,
+    "ast_hash": "4839439d343d65e4d652d86b3b9c02bc",
+    "semantic_hash": ""
   },
   "apps/api/app/knowledge/chunking.py": {
     "mtime": 1785818101.0836787,
@@ -310,9 +310,9 @@
     "semantic_hash": "8fa31a2354813b2d976a107c3509f57b"
   },
   "apps/api/app/models/__init__.py": {
-    "mtime": 1788553075.6103935,
-    "ast_hash": "4455fe647cf47591ca2a8eb375bcda4f",
-    "semantic_hash": "4455fe647cf47591ca2a8eb375bcda4f"
+    "mtime": 1788618709.8306515,
+    "ast_hash": "d5557a5d79723f7867e9c025332381a4",
+    "semantic_hash": "d5557a5d79723f7867e9c025332381a4"
   },
   "apps/api/app/models/conversation.py": {
     "mtime": 1785849778.0083423,
@@ -325,9 +325,9 @@
     "semantic_hash": "7ef08e28c9f079996d1a6dae612bf844"
   },
   "apps/api/app/models/plsql.py": {
-    "mtime": 1788553056.7727654,
-    "ast_hash": "46173caacc572192c2a13500b6a8245c",
-    "semantic_hash": "46173caacc572192c2a13500b6a8245c"
+    "mtime": 1788618690.1260524,
+    "ast_hash": "72973dd6999c7fbf6e126b6381252d3b",
+    "semantic_hash": "72973dd6999c7fbf6e126b6381252d3b"
   },
   "apps/api/app/models/project.py": {
     "mtime": 1785890700.4937327,
@@ -525,9 +525,9 @@
     "semantic_hash": "6258c82a018614f781abebdbef645c6a"
   },
   "apps/api/tests/plsql/test_plsql_hardening_api.py": {
-    "mtime": 1788554922.7292361,
-    "ast_hash": "c1705ff5ded4bf5d73190471977c6421",
-    "semantic_hash": "c1705ff5ded4bf5d73190471977c6421"
+    "mtime": 1788649768.0108633,
+    "ast_hash": "6cede815f87826292b04581509e316d9",
+    "semantic_hash": ""
   },
   "apps/api/tests/plsql/test_plsql_impact_api.py": {
     "mtime": 1788553179.5004983,
@@ -535,9 +535,9 @@
     "semantic_hash": "4c2bd32aace756e9c5682b6f445ab737"
   },
   "apps/api/tests/plsql/test_plsql_neo4j_adapter.py": {
-    "mtime": 1788580438.5030112,
-    "ast_hash": "290ae544e051cf9b0dce0617fbb4494a",
-    "semantic_hash": "290ae544e051cf9b0dce0617fbb4494a"
+    "mtime": 1788649637.385058,
+    "ast_hash": "3dfc63f5bc5c29fbf240271e22a02a24",
+    "semantic_hash": ""
   },
   "apps/api/tests/plsql/test_plsql_neo4j_api.py": {
     "mtime": 1788580438.5030112,
@@ -545,9 +545,9 @@
     "semantic_hash": "69501360c923531d4b29e43a7a86765f"
   },
   "apps/api/tests/plsql/test_plsql_objects_api.py": {
-    "mtime": 1788544435.726282,
-    "ast_hash": "2a760e3c8b7599357feeda17e33bbf4b",
-    "semantic_hash": "2a760e3c8b7599357feeda17e33bbf4b"
+    "mtime": 1788649764.4189222,
+    "ast_hash": "5268c6a50b6da7ffd452db9ca801864e",
+    "semantic_hash": ""
   },
   "apps/api/tests/plsql/test_plsql_paths_api.py": {
     "mtime": 1788548872.6723819,
@@ -685,9 +685,9 @@
     "semantic_hash": "3935539d2c844ca5f634dea2be4cef6d"
   },
   "apps/web/package.json": {
-    "mtime": 1785874185.2540288,
-    "ast_hash": "935d2c494461b8bfa576b39a4baee8b5",
-    "semantic_hash": "935d2c494461b8bfa576b39a4baee8b5"
+    "mtime": 1788618776.8883948,
+    "ast_hash": "9e682a493896b45263847173140d0e89",
+    "semantic_hash": "9e682a493896b45263847173140d0e89"
   },
   "apps/web/postcss.config.mjs": {
     "mtime": 1785294381.2526808,
@@ -695,14 +695,14 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/web/src/app/api/backend/[...path]/route.test.ts": {
-    "mtime": 1785854830.5040684,
-    "ast_hash": "a1ad1562a43f6fe1fac5bc85ab557929",
-    "semantic_hash": "a1ad1562a43f6fe1fac5bc85ab557929"
+    "mtime": 1788586010.238816,
+    "ast_hash": "29fee036af84e957bcfa097f3cdfc76c",
+    "semantic_hash": "29fee036af84e957bcfa097f3cdfc76c"
   },
   "apps/web/src/app/api/backend/[...path]/route.ts": {
-    "mtime": 1785854817.3004239,
-    "ast_hash": "c0108f5fbb4f4c37400d08f1c7bd652b",
-    "semantic_hash": "c0108f5fbb4f4c37400d08f1c7bd652b"
+    "mtime": 1788586000.7054365,
+    "ast_hash": "d84ac50cd68ee17caa4f8bfdccbf7de9",
+    "semantic_hash": "d84ac50cd68ee17caa4f8bfdccbf7de9"
   },
   "apps/web/src/app/api/chat/route.test.ts": {
     "mtime": 1785817893.9787169,
@@ -800,24 +800,24 @@
     "semantic_hash": "1093343cdc58ead344dbaa419677965c"
   },
   "apps/web/src/components/plsql-analysis/impact-report.tsx": {
-    "mtime": 1788584416.7338026,
-    "ast_hash": "7bbb1d2a05d380fab7c15770857032b3",
-    "semantic_hash": "7bbb1d2a05d380fab7c15770857032b3"
+    "mtime": 1788620092.787257,
+    "ast_hash": "43cdbc745bba896b26c3095048fbe1b5",
+    "semantic_hash": "43cdbc745bba896b26c3095048fbe1b5"
   },
   "apps/web/src/components/plsql-analysis/plsql-analysis-workspace.test.tsx": {
-    "mtime": 1788555406.204048,
-    "ast_hash": "45d6f74d38ec7bed53c98bfc69d3ae73",
-    "semantic_hash": "45d6f74d38ec7bed53c98bfc69d3ae73"
+    "mtime": 1788620178.5070677,
+    "ast_hash": "0befcb99da55ec2c5814fdba7d30e489",
+    "semantic_hash": "0befcb99da55ec2c5814fdba7d30e489"
   },
   "apps/web/src/components/plsql-analysis/plsql-analysis-workspace.tsx": {
-    "mtime": 1788584404.962193,
-    "ast_hash": "30b45d3b5c5e91a0f1c652c24f3c5092",
-    "semantic_hash": "30b45d3b5c5e91a0f1c652c24f3c5092"
+    "mtime": 1788620005.7378812,
+    "ast_hash": "ecf701f20d2c1729e1cbb42cba988579",
+    "semantic_hash": "ecf701f20d2c1729e1cbb42cba988579"
   },
   "apps/web/src/components/plsql-analysis/source-viewer.tsx": {
-    "mtime": 1788555393.0215836,
-    "ast_hash": "be825b3a6763a85022ca2bacf5a48ffd",
-    "semantic_hash": "be825b3a6763a85022ca2bacf5a48ffd"
+    "mtime": 1788619484.7067046,
+    "ast_hash": "f0cbf4b4ae85d827b75a93c58d82490d",
+    "semantic_hash": "f0cbf4b4ae85d827b75a93c58d82490d"
   },
   "apps/web/src/components/project-chat-workspace.tsx": {
     "mtime": 1786023496.4790478,
@@ -910,9 +910,9 @@
     "semantic_hash": "bac643307f7cf50219f1f8246f9cb638"
   },
   "apps/web/src/lib/api.ts": {
-    "mtime": 1788584259.7462292,
-    "ast_hash": "5580aec2f21bc28984387d02103db264",
-    "semantic_hash": "5580aec2f21bc28984387d02103db264"
+    "mtime": 1788619667.121717,
+    "ast_hash": "b8f95660212ad7f860091e49a67afac7",
+    "semantic_hash": "b8f95660212ad7f860091e49a67afac7"
   },
   "apps/web/src/lib/auth-token.ts": {
     "mtime": 1785816846.7365706,
@@ -920,9 +920,9 @@
     "semantic_hash": "97ab59c5cc1a6f3dcc1f16688b68c2d3"
   },
   "apps/web/src/lib/contracts.ts": {
-    "mtime": 1788553235.385987,
-    "ast_hash": "b0f85479644d5b4d7c89649fbd1b9c54",
-    "semantic_hash": "b0f85479644d5b4d7c89649fbd1b9c54"
+    "mtime": 1788619641.3267891,
+    "ast_hash": "18d6d863f40a68c05ee522fb92cb0a49",
+    "semantic_hash": "18d6d863f40a68c05ee522fb92cb0a49"
   },
   "apps/web/src/lib/utils.ts": {
     "mtime": 1785327055.1491213,
@@ -1085,9 +1085,9 @@
     "semantic_hash": "0c9ea9c12372243d87796313ca4e3c80"
   },
   "tests/e2e/specs/plsql-analysis.spec.ts": {
-    "mtime": 1788555704.0491064,
-    "ast_hash": "e576874f6b8a59f73166b6d52ec71006",
-    "semantic_hash": "e576874f6b8a59f73166b6d52ec71006"
+    "mtime": 1788585145.8193817,
+    "ast_hash": "e71ec446ce66a095d9bf8c88fea6c8e8",
+    "semantic_hash": "e71ec446ce66a095d9bf8c88fea6c8e8"
   },
   "tests/e2e/specs/resilience.spec.ts": {
     "mtime": 1785331003.6594782,
@@ -1215,9 +1215,9 @@
     "semantic_hash": "1735c95f5a84f2b01e5fccb1875f7032"
   },
   "docs/plsql-analysis/implementation-plan.md": {
-    "mtime": 1788581630.813917,
-    "ast_hash": "81ccd417f0d58d620cdb97e986b8958c",
-    "semantic_hash": "81ccd417f0d58d620cdb97e986b8958c"
+    "mtime": 1788587857.5250149,
+    "ast_hash": "fd04fb335201473be11f96a390420977",
+    "semantic_hash": "fd04fb335201473be11f96a390420977"
   },
   "docs/reviews/final-implementation-report.md": {
     "mtime": 1785327380.5806248,
@@ -1288,5 +1288,335 @@
     "mtime": 1785325882.2389975,
     "ast_hash": "402dc711d74c20b797454fc6640a6ece",
     "semantic_hash": "402dc711d74c20b797454fc6640a6ece"
+  },
+  ".claude/settings.json": {
+    "mtime": 1788584868.684289,
+    "ast_hash": "e37568cf3070c9ade1b6821437e76f2b",
+    "semantic_hash": "e37568cf3070c9ade1b6821437e76f2b"
+  },
+  "apps/api/tests/plsql/test_plsql_dependencies_summary_api.py": {
+    "mtime": 1788617957.2047946,
+    "ast_hash": "5bdebb735c26bf44f60cd1e81056355a",
+    "semantic_hash": "5bdebb735c26bf44f60cd1e81056355a"
+  },
+  "apps/api/tests/plsql/test_plsql_health_api.py": {
+    "mtime": 1788618663.5497735,
+    "ast_hash": "56b3c9290f4d7fcf10e5d0c9bce2d8db",
+    "semantic_hash": "56b3c9290f4d7fcf10e5d0c9bce2d8db"
+  },
+  "apps/api/tests/plsql/test_plsql_impact_filters_api.py": {
+    "mtime": 1788618232.169185,
+    "ast_hash": "0a03bbffdc79649474218e4a22ab14ab",
+    "semantic_hash": "0a03bbffdc79649474218e4a22ab14ab"
+  },
+  "apps/api/tests/plsql/test_plsql_overview_api.py": {
+    "mtime": 1788617540.1660733,
+    "ast_hash": "e7fff4f4c2e29052182a91031713dd8e",
+    "semantic_hash": "e7fff4f4c2e29052182a91031713dd8e"
+  },
+  "apps/web/src/components/plsql-analysis/analysis-health.tsx": {
+    "mtime": 1788619641.3307974,
+    "ast_hash": "07527fec7ee9585c3257cc6a7666f7f6",
+    "semantic_hash": "07527fec7ee9585c3257cc6a7666f7f6"
+  },
+  "apps/web/src/components/plsql-analysis/cytoscape-mock.ts": {
+    "mtime": 1788619968.78765,
+    "ast_hash": "c023511ac615615daebe6ed0ad42ef3f",
+    "semantic_hash": "c023511ac615615daebe6ed0ad42ef3f"
+  },
+  "apps/web/src/components/plsql-analysis/dependencies-panel.test.tsx": {
+    "mtime": 1788619968.78765,
+    "ast_hash": "e4849ab0bfd2824bf79dad911d4c6274",
+    "semantic_hash": "e4849ab0bfd2824bf79dad911d4c6274"
+  },
+  "apps/web/src/components/plsql-analysis/dependencies-panel.tsx": {
+    "mtime": 1788620092.787257,
+    "ast_hash": "b60bd4ef4055a8c72188b342c5ac236c",
+    "semantic_hash": "b60bd4ef4055a8c72188b342c5ac236c"
+  },
+  "apps/web/src/components/plsql-analysis/dependency-graph.test.tsx": {
+    "mtime": 1788619968.78765,
+    "ast_hash": "afbc852ffb9f0499ca89fdfa9b18d17c",
+    "semantic_hash": "afbc852ffb9f0499ca89fdfa9b18d17c"
+  },
+  "apps/web/src/components/plsql-analysis/dependency-graph.tsx": {
+    "mtime": 1788619968.7836506,
+    "ast_hash": "9d962d36c43ed4b559b133515e07c9a1",
+    "semantic_hash": "9d962d36c43ed4b559b133515e07c9a1"
+  },
+  "apps/web/src/components/plsql-analysis/dependency-paths.tsx": {
+    "mtime": 1788620178.5070677,
+    "ast_hash": "81b3dad98e1023db5dd49406e90dc482",
+    "semantic_hash": "81b3dad98e1023db5dd49406e90dc482"
+  },
+  "apps/web/src/components/plsql-analysis/health-panel.test.tsx": {
+    "mtime": 1788619756.8181276,
+    "ast_hash": "ee89f41321b68d188c9255878b53ea67",
+    "semantic_hash": "ee89f41321b68d188c9255878b53ea67"
+  },
+  "apps/web/src/components/plsql-analysis/health-panel.tsx": {
+    "mtime": 1788619603.749738,
+    "ast_hash": "b6a76205255f0668a96a6ed609e4f473",
+    "semantic_hash": "b6a76205255f0668a96a6ed609e4f473"
+  },
+  "apps/web/src/components/plsql-analysis/impact-report.test.tsx": {
+    "mtime": 1788619968.78765,
+    "ast_hash": "ae9b55975c5952a9e3301e1a63a7c8c5",
+    "semantic_hash": "ae9b55975c5952a9e3301e1a63a7c8c5"
+  },
+  "apps/web/src/components/plsql-analysis/inspector-panel.test.tsx": {
+    "mtime": 1788619862.661276,
+    "ast_hash": "cc51b7b2ca04ecc90a50ca496ea4defa",
+    "semantic_hash": "cc51b7b2ca04ecc90a50ca496ea4defa"
+  },
+  "apps/web/src/components/plsql-analysis/inspector-panel.tsx": {
+    "mtime": 1788619833.9633226,
+    "ast_hash": "39027dd4df85ece765be8a3f1fafdfe8",
+    "semantic_hash": "39027dd4df85ece765be8a3f1fafdfe8"
+  },
+  "apps/web/src/components/plsql-analysis/object-combobox.tsx": {
+    "mtime": 1788649742.0832992,
+    "ast_hash": "60ef23532979bffce04d7f2be16248e1",
+    "semantic_hash": ""
+  },
+  "apps/web/src/components/plsql-analysis/object-explorer.test.tsx": {
+    "mtime": 1788616669.8225925,
+    "ast_hash": "f596ab3f0647ea0fecdc0c42532cd640",
+    "semantic_hash": "f596ab3f0647ea0fecdc0c42532cd640"
+  },
+  "apps/web/src/components/plsql-analysis/object-explorer.tsx": {
+    "mtime": 1788616555.8822203,
+    "ast_hash": "f5918d28f6f5c39c913b93f542ebe87e",
+    "semantic_hash": "f5918d28f6f5c39c913b93f542ebe87e"
+  },
+  "apps/web/src/components/plsql-analysis/object-header.tsx": {
+    "mtime": 1788619652.4838462,
+    "ast_hash": "0319f514baed043bd9a493b53e9af0e9",
+    "semantic_hash": "0319f514baed043bd9a493b53e9af0e9"
+  },
+  "apps/web/src/components/plsql-analysis/overview-panel.test.tsx": {
+    "mtime": 1788617840.2795806,
+    "ast_hash": "93c8aca4ceeb1d10e15cbb7c678c60e3",
+    "semantic_hash": "93c8aca4ceeb1d10e15cbb7c678c60e3"
+  },
+  "apps/web/src/components/plsql-analysis/overview-panel.tsx": {
+    "mtime": 1788618552.3328786,
+    "ast_hash": "246aab82b473ac4493b1f64d3b8a7454",
+    "semantic_hash": "246aab82b473ac4493b1f64d3b8a7454"
+  },
+  "apps/web/src/components/plsql-analysis/plsql-atoms.tsx": {
+    "mtime": 1788619785.017823,
+    "ast_hash": "c9a07cb6512a6a85d3e644faeace0f87",
+    "semantic_hash": "c9a07cb6512a6a85d3e644faeace0f87"
+  },
+  "apps/web/src/components/plsql-analysis/stat-card.tsx": {
+    "mtime": 1788618552.3088624,
+    "ast_hash": "0b9cabc72607a590acb5f0b9e1bd5740",
+    "semantic_hash": "0b9cabc72607a590acb5f0b9e1bd5740"
+  },
+  "apps/web/src/components/plsql-analysis/view-mode-toggle.tsx": {
+    "mtime": 1788618794.2247267,
+    "ast_hash": "666ab6041ec121e51f47546773baaaab",
+    "semantic_hash": "666ab6041ec121e51f47546773baaaab"
+  },
+  "apps/web/src/components/plsql-analysis/workspace-shell.test.tsx": {
+    "mtime": 1788620178.5070677,
+    "ast_hash": "d0ff29cfb9d64c84e7c0aa7eaf9a4fbf",
+    "semantic_hash": "d0ff29cfb9d64c84e7c0aa7eaf9a4fbf"
+  },
+  "apps/web/src/components/plsql-analysis/workspace-shell.tsx": {
+    "mtime": 1788620048.6965067,
+    "ast_hash": "528e633e738e05f24d468526af98d194",
+    "semantic_hash": "528e633e738e05f24d468526af98d194"
+  },
+  "apps/web/src/components/ui/tabs.tsx": {
+    "mtime": 1788616797.50386,
+    "ast_hash": "fe6d3fbac16de04a8e6c73639e545f3b",
+    "semantic_hash": "fe6d3fbac16de04a8e6c73639e545f3b"
+  },
+  "arch/PL-SQL Dependency and Impact Analysis Architecture (1).md": {
+    "mtime": 1788540959.4211845,
+    "ast_hash": "1b15018acc6adb980ed9efa6ee44e7be",
+    "semantic_hash": "1b15018acc6adb980ed9efa6ee44e7be"
+  },
+  "docs/architecture/plsql-analysis-console.md": {
+    "mtime": 1788620236.0173602,
+    "ast_hash": "286922df1f58510a0f000731546f2e78",
+    "semantic_hash": "286922df1f58510a0f000731546f2e78"
+  },
+  "docs/plsql-analysis/max-edge-rows-proposal.md": {
+    "mtime": 1788587808.899356,
+    "ast_hash": "3d383cd28b0206d599558aae3b2a6da6",
+    "semantic_hash": "3d383cd28b0206d599558aae3b2a6da6"
+  },
+  "graphify-agent-solution-architecture.md": {
+    "mtime": 1785293406.9026928,
+    "ast_hash": "547d521b46f270fb60b6ddc514d0b7e5",
+    "semantic_hash": "547d521b46f270fb60b6ddc514d0b7e5"
+  },
+  "tests/e2e/README.md": {
+    "mtime": 1788555555.4439034,
+    "ast_hash": "14252e97f3057b4d233bd1106aaa7237",
+    "semantic_hash": "14252e97f3057b4d233bd1106aaa7237"
+  },
+  "tests/e2e/multiturn/README.md": {
+    "mtime": 1785338285.662454,
+    "ast_hash": "36709ebb70cf6cbe134fee87720e3056",
+    "semantic_hash": "36709ebb70cf6cbe134fee87720e3056"
+  },
+  "tests/fixtures/graphify-real/get-node.txt": {
+    "mtime": 1785325881.8400905,
+    "ast_hash": "6e17d211099cc589ce7b22357caa52c3",
+    "semantic_hash": "6e17d211099cc589ce7b22357caa52c3"
+  },
+  "tests/fixtures/graphify-real/query-graph-spanish.txt": {
+    "mtime": 1785326555.8379588,
+    "ast_hash": "ecfed3581ada85bfb864e8fd88a089f4",
+    "semantic_hash": "ecfed3581ada85bfb864e8fd88a089f4"
+  },
+  "tests/fixtures/graphify-real/shortest-path.txt": {
+    "mtime": 1785325882.5981472,
+    "ast_hash": "19d09209dc8767ee2981a25bf53115ad",
+    "semantic_hash": "19d09209dc8767ee2981a25bf53115ad"
+  },
+  "AGENTS.md": {
+    "mtime": 1785861948.3007965,
+    "ast_hash": "0a531e26985021c5bbde5db1d4dd2e99",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1788584868.68027,
+    "ast_hash": "c60144f52c904bc49ad28b13991984b4",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1788581619.3460054,
+    "ast_hash": "d757863c0e83df4a65775a163421e006",
+    "semantic_hash": ""
+  },
+  "apps/api/requirements-dev.txt": {
+    "mtime": 1785294398.6681774,
+    "ast_hash": "809452ad083ba4ae31746bd9e225e313",
+    "semantic_hash": ""
+  },
+  "apps/api/requirements.txt": {
+    "mtime": 1785408998.0333042,
+    "ast_hash": "25b0086bf36a3f8c88eba17ff13b4598",
+    "semantic_hash": ""
+  },
+  "apps/api/tests/contracts/graphify/fixtures/get-neighbors.txt": {
+    "mtime": 1785325981.5140834,
+    "ast_hash": "402dc711d74c20b797454fc6640a6ece",
+    "semantic_hash": ""
+  },
+  "apps/api/tests/contracts/graphify/fixtures/get-node.txt": {
+    "mtime": 1785325981.2023644,
+    "ast_hash": "6e17d211099cc589ce7b22357caa52c3",
+    "semantic_hash": ""
+  },
+  "apps/api/tests/contracts/graphify/fixtures/query-graph-spanish.txt": {
+    "mtime": 1785326556.1306467,
+    "ast_hash": "ecfed3581ada85bfb864e8fd88a089f4",
+    "semantic_hash": ""
+  },
+  "apps/api/tests/contracts/graphify/fixtures/shortest-path.txt": {
+    "mtime": 1785325981.8018239,
+    "ast_hash": "19d09209dc8767ee2981a25bf53115ad",
+    "semantic_hash": ""
+  },
+  "apps/web/docs/implementation-handoff.md": {
+    "mtime": 1785335565.6446068,
+    "ast_hash": "28f7abcce805819d65b6385c85c2d6e5",
+    "semantic_hash": ""
+  },
+  "compose/postgres.yml": {
+    "mtime": 1785336590.331627,
+    "ast_hash": "6a3972b984a58a03cf83fe1421a01863",
+    "semantic_hash": ""
+  },
+  "contracts/knowledge/README.md": {
+    "mtime": 1785298727.8715684,
+    "ast_hash": "ee0bef7f6b88f97c68991ce607f3cf8c",
+    "semantic_hash": ""
+  },
+  "contracts/mcp/graphify-adapter.md": {
+    "mtime": 1785293919.5368595,
+    "ast_hash": "8755996d6b9a8b3b76daebd9171fcd39",
+    "semantic_hash": ""
+  },
+  "contracts/openapi/openapi.yaml": {
+    "mtime": 1788553636.1822476,
+    "ast_hash": "108d3faa2d14eab227e874cd60a0a696",
+    "semantic_hash": ""
+  },
+  "docker-compose.synthetic.yml": {
+    "mtime": 1788581562.7521305,
+    "ast_hash": "81e3c3f355d165296f119d9feddd06d9",
+    "semantic_hash": ""
+  },
+  "docker-compose.yml": {
+    "mtime": 1788582760.4007304,
+    "ast_hash": "34e738efe23f32c0a0482c2b3ca224e9",
+    "semantic_hash": ""
+  },
+  "docs/TODO.md": {
+    "mtime": 1785896293.9323196,
+    "ast_hash": "062e30c47a4099c2f1e0417c61fa3c52",
+    "semantic_hash": ""
+  },
+  "docs/adr/decision-log.md": {
+    "mtime": 1788542160.3447924,
+    "ast_hash": "502a1522b77f25564508904342a20afb",
+    "semantic_hash": ""
+  },
+  "docs/architecture/contracts.md": {
+    "mtime": 1788580554.863268,
+    "ast_hash": "3a5c8004722b4d1fa93c1d77ad6df0ec",
+    "semantic_hash": ""
+  },
+  "docs/architecture/knowledge/deployment.md": {
+    "mtime": 1785326541.8922033,
+    "ast_hash": "8baacd33f58b17b30252edc3dbe3eed8",
+    "semantic_hash": ""
+  },
+  "docs/architecture/overview.md": {
+    "mtime": 1785293917.126758,
+    "ast_hash": "7c4fc52e0944a57ccef47ada28dad21b",
+    "semantic_hash": ""
+  },
+  "docs/getting-started.md": {
+    "mtime": 1785817066.3662524,
+    "ast_hash": "88adc42dc9030ee121db13dd6cb9a164",
+    "semantic_hash": ""
+  },
+  "docs/graphify-enterprise-ux-guidelines.md": {
+    "mtime": 1785861341.2868116,
+    "ast_hash": "5dcbc61e63eec41fd022d3ae709bb86b",
+    "semantic_hash": ""
+  },
+  "docs/knowledge-ingestion.md": {
+    "mtime": 1785417593.6649652,
+    "ast_hash": "3d78caf52a241be8d261d845a9324d35",
+    "semantic_hash": ""
+  },
+  "docs/troubleshooting.md": {
+    "mtime": 1788554955.1194398,
+    "ast_hash": "85a00f89a1f8c2a3735e8b5a36612039",
+    "semantic_hash": ""
+  },
+  "plan.md": {
+    "mtime": 1785293789.6989,
+    "ast_hash": "e9ee3d35253e3be5749c1b2d28665fde",
+    "semantic_hash": ""
+  },
+  "test.txt": {
+    "mtime": 1785949477.9658868,
+    "ast_hash": "d8585185bad5d3e8a7d1b6252d3f1f3b",
+    "semantic_hash": ""
+  },
+  "apps/web/public/mark.svg": {
+    "mtime": 1785294874.396549,
+    "ast_hash": "927260dd26278af02d2a0d63fe6912de",
+    "semantic_hash": ""
   }
 }

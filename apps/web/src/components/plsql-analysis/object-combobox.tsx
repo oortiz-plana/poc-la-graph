@@ -9,8 +9,9 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_LIMIT = 10;
 
 /**
- * Visible option text for one object. Kind is included so a Package and a
- * Synonym that legitimately share a qualified name stay distinguishable.
+ * Visible option text for one object. Kind is included so objects of
+ * different kinds that legitimately share a qualified name stay
+ * distinguishable.
  */
 function optionLabel(object: PlsqlObject): string {
   return `${object.kind} · ${object.qualifiedName}`;
@@ -46,6 +47,10 @@ export function PlsqlObjectCombobox({
   const [announcement, setAnnouncement] = useState("");
   const requestSeq = useRef(0);
   const listboxId = `${id}-listbox`;
+
+  useEffect(() => {
+    if (selected) setText(optionLabel(selected));
+  }, [selected]);
 
   useEffect(() => {
     if (!open) {

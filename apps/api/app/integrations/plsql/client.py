@@ -13,13 +13,20 @@ from typing import Protocol, runtime_checkable
 from app.integrations.plsql.models import (
     PlsqlDependencyPage,
     PlsqlDependencyRecord,
+    PlsqlDependencySummaryRecord,
+    PlsqlHealthRecord,
     PlsqlImpactPage,
     PlsqlObjectRecord,
+    PlsqlOverviewRecord,
     PlsqlPathPage,
     PlsqlSearchPage,
     PlsqlSourceRecord,
 )
-from app.models.plsql import ObjectKind
+from app.models.plsql import (
+    ImpactDirection,
+    ObjectKind,
+    PlsqlDependencyCategory,
+)
 
 
 @runtime_checkable
@@ -42,6 +49,45 @@ class AnalysisGraphClient(Protocol):
 
     async def get_object(self, object_id: str) -> PlsqlObjectRecord | None:
         """Return one object by opaque identifier, or None when unknown."""
+        ...
+
+    async def health(
+        self,
+        *,
+        object_id: str | None,
+        limit: int,
+    ) -> PlsqlHealthRecord:
+        """Return analysis-quality diagnostics grouped by category.
+
+        ``object_id`` scopes the report to one routine or package; None
+        reports repository-wide diagnostics.
+        """
+        ...
+
+    async def dependencies_of(
+        self,
+        *,
+        object_id: str,
+        category: PlsqlDependencyCategory,
+        limit: int,
+    ) -> PlsqlDependencySummaryRecord:
+        """Return per-category dependency counts plus the selected page.
+
+        Categories are ``callers``/``callees`` (CALLS in/out), ``reads`` and
+        ``writes`` (table edges), and ``other`` (remaining typed edges such
+        as TRIGGER_ON and VIEW_DEPENDS_ON).
+        """
+        ...
+
+    async def overview_of(
+        self,
+        *,
+        object_id: str,
+        max_hops: int,
+        limit: int,
+    ) -> PlsqlOverviewRecord:
+        """Return headline counts (dependents, callers, callees, tables) and
+        the first direct callers of one object, ordered deterministically."""
         ...
 
     async def callers_of(
@@ -102,11 +148,17 @@ class AnalysisGraphClient(Protocol):
         object_id: str,
         max_hops: int,
         limit: int,
+        direction: ImpactDirection = "upstream",
+        relationships: frozenset[str] | None = None,
     ) -> PlsqlImpactPage:
-        """Return transitive dependents of a changed object within max hops.
+        """Return bounded transitive impact with a blast-radius summary.
 
-        Each dependent item carries its shortest explaining path(s) with
-        per-hop evidence; scope is computed from paths and relationship
+        ``direction`` selects dependents (upstream: who is affected when this
+        object changes) or dependencies (downstream: what this object affects).
+        ``relationships`` restricts the traversed edge types; each item carries
+        its shortest explaining path(s) with per-hop evidence, and ``summary``
+        reports direct/indirect counts, distinct packages, and tables modified
+        on the traversed paths. Scope is computed from paths and relationship
         types, never a stored severity.
         """
         ...

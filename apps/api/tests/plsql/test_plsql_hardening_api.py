@@ -177,7 +177,7 @@ async def test_row_cap_sweep_truncates_each_envelope(
         search = await client.get("/api/v1/plsql/objects")
         assert len(search.json()["items"]) == 3
         assert search.json()["truncated"] is True
-        assert search.json()["count"] == 15
+        assert search.json()["count"] == 14
 
         access = await client.get(
             "/api/v1/plsql/table-access", params={"objectId": employees}

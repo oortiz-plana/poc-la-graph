@@ -25,11 +25,19 @@ from app.integrations.plsql.models import (
 from app.models import (
     ObjectKind,
     PlsqlDependency,
+    PlsqlDependencyCategory,
     PlsqlDependencyResult,
+    PlsqlDependencySummary,
+    PlsqlHealth,
+    PlsqlHealthCategory,
+    ImpactDirection,
+    ImpactRelationship,
     PlsqlImpactItem,
     PlsqlImpactResult,
+    PlsqlImpactSummary,
     PlsqlObject,
     PlsqlObjectReference,
+    PlsqlOverview,
     PlsqlObjectSearchResult,
     PlsqlPath,
     PlsqlPathResult,
@@ -190,7 +198,11 @@ async def search_objects(
     kinds: Annotated[list[ObjectKind] | None, Query()] = None,
     limit: Annotated[int | None, Query(ge=1, le=200)] = None,
 ) -> PlsqlObjectSearchResult:
-    """Deterministically search analyzed PL/SQL objects (bounded)."""
+    """Deterministically search analyzed PL/SQL objects (bounded).
+
+    Synonyms are aliases rather than analyzable objects and are excluded from
+    search results.
+    """
     del principal
     page = await analysis.search_objects(
         query=q,
@@ -222,6 +234,125 @@ async def get_object(
 
 
 ObjectIdentifier = Annotated[str, Query(alias="objectId", min_length=1, max_length=512)]
+
+
+@router.get("/health", response_model=PlsqlHealth)
+async def get_health(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    object_id: Annotated[
+        str | None, Query(alias="objectId", min_length=1, max_length=512)
+    ] = None,
+    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+) -> PlsqlHealth:
+    """Return analysis-quality diagnostics grouped by category.
+
+    ``objectId`` scopes the report to one object; without it the report
+    covers the whole repository.
+    """
+    del principal
+    if object_id is not None:
+        await _require_object(analysis, object_id)
+    record = await analysis.health(
+        object_id=object_id, limit=_effective_limit(settings, limit)
+    )
+
+    return PlsqlHealth(
+        total=record.total,
+        unresolved=PlsqlHealthCategory(
+            count=record.unresolved.count,
+            items=[_dependency(edge) for edge in record.unresolved.items],
+        ),
+        ambiguous=PlsqlHealthCategory(
+            count=record.ambiguous.count,
+            items=[_dependency(edge) for edge in record.ambiguous.items],
+        ),
+        dynamic_sql=PlsqlHealthCategory(
+            count=record.dynamic_sql.count,
+            items=[_dependency(edge) for edge in record.dynamic_sql.items],
+        ),
+        parse_errors=PlsqlHealthCategory(
+            count=record.parse_errors.count,
+            items=[_dependency(edge) for edge in record.parse_errors.items],
+        ),
+        unsupported=PlsqlHealthCategory(
+            count=record.unsupported.count,
+            items=[_dependency(edge) for edge in record.unsupported.items],
+        ),
+        truncated=record.truncated,
+    )
+
+
+@router.get("/dependencies", response_model=PlsqlDependencySummary)
+async def get_dependencies(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    object_id: ObjectIdentifier,
+    category: Annotated[PlsqlDependencyCategory, Query()] = "callers",
+    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+) -> PlsqlDependencySummary:
+    """Return per-category dependency counts plus the selected category page."""
+    del principal
+    await _require_object(analysis, object_id)
+    page = await analysis.dependencies_of(
+        object_id=object_id,
+        category=category,
+        limit=_effective_limit(settings, limit),
+    )
+    return PlsqlDependencySummary(
+        counts=page.counts,
+        items=[_dependency(edge) for edge in page.items],
+        truncated=page.truncated,
+        total=page.total,
+    )
+
+
+@router.get("/overview", response_model=PlsqlOverview)
+async def get_overview(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    object_id: ObjectIdentifier,
+    top: Annotated[int | None, Query(ge=1, le=20)] = None,
+) -> PlsqlOverview:
+    """Return headline metrics for one object's Overview tab.
+
+    Counts cover direct and indirect dependents (over typed dependency
+    relationships within ``plsql_max_hops``), callers, callees, and distinct
+    tables/views accessed; ``top`` bounds the returned direct-caller list
+    without changing the counts.
+    """
+    del principal
+    record = await _require_object(analysis, object_id)
+    page = await analysis.overview_of(
+        object_id=object_id,
+        max_hops=settings.plsql_max_hops,
+        limit=min(top or 5, settings.plsql_max_rows),
+    )
+    return PlsqlOverview(
+        object=_reference(
+            object_id=record.id,
+            kind=record.kind,
+            name=record.name,
+            qualified_name=record.qualified_name,
+        ),
+        direct_dependents=page.direct_dependents,
+        indirect_dependents=page.indirect_dependents,
+        callers=page.callers,
+        callees=page.callees,
+        tables_accessed=page.tables_accessed,
+        top_callers=[
+            _reference(
+                object_id=caller.id,
+                kind=caller.kind,
+                name=caller.name,
+                qualified_name=caller.qualified_name,
+            )
+            for caller in page.top_callers
+        ],
+    )
 
 
 @router.get("/callers", response_model=PlsqlDependencyResult)
@@ -428,21 +559,40 @@ async def get_impact(
     analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
     object_id: ObjectIdentifier,
     limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    direction: Annotated[ImpactDirection, Query()] = "upstream",
+    depth: Annotated[int | None, Query(ge=1)] = None,
+    relationship: Annotated[ImpactRelationship | None, Query()] = None,
+    direct_only: Annotated[bool, Query(alias="directOnly")] = False,
+    writes_only: Annotated[bool, Query(alias="writesOnly")] = False,
 ) -> PlsqlImpactResult:
-    """Return bounded transitive dependents of a changed object.
+    """Return bounded transitive impact with filters and a blast-radius summary.
 
-    Dependents reach the changed object over typed dependency relationships
-    (``CALLS | READS | WRITES | VIEW_DEPENDS_ON``) within
-    ``plsql_max_hops``; items are ordered by distance and then lexicographic
-    ids, and every item carries its shortest explaining path(s) with per-hop
-    evidence. No severity is computed or persisted.
+    ``direction`` selects dependents (upstream) or dependencies (downstream);
+    ``relationship``/``writesOnly`` restrict the traversed edge types;
+    ``directOnly`` caps the walk at one hop and ``depth`` bounds hops within
+    ``plsql_max_hops``. The summary reports direct and indirect affected
+    objects, distinct packages, and tables modified on the traversed paths.
     """
     del principal
     record = await _require_object(analysis, object_id)
+    relationships: frozenset[str] | None
+    if writes_only:
+        relationships = frozenset({"WRITES"})
+    elif relationship is not None:
+        relationships = frozenset({relationship})
+    else:
+        relationships = None
+    max_hops = (
+        1
+        if direct_only
+        else min(depth or settings.plsql_max_hops, settings.plsql_max_hops)
+    )
     page = await analysis.impact_of(
         object_id=object_id,
-        max_hops=settings.plsql_max_hops,
+        max_hops=max_hops,
         limit=_effective_limit(settings, limit),
+        direction=direction,
+        relationships=relationships,
     )
     return PlsqlImpactResult(
         object=_reference(
@@ -454,4 +604,10 @@ async def get_impact(
         items=[_impact_item(item) for item in page.items],
         truncated=page.truncated,
         count=page.total,
+        summary=PlsqlImpactSummary(
+            direct=page.summary.direct,
+            indirect=page.summary.indirect,
+            packages=page.summary.packages,
+            tables_modified=page.summary.tables_modified,
+        ),
     )

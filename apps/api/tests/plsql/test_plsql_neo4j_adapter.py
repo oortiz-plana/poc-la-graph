@@ -32,9 +32,15 @@ from app.integrations.plsql.catalog import (
     EDGE_OUTGOING,
     EDGE_TABLE_ACCESS,
     EDGE_UNRESOLVED,
+    OBJECT_DECLARATION,
 )
 from app.integrations.plsql.errors import PlsqlLimitExceeded
-from app.integrations.plsql.models import PlsqlObjectRecord
+from app.integrations.plsql.models import (
+    PlsqlFileRecord,
+    PlsqlObjectRecord,
+    PlsqlSourceHighlight,
+    PlsqlSourceRecord,
+)
 from app.integrations.plsql.neo4j_client import (
     Neo4jPlsqlAnalysisClient,
     _edge_parts,
@@ -636,3 +642,83 @@ async def test_impact_of_anchors_package_members_from_prefix_query(
     member_calls = [call for call in calls if call[0] == EDGE_MEMBER_ENDPOINTS]
     assert len(member_calls) == 1
     assert member_calls[0][1]["memberPrefix"] == "HR.PKG_EMPLOYEE."
+
+
+# --- object source (declaration via DECLARES edge) --------------------------
+
+
+async def test_object_source_resolves_declaration_via_declares_edge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    obj = _object_record("VU_SFI.FM_GORPA_UPD", kind="Trigger", name="FM_GORPA_UPD")
+    captured: dict[str, object] = {}
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        if query == OBJECT_DECLARATION:
+            assert params["projectId"] == "sample"
+            assert params["qualifiedName"] == "VU_SFI.FM_GORPA_UPD"
+            return [
+                {
+                    "path": "Triggers/FM_GORPA_UPD.sql",
+                    "fileId": "file://sample/Triggers/FM_GORPA_UPD.sql",
+                    "startLine": 5,
+                    "startColumn": 1,
+                    "startOffset": 48,
+                    "endOffset": 200,
+                }
+            ]
+        return []
+
+    async def load_source(
+        *,
+        file_id: str,
+        path: str,
+        start_line: int | None,
+        end_line: int | None,
+    ) -> PlsqlSourceRecord:
+        captured.update(
+            file_id=file_id, path=path, start_line=start_line, end_line=end_line
+        )
+        return PlsqlSourceRecord(
+            file=PlsqlFileRecord(file_id=file_id, path=path),
+            lines=["-- trigger body"],
+            highlight=(
+                PlsqlSourceHighlight(start_line=start_line, end_line=start_line)
+                if start_line is not None
+                else None
+            ),
+        )
+
+    client = Neo4jPlsqlAnalysisClient(project_id="sample", uri="bolt://127.0.0.1:9")
+    monkeypatch.setattr(client, "_execute", execute)
+    monkeypatch.setattr(client, "_load_source", load_source)
+    client._object_cache[obj.id] = obj
+    try:
+        record = await client.object_source(object_id=obj.id)
+    finally:
+        client.close()
+
+    assert record is not None
+    assert record.highlight == PlsqlSourceHighlight(start_line=5, end_line=5)
+    assert captured["path"] == "Triggers/FM_GORPA_UPD.sql"
+    assert captured["file_id"] == "file://sample/Triggers/FM_GORPA_UPD.sql"
+    assert captured["start_line"] == 5
+    assert captured["end_line"] is None
+
+
+async def test_object_source_returns_none_without_declaration_edge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    obj = _object_record("VU_SFI.NO_SOURCE", kind="Trigger", name="NO_SOURCE")
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        assert query == OBJECT_DECLARATION
+        return []
+
+    client = Neo4jPlsqlAnalysisClient(project_id="sample", uri="bolt://127.0.0.1:9")
+    monkeypatch.setattr(client, "_execute", execute)
+    client._object_cache[obj.id] = obj
+    try:
+        assert await client.object_source(object_id=obj.id) is None
+    finally:
+        client.close()

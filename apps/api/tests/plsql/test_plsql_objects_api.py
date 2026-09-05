@@ -56,15 +56,21 @@ def _corpus_size() -> int:
     return len(build_corpus("sample"))
 
 
-async def test_search_returns_every_object_deterministically(
+def _searchable_size() -> int:
+    """Objects surfaced by search: the corpus minus non-addressable synonyms."""
+    return sum(1 for record in build_corpus("sample") if record.kind != "Synonym")
+
+
+async def test_search_returns_every_searchable_object_deterministically(
     plsql_client: httpx.AsyncClient,
 ) -> None:
     first = await plsql_client.get("/api/v1/plsql/objects")
     assert first.status_code == 200
     payload = first.json()
     assert payload["truncated"] is False
-    assert payload["count"] == _corpus_size()
-    assert len(payload["items"]) == _corpus_size()
+    assert payload["count"] == _searchable_size()
+    assert len(payload["items"]) == _searchable_size()
+    assert all(item["kind"] != "Synonym" for item in payload["items"])
     item = payload["items"][0]
     for key in (
         "id",
@@ -118,6 +124,25 @@ async def test_search_filters_by_query_and_kinds(
     assert [entry["name"] for entry in combined_payload["items"]] == ["EMPLOYEES"]
 
 
+async def test_search_excludes_synonyms(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    all_objects = await plsql_client.get("/api/v1/plsql/objects")
+    assert all_objects.status_code == 200
+    payload = all_objects.json()
+    assert payload["count"] == _searchable_size()
+    assert all(item["kind"] != "Synonym" for item in payload["items"])
+
+    # An explicit Synonym filter still surfaces nothing: synonyms are not
+    # addressable objects in search.
+    explicit = await plsql_client.get(
+        "/api/v1/plsql/objects", params={"kinds": "Synonym"}
+    )
+    assert explicit.status_code == 200
+    assert explicit.json()["count"] == 0
+    assert explicit.json()["items"] == []
+
+
 async def test_search_is_case_insensitive_and_truncates_at_limit(
     plsql_client: httpx.AsyncClient,
 ) -> None:
@@ -132,7 +157,7 @@ async def test_search_is_case_insensitive_and_truncates_at_limit(
     payload = truncated.json()
     assert len(payload["items"]) == 3
     assert payload["truncated"] is True
-    assert payload["count"] == _corpus_size()
+    assert payload["count"] == _searchable_size()
 
 
 async def test_search_rejects_unknown_kind(

@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.plsql import ObjectKind, PlsqlRelationship, PlsqlResolution
+from app.models.plsql import (
+    ObjectKind,
+    PlsqlDependencyCategory,
+    PlsqlRelationship,
+    PlsqlResolution,
+)
 
 
 class PlsqlEvidence(BaseModel):
@@ -41,6 +46,54 @@ class PlsqlObjectRecord(BaseModel):
     signature: str | None = None
     return_type: str | None = None
     evidence: PlsqlEvidence | None = None
+
+
+class PlsqlDependencySummaryRecord(BaseModel):
+    """Unified dependency counts plus the selected category's edge page."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    counts: dict[PlsqlDependencyCategory, int]
+    items: list[PlsqlDependencyRecord]
+    truncated: bool
+    total: int
+
+
+class PlsqlHealthCategoryRecord(BaseModel):
+    """One diagnostic category with its count and evidence rows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    count: int
+    items: list[PlsqlDependencyRecord]
+
+
+class PlsqlHealthRecord(BaseModel):
+    """Analysis-quality diagnostics grouped by category."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    total: int
+    unresolved: PlsqlHealthCategoryRecord
+    ambiguous: PlsqlHealthCategoryRecord
+    dynamic_sql: PlsqlHealthCategoryRecord
+    parse_errors: PlsqlHealthCategoryRecord
+    unsupported: PlsqlHealthCategoryRecord
+    truncated: bool
+
+
+class PlsqlOverviewRecord(BaseModel):
+    """Headline metrics computed over the corpus for one object."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    object: PlsqlObjectRecord
+    direct_dependents: int
+    indirect_dependents: int
+    callers: int
+    callees: int
+    tables_accessed: int
+    top_callers: list[PlsqlObjectRecord]
 
 
 class PlsqlSearchPage(BaseModel):
@@ -150,6 +203,17 @@ class PlsqlImpactItemRecord(BaseModel):
     paths: list[PlsqlPathRecord]
 
 
+class PlsqlImpactSummaryRecord(BaseModel):
+    """Blast-radius summary computed from the full traversal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    direct: int
+    indirect: int
+    packages: int
+    tables_modified: int
+
+
 class PlsqlImpactPage(BaseModel):
     """Deterministic, bounded page of impact items."""
 
@@ -158,3 +222,4 @@ class PlsqlImpactPage(BaseModel):
     items: list[PlsqlImpactItemRecord]
     truncated: bool
     total: int
+    summary: PlsqlImpactSummaryRecord

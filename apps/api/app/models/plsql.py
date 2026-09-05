@@ -34,11 +34,63 @@ PlsqlRelationship = Literal[
 
 PlsqlResolution = Literal["EXACT", "INFERRED", "AMBIGUOUS", "UNRESOLVED"]
 
+PlsqlDependencyCategory = Literal[
+    "callers", "callees", "reads", "writes", "other"
+]
+
+ImpactDirection = Literal["upstream", "downstream"]
+
+ImpactRelationship = Literal["CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON"]
+
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid", populate_by_name=True, serialize_by_alias=True
     )
+
+
+class PlsqlDependencySummary(ApiModel):
+    """Unified dependencies view: per-category counts plus one category page."""
+
+    counts: dict[PlsqlDependencyCategory, int]
+    items: list[PlsqlDependency]
+    truncated: bool
+    total: int = Field(ge=0)
+
+
+class PlsqlHealthCategory(ApiModel):
+    """One diagnostic category with its count and evidence rows."""
+
+    count: int = Field(ge=0)
+    items: list[PlsqlDependency]
+
+
+class PlsqlHealth(ApiModel):
+    """Analysis-quality diagnostics grouped by category.
+
+    ``dynamicSql``/``parseErrors``/``unsupported`` are placeholders that stay
+    empty until the pipeline projects those diagnostics into the graph.
+    """
+
+    total: int = Field(ge=0)
+    unresolved: PlsqlHealthCategory
+    ambiguous: PlsqlHealthCategory
+    dynamic_sql: PlsqlHealthCategory = Field(alias="dynamicSql")
+    parse_errors: PlsqlHealthCategory = Field(alias="parseErrors")
+    unsupported: PlsqlHealthCategory
+    truncated: bool
+
+
+class PlsqlOverview(ApiModel):
+    """Headline metrics for the Overview tab of one analyzed object."""
+
+    object: PlsqlObjectReference
+    direct_dependents: int = Field(alias="directDependents", ge=0)
+    indirect_dependents: int = Field(alias="indirectDependents", ge=0)
+    callers: int = Field(ge=0)
+    callees: int = Field(ge=0)
+    tables_accessed: int = Field(alias="tablesAccessed", ge=0)
+    top_callers: list[PlsqlObjectReference] = Field(alias="topCallers")
 
 
 class PlsqlSourceCoordinate(ApiModel):
@@ -162,6 +214,15 @@ class PlsqlImpactItem(ApiModel):
     paths: list[PlsqlPath]
 
 
+class PlsqlImpactSummary(ApiModel):
+    """Blast-radius summary for an impact scope."""
+
+    direct: int = Field(ge=0)
+    indirect: int = Field(ge=0)
+    packages: int = Field(ge=0)
+    tables_modified: int = Field(alias="tablesModified", ge=0)
+
+
 class PlsqlImpactResult(ApiModel):
     """Deterministic, bounded impact report for one changed object.
 
@@ -173,3 +234,4 @@ class PlsqlImpactResult(ApiModel):
     items: list[PlsqlImpactItem]
     truncated: bool
     count: int = Field(ge=0)
+    summary: PlsqlImpactSummary

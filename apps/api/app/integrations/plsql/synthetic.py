@@ -10,10 +10,15 @@ from app.integrations.plsql.fixtures import build_corpus, build_edges
 from app.integrations.plsql.models import (
     PlsqlDependencyPage,
     PlsqlDependencyRecord,
+    PlsqlDependencySummaryRecord,
+    PlsqlHealthCategoryRecord,
+    PlsqlHealthRecord,
     PlsqlFileRecord,
     PlsqlImpactItemRecord,
     PlsqlImpactPage,
+    PlsqlImpactSummaryRecord,
     PlsqlObjectRecord,
+    PlsqlOverviewRecord,
     PlsqlPathPage,
     PlsqlPathRecord,
     PlsqlSearchPage,
@@ -25,7 +30,13 @@ from app.integrations.plsql.source import (
     resolve_source_file,
     source_root,
 )
-from app.models.plsql import ObjectKind, PlsqlRelationship, PlsqlResolution
+from app.models.plsql import (
+    ImpactDirection,
+    ObjectKind,
+    PlsqlDependencyCategory,
+    PlsqlRelationship,
+    PlsqlResolution,
+)
 
 TABLE_ACCESS_RELATIONSHIPS: frozenset[PlsqlRelationship] = frozenset(
     {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON"}
@@ -37,6 +48,10 @@ UNRESOLVED_RESOLUTIONS: frozenset[PlsqlResolution] = frozenset(
     {"AMBIGUOUS", "UNRESOLVED"}
 )
 TABLE_OR_VIEW: frozenset[ObjectKind] = frozenset({"Table", "View"})
+
+# Synonyms are aliases to other objects, not analyzable objects, so they are
+# excluded from object search results (mirrored by the Neo4j catalog).
+SEARCH_EXCLUDED_KINDS: frozenset[ObjectKind] = frozenset({"Synonym"})
 
 DEFAULT_MAX_SOURCE_BYTES = 262_144
 
@@ -115,6 +130,8 @@ class SyntheticPlsqlAnalysisClient:
         query: str,
         kinds: Sequence[ObjectKind] | None,
     ) -> bool:
+        if record.kind in SEARCH_EXCLUDED_KINDS:
+            return False
         if kinds is not None and record.kind not in kinds:
             return False
         needle = query.casefold().strip()
@@ -143,6 +160,158 @@ class SyntheticPlsqlAnalysisClient:
 
     async def get_object(self, object_id: str) -> PlsqlObjectRecord | None:
         return self._by_id.get(object_id)
+
+    async def health(
+        self,
+        *,
+        object_id: str | None,
+        limit: int,
+    ) -> PlsqlHealthRecord:
+        """Return analysis-quality diagnostics grouped by category."""
+        edges = await self.unresolved_references(limit=self._max_rows)
+
+        def in_scope(edge: PlsqlDependencyRecord) -> bool:
+            if object_id is None:
+                return True
+            source = self._by_id.get(edge.source_id)
+            return source is not None and self._container_belongs(
+                source, object_id
+            )
+
+        unresolved = [
+            edge
+            for edge in edges.items
+            if edge.resolution == "UNRESOLVED" and in_scope(edge)
+        ]
+        ambiguous = [
+            edge
+            for edge in edges.items
+            if edge.resolution == "AMBIGUOUS" and in_scope(edge)
+        ]
+
+        def category(
+            items: list[PlsqlDependencyRecord],
+        ) -> tuple[PlsqlHealthCategoryRecord, bool]:
+            bounded = max(1, min(limit, self._max_rows))
+            return (
+                PlsqlHealthCategoryRecord(
+                    count=len(items), items=items[:bounded]
+                ),
+                len(items) > bounded,
+            )
+
+        unresolved_record, unresolved_truncated = category(unresolved)
+        ambiguous_record, ambiguous_truncated = category(ambiguous)
+        empty = PlsqlHealthCategoryRecord(count=0, items=[])
+        return PlsqlHealthRecord(
+            total=len(unresolved) + len(ambiguous),
+            unresolved=unresolved_record,
+            ambiguous=ambiguous_record,
+            dynamic_sql=empty,
+            parse_errors=empty,
+            unsupported=empty,
+            truncated=unresolved_truncated or ambiguous_truncated,
+        )
+
+    async def dependencies_of(
+        self,
+        *,
+        object_id: str,
+        category: PlsqlDependencyCategory,
+        limit: int,
+    ) -> PlsqlDependencySummaryRecord:
+        """Return per-category counts plus the selected category's page."""
+        callers = await self.callers_of(object_id=object_id, limit=self._max_rows)
+        callees = await self.callees_of(object_id=object_id, limit=self._max_rows)
+        access = await self.table_access_of(
+            object_id=object_id, limit=self._max_rows
+        )
+        buckets: dict[str, list[PlsqlDependencyRecord]] = {
+            "callers": list(callers.items),
+            "callees": list(callees.items),
+            "reads": [edge for edge in access.items if edge.relationship == "READS"],
+            "writes": [edge for edge in access.items if edge.relationship == "WRITES"],
+            "other": [
+                edge
+                for edge in access.items
+                if edge.relationship not in ("READS", "WRITES")
+            ],
+        }
+        page = self._dependency_page(buckets[category], limit)
+        return PlsqlDependencySummaryRecord(
+            counts={
+                "callers": callers.total,
+                "callees": callees.total,
+                "reads": len(buckets["reads"]),
+                "writes": len(buckets["writes"]),
+                "other": len(buckets["other"]),
+            },
+            items=list(page.items),
+            truncated=page.truncated,
+            total=page.total,
+        )
+
+    async def overview_of(
+        self,
+        *,
+        object_id: str,
+        max_hops: int,
+        limit: int,
+    ) -> PlsqlOverviewRecord:
+        """Return headline counts and the first direct callers of an object.
+
+        Direct dependents are sources of typed dependency edges that reach
+        the object (or one of its package members) in one hop; indirect
+        dependents are the remaining distinct dependents within ``max_hops``.
+        """
+        record = self._by_id[object_id]
+        anchors = set(self._impact_anchors(object_id))
+        access = await self.table_access_of(
+            object_id=object_id, limit=self._max_rows
+        )
+        impact = await self.impact_of(
+            object_id=object_id, max_hops=max_hops, limit=self._max_rows
+        )
+        direct = sum(
+            1
+            for edge in self._edges
+            if edge.relationship in PATH_RELATIONSHIPS
+            and edge.target_id in anchors
+            and edge.source_id in self._by_id
+        )
+        caller_ids = list(
+            dict.fromkeys(
+                edge.source_id
+                for edge in self._edges
+                if edge.relationship == "CALLS" and edge.target_id in anchors
+            )
+        )
+        callee_ids = list(
+            dict.fromkeys(
+                edge.target_id
+                for edge in self._edges
+                if edge.relationship == "CALLS" and edge.source_id in anchors
+            )
+        )
+        return PlsqlOverviewRecord(
+            object=record,
+            direct_dependents=direct,
+            indirect_dependents=max(0, impact.total - direct),
+            callers=len(caller_ids),
+            callees=len(callee_ids),
+            tables_accessed=len(
+                {
+                    edge.target_id
+                    for edge in access.items
+                    if edge.target_kind in TABLE_OR_VIEW
+                }
+            ),
+            top_callers=[
+                self._by_id[caller_id]
+                for caller_id in caller_ids[:limit]
+                if caller_id in self._by_id
+            ],
+        )
 
     def _dependency_page(
         self,
@@ -393,76 +562,120 @@ class SyntheticPlsqlAnalysisClient:
             key=lambda item: item,
         )
 
+    def _impact_trails(
+        self,
+        object_id: str,
+        max_hops: int,
+        relationships: frozenset[str],
+        direction: ImpactDirection,
+    ) -> tuple[dict[str, set[tuple[str, ...]]], dict[str, PlsqlDependencyRecord]]:
+        """Traverse typed edges from the object's anchors.
+
+        Returns shortest trails per dependent (edge-id tuples ordered
+        dependent → anchor for upstream, anchor → dependent for downstream)
+        plus the edge registry used to rebuild paths.
+        """
+        bounded_hops = max(1, max_hops)
+        edge_by_id = {edge.id: edge for edge in self._edges}
+        adjacency: dict[str, list[PlsqlDependencyRecord]] = {}
+        for edge in self._edges:
+            if edge.relationship not in relationships:
+                continue
+            if edge.source_id not in self._by_id or edge.target_id not in self._by_id:
+                continue
+            key = edge.target_id if direction == "upstream" else edge.source_id
+            adjacency.setdefault(key, []).append(edge)
+        for out_edges in adjacency.values():
+            out_edges.sort(key=lambda edge: edge.id)
+
+        trails: dict[str, set[tuple[str, ...]]] = {}
+
+        def visit(
+            current: str,
+            seen: frozenset[str],
+            chain: tuple[PlsqlDependencyRecord, ...],
+        ) -> None:
+            for edge in adjacency.get(current, ()):
+                peer = (
+                    edge.source_id
+                    if direction == "upstream"
+                    else edge.target_id
+                )
+                if peer in seen or len(chain) >= bounded_hops:
+                    continue
+                next_chain = chain + (edge,)
+                if direction == "upstream":
+                    forward = tuple(reversed(next_chain))
+                    trails.setdefault(peer, set()).add(
+                        tuple(step.id for step in forward)
+                    )
+                else:
+                    trails.setdefault(peer, set()).add(
+                        tuple(step.id for step in next_chain)
+                    )
+                visit(peer, seen | {peer}, next_chain)
+
+        for anchor in self._impact_anchors(object_id):
+            visit(anchor, frozenset({anchor}), ())
+        return trails, edge_by_id
+
+    def _impact_summary(
+        self,
+        trails: dict[str, set[tuple[str, ...]]],
+        edge_by_id: dict[str, PlsqlDependencyRecord],
+    ) -> PlsqlImpactSummaryRecord:
+        direct = 0
+        packages: set[tuple[str, str]] = set()
+        tables_modified: set[str] = set()
+        for dependent_id, trail_ids in trails.items():
+            if min(len(trail) for trail in trail_ids) == 1:
+                direct += 1
+            dependent = self._by_id[dependent_id]
+            if dependent.owner:
+                packages.add((dependent.schema_name, dependent.owner))
+            elif dependent.kind == "Package":
+                packages.add((dependent.schema_name, dependent.name))
+            for trail in trail_ids:
+                for edge_id in trail:
+                    edge = edge_by_id[edge_id]
+                    if (
+                        edge.relationship == "WRITES"
+                        and edge.target_kind in TABLE_OR_VIEW
+                    ):
+                        tables_modified.add(edge.target_id)
+        return PlsqlImpactSummaryRecord(
+            direct=direct,
+            indirect=max(0, len(trails) - direct),
+            packages=len(packages),
+            tables_modified=len(tables_modified),
+        )
+
     async def impact_of(
         self,
         *,
         object_id: str,
         max_hops: int,
         limit: int,
+        direction: ImpactDirection = "upstream",
+        relationships: frozenset[str] | None = None,
     ) -> PlsqlImpactPage:
-        """Return transitive dependents of a changed object within max hops.
-
-        A dependent is any corpus object that reaches the changed object (or,
-        for packages, one of its members) over typed dependency relationships
-        (``CALLS | READS | WRITES | VIEW_DEPENDS_ON``). Each item carries the
-        shortest explaining path(s), ordered dependent → … → changed object,
-        with per-hop evidence. Items are grouped by distance (shortest hops)
-        and then lexicographic dependent ids; no severity is computed or
-        persisted — scope comes from paths and relationship types only.
-        """
-        bounded_hops = max(1, max_hops)
-        edge_by_id = {edge.id: edge for edge in self._edges}
-        reverse: dict[str, list[PlsqlDependencyRecord]] = {}
-        for edge in self._edges:
-            if edge.relationship not in PATH_RELATIONSHIPS:
-                continue
-            if edge.source_id not in self._by_id:
-                continue
-            if edge.target_id not in self._by_id:
-                continue
-            reverse.setdefault(edge.target_id, []).append(edge)
-        for in_edges in reverse.values():
-            in_edges.sort(key=lambda edge: edge.id)
-
-        # Forward trails (dependent → anchor) of edge ids, per dependent.
-        trails_by_dependent: dict[str, set[tuple[str, ...]]] = {}
-
-        def visit(
-            current: str,
-            seen: frozenset[str],
-            backward: tuple[PlsqlDependencyRecord, ...],
-        ) -> None:
-            for edge in reverse.get(current, ()):
-                if edge.source_id in seen:
-                    continue
-                if len(backward) >= bounded_hops:
-                    continue
-                chain = backward + (edge,)
-                forward = tuple(reversed(chain))
-                trails_by_dependent.setdefault(edge.source_id, set()).add(
-                    tuple(forward_edge.id for forward_edge in forward)
-                )
-                visit(
-                    edge.source_id,
-                    seen | {edge.source_id},
-                    chain,
-                )
-
-        for anchor in self._impact_anchors(object_id):
-            visit(anchor, frozenset({anchor}), ())
-
+        """Return bounded transitive impact with a blast-radius summary."""
+        rels = (
+            frozenset(relationships)
+            if relationships is not None
+            else PATH_RELATIONSHIPS
+        )
+        trails, edge_by_id = self._impact_trails(
+            object_id, max_hops, rels, direction
+        )
         items: list[PlsqlImpactItemRecord] = []
-        for dependent_id, forward_trails in trails_by_dependent.items():
+        for dependent_id, forward_trails in trails.items():
             dependent = self._by_id.get(dependent_id)
             if dependent is None:
                 continue
             shortest = min(len(trail) for trail in forward_trails)
-            shortest_trails = [
-                trail for trail in forward_trails if len(trail) == shortest
-            ]
-
             ordered_paths = sorted(
-                shortest_trails,
+                (trail for trail in forward_trails if len(trail) == shortest),
                 key=lambda trail: (
                     tuple(edge_by_id[edge_id].target_id for edge_id in trail),
                     trail,
@@ -479,7 +692,6 @@ class SyntheticPlsqlAnalysisClient:
                     ],
                 )
             )
-
         items.sort(
             key=lambda item: (
                 item.distance,
@@ -492,4 +704,5 @@ class SyntheticPlsqlAnalysisClient:
             items=items[:bounded_limit],
             truncated=len(items) > bounded_limit,
             total=len(items),
+            summary=self._impact_summary(trails, edge_by_id),
         )

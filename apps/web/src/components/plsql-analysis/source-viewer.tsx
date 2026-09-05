@@ -120,7 +120,7 @@ function SourcePanel({
   );
 }
 
-function SourceBody({ request }: { request: SourceRequest }) {
+export function SourceBody({ request }: { request: SourceRequest }) {
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SourceStatus>("loading");
   const [content, setContent] = useState<PlsqlSourceContent>();

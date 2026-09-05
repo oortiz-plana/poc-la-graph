@@ -7,7 +7,7 @@ interpolated into a query (ADR 0012). Relationship names, edge evidence
 properties, and the object/file node labels follow the consumed graph model
 documented in ``docs/architecture/plsql-analysis-console.md`` §5.
 
-Schema confirmation note (pending the first real graph):
+Schema confirmation note (confirmed against the ``vu_sfi`` real graph):
 ``plsqlgraph`` owns the authoritative schema. This catalog pins the facts the
 architecture document records and isolates the remaining assumptions in the
 ``SCHEMA_ASSUMPTIONS`` constants below so a real-graph alignment is a
@@ -15,13 +15,19 @@ single-file change:
 
 - ``DatabaseObject`` nodes carry ``qualifiedName`` (and usually ``name``) and
   ``projectId``; object kind is a node label drawn from the kind vocabulary.
-- ``SourceFile`` nodes carry a project-relative ``path``.
+  Object nodes do **not** carry source coordinates.
+- ``SourceFile`` nodes carry a project-relative ``path`` (and a stable ``id``
+  of the form ``file://<project>/<path>``).
 - Edge evidence properties ``resolution``, ``sourceFileId``, ``startLine``,
-  ``startColumn``, ``startOffset``, ``endOffset`` (documented).
+  ``startColumn``, ``startOffset``, ``endOffset`` (documented). An object's
+  declaration coordinates live on its ``DECLARES`` edge (``SourceFile ->
+  DatabaseObject``); the edge ``sourceFileId`` is the build-host EMF resource
+  URI (e.g. ``file:/C:/…``) and is not a project-relative path, so source
+  reads resolve through ``SourceFile.path``.
 
-Before a first run against a real graph, confirm these against the graph and
-adjust only this module (catalog entries) plus any row-mapping helper in
-``neo4j_client.py`` that reads the ``SCHEMA_*`` constants.
+Before changing an assumption against a new graph revision, confirm it against
+the graph and adjust only this module (catalog entries) plus any row-mapping
+helper in ``neo4j_client.py`` that reads the ``SCHEMA_*`` constants.
 """
 
 from __future__ import annotations
@@ -40,6 +46,11 @@ SOURCE_FILE_LABEL: Final = "SourceFile"
 KIND_LABELS: Final[frozenset[str]] = frozenset(get_args(ObjectKind))
 RELATIONSHIPS: Final[frozenset[str]] = frozenset(get_args(PlsqlRelationship))
 RESOLUTIONS: Final[frozenset[str]] = frozenset(get_args(PlsqlResolution))
+
+# Kind labels that never surface in object search results: synonyms are
+# aliases to other objects, not analyzable objects (mirrored by the synthetic
+# adapter's SEARCH_EXCLUDED_KINDS).
+SEARCH_EXCLUDED_LABELS: Final[frozenset[str]] = frozenset({"Synonym"})
 
 # Schema-shape assumptions centralized for the real-graph alignment pass.
 SCHEMA_NODE_NAME: Final = "name"
@@ -88,6 +99,13 @@ def _kind_filter(param: str) -> str:
     return f"(size(${param}) = 0 OR any(label IN labels(n) WHERE label IN ${param}))"
 
 
+def _search_kind_exclusion(alias: str) -> str:
+    """Exclude non-addressable kind labels from object search results."""
+    return " AND ".join(
+        f"NOT '{label}' IN labels({alias})" for label in sorted(SEARCH_EXCLUDED_LABELS)
+    )
+
+
 def _kind_constraint(alias: str) -> str:
     """Baseline constraint restricting an endpoint to addressable objects.
 
@@ -110,6 +128,7 @@ SEARCH_OBJECTS: Final = f"""
 MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
   AND {_kind_constraint("n")}
+  AND {_search_kind_exclusion("n")}
   AND {_name_search_clause()}
   AND {_kind_filter("kinds")}
 RETURN n, labels(n) AS nodeLabels
@@ -122,6 +141,7 @@ COUNT_SEARCH_OBJECTS: Final = f"""
 MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
   AND {_kind_constraint("n")}
+  AND {_search_kind_exclusion("n")}
   AND {_name_search_clause()}
   AND {_kind_filter("kinds")}
 RETURN count(n) AS total
@@ -132,6 +152,29 @@ MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
   AND n.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
 RETURN n, labels(n) AS nodeLabels
+LIMIT 1
+"""
+
+# An object's declaration coordinates live on the ``DECLARES`` edge from its
+# ``SourceFile``, not on the object node: the extractor stores evidence
+# properties (``sourceFileId``, offsets, lines) on every edge, while the object
+# node carries only identity/kind/signature properties. The reliable file
+# coordinate is ``SourceFile.path`` (project-relative); the edge's
+# ``sourceFileId`` is the build-host EMF resource URI and is intentionally not
+# used here. A package shares one node across its spec and body files, so the
+# declaration edge is disambiguated deterministically (earliest offset, then
+# path).
+OBJECT_DECLARATION: Final = f"""
+MATCH (f:{SOURCE_FILE_LABEL})-[r:DECLARES]->(n:{OBJECT_LABEL})
+WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
+  AND n.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+RETURN f.{SCHEMA_FILE_PATH} AS path,
+       coalesce(f.fileId, f.id, toString(elementId(f))) AS fileId,
+       r.{SCHEMA_EDGE_START_LINE} AS startLine,
+       r.{SCHEMA_EDGE_START_COLUMN} AS startColumn,
+       r.{SCHEMA_EDGE_START_OFFSET} AS startOffset,
+       r.{SCHEMA_EDGE_END_OFFSET} AS endOffset
+ORDER BY r.{SCHEMA_EDGE_START_OFFSET}, f.{SCHEMA_FILE_PATH}
 LIMIT 1
 """
 

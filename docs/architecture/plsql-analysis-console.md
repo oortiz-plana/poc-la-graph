@@ -168,18 +168,31 @@ Domain-oriented, camelCase, additive-first surface under
 `/api/v1/plsql` (full shape in ADR 0013):
 
 ```text
-GET  /api/v1/plsql/objects            ?q=…            search objects
+GET  /api/v1/plsql/objects            ?q=…&kinds=…    search objects (kind filter)
 GET  /api/v1/plsql/object             ?objectId=…     object detail
+GET  /api/v1/plsql/overview           ?objectId=…&top=…  headline counts + direct callers
+GET  /api/v1/plsql/dependencies       ?objectId=…&category=…  counts + one category page
 GET  /api/v1/plsql/callers            ?objectId=…     incoming CALLS
 GET  /api/v1/plsql/callees            ?objectId=…     outgoing CALLS
 GET  /api/v1/plsql/table-access       ?objectId=…     READS/WRITES grouped
-GET  /api/v1/plsql/impact             ?objectId=…     bounded transitive impact
+GET  /api/v1/plsql/impact             ?objectId=…&direction=…&depth=…&relationship=…
+                                                     &directOnly=…&writesOnly=…
+                                                     bounded impact + blast-radius summary
+GET  /api/v1/plsql/health             ?objectId=…     diagnostics by category (scoped or repo-wide)
 GET  /api/v1/plsql/source             ?objectId=…     read-only source text
 GET  /api/v1/plsql/files              ?fileId=…       read-only source text by file id
 GET  /api/v1/plsql/paths              ?from=…&to=…    bounded dependency paths
 GET  /api/v1/plsql/relationships/evidence ?relationshipId=…   evidence coordinates
 GET  /api/v1/plsql/unresolved                          ambiguous/unresolved edges
 ```
+
+`category` accepts `callers | callees | reads | writes | other`; `direction`
+accepts `upstream | downstream`; `relationship` restricts traversal to one
+typed edge kind. `impact` responses carry a `summary` with direct/indirect
+affected objects, distinct packages, and tables modified on the traversed
+paths. `health` groups unresolved, ambiguous, dynamic-SQL, parse-error, and
+unsupported-construct diagnostics; the last three remain empty until the
+pipeline projects them into the graph.
 
 Identifiers embed `/` characters, so identifier-carrying endpoints take them
 as query parameters (`objectId`, `relationshipId`) instead of path segments
@@ -237,29 +250,37 @@ flowchart TB
 ```text
 apps/web/src/app/plsql/page.tsx          thin Server Component
 apps/web/src/components/plsql-analysis/
-  plsql-analysis-workspace.tsx           client workspace (AuthProvider + ApplicationShell)
-  analysis-status.tsx                    disabled | unavailable | degraded banner
-  object-search.tsx                      search box + results (text first)
-  object-detail.tsx                      selected object: summary + section nav
-  dependency-list.tsx                    callers/callees/table access, typed edges
-  path-list.tsx                          ordered dependency paths
-  impact-report.tsx                      grouped impact with explaining paths
+  plsql-analysis-workspace.tsx           workspace state: selection, tabs, history, inspection
+  workspace-shell.tsx                    3 panes (Explorer | Workspace | Inspector) + drawers
+  object-explorer.tsx                    debounced search, kind filters, package tree
+  object-header.tsx                      breadcrumb, kind, actions, object tabs
+  overview-panel.tsx                     headline metrics + direct callers
+  dependencies-panel.tsx                 category chips, list/graph, expansion, source split
+  impact-report.tsx                      blast radius, filters, list/graph, package grouping
+  dependency-paths.tsx                   from/to tracing with progressive disclosure
+  dependency-graph.tsx                   Cytoscape view with viewport preservation
+  health-panel.tsx                       Analysis Health dialog (scoped or repository-wide)
+  inspector-panel.tsx                    right pane for object/edge/path metadata
   source-viewer.tsx                      read-only file view + range highlight
 ```
 
-- One visible page heading per screen; left navigation gains the console entry
-  in `ApplicationNavigation` (`application-shell.tsx`) next to Projects; small
-  screens reuse the existing Sheet drawer.
+- The existing application left menu is the only application navigation; the
+  Object Explorer is contextual navigation inside the PL/SQL workspace. Panes
+  scroll independently; the Inspector collapses first (xl), then the Explorer
+  (md), each into its own drawer, while the application drawer is untouched.
 - Data flow follows the chat surface: client components call typed functions
-  in `apps/web/src/lib/api.ts` (`searchPlsqlObjects`, `getPlsqlObject`,
-  `listPlsqlCallers`, `listPlsqlCallees`, `getPlsqlTableAccess`,
-  `analyzePlsqlImpact`, `findPlsqlPaths`, `getPlsqlObjectSource`) over
+  in `apps/web/src/lib/api.ts` (`searchPlsqlObjects`, `getPlsqlOverview`,
+  `getPlsqlDependencies`, `getPlsqlImpact`, `findPlsqlPaths`,
+  `getPlsqlHealth`, `getPlsqlObjectSource`, …) over
   `/api/backend/api/v1/plsql/...`, with every payload validated by Zod
   schemas in `apps/web/src/lib/contracts.ts` before rendering.
-- Presentation is textual-first (ADR 0014): edges render
-  `source → relationship → target` with a resolution badge
-  (`EXACT/INFERRED/AMBIGUOUS/UNRESOLVED`); paths are ordered lists; impact is
-  grouped with its explaining paths; `truncated` and unresolved items are
+- List mode is textual-first (ADR 0014): edges render
+  `source → relationship → target` with a confidence badge; graph mode
+  (Cytoscape) starts from the focused object and expands explicitly
+  (`+ Callers/+ Callees/+ Reads/+ Writes/+ One level`), optionally grouped by
+  package. Confidence uses plain-language terms (Resolved/Inferred/Unresolved)
+  so `EXACT` never promises guaranteed runtime execution; the raw value stays
+  in the badge tooltip and the Inspector. `truncated` and unresolved items are
   visible and never hidden to fix layout.
 - States: not-configured, unavailable (retry), loading, empty, error
   (`role="alert"`, recovery named), and data — following

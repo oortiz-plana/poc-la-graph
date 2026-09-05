@@ -17,9 +17,12 @@ import {
   plsqlObjectSchema,
   plsqlObjectSearchResultSchema,
   plsqlDependencyResultSchema,
+  plsqlDependencySummarySchema,
+  plsqlHealthSchema,
   plsqlPathResultSchema,
   plsqlSourceContentSchema,
   plsqlImpactResultSchema,
+  plsqlOverviewSchema,
   type BuildSummary,
   type AccessActivity,
   type AccessRequestContext,
@@ -29,10 +32,16 @@ import {
   type DirectoryPrincipal,
   type GovernanceProject,
   type PlsqlObject,
+  type PlsqlDependencyCategory,
   type PlsqlDependencyResult,
+  type PlsqlDependencySummary,
+  type PlsqlHealth,
   type PlsqlImpactResult,
+  type ImpactDirection,
+  type ImpactRelationship,
   type PlsqlObjectKind,
   type PlsqlObjectSearchResult,
+  type PlsqlOverview,
   type PlsqlPathResult,
   type PlsqlSourceContent,
   type ProjectAccessRequest,
@@ -639,12 +648,70 @@ export async function getPlsqlObjectSource(
   return plsqlSourceContentSchema.parse(await response.json());
 }
 
+export async function getPlsqlDependencies(
+  objectId: string,
+  category: PlsqlDependencyCategory,
+  options?: { limit?: number },
+): Promise<PlsqlDependencySummary> {
+  const params = new URLSearchParams({ objectId, category });
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/dependencies?${params}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load dependencies.");
+  return plsqlDependencySummarySchema.parse(await response.json());
+}
+
+export async function getPlsqlHealth(objectId?: string): Promise<PlsqlHealth> {
+  const params = new URLSearchParams();
+  if (objectId) params.set("objectId", objectId);
+  const suffix = params.size ? `?${params}` : "";
+  const response = await safeFetch(`/api/backend/api/v1/plsql/health${suffix}`, {
+    cache: "no-store",
+  });
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load analysis health.");
+  return plsqlHealthSchema.parse(await response.json());
+}
+
+export async function getPlsqlOverview(
+  objectId: string,
+  options?: { top?: number },
+): Promise<PlsqlOverview | null> {
+  const params = new URLSearchParams({ objectId });
+  if (options?.top !== undefined) params.set("top", String(options.top));
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/overview?${params}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load the object overview.");
+  return plsqlOverviewSchema.parse(await response.json());
+}
+
 export async function getPlsqlImpact(
   objectId: string,
-  options?: { limit?: number },
+  options?: {
+    limit?: number;
+    direction?: ImpactDirection;
+    depth?: number;
+    relationship?: ImpactRelationship;
+    directOnly?: boolean;
+    writesOnly?: boolean;
+  },
 ): Promise<PlsqlImpactResult | null> {
   const params = new URLSearchParams({ objectId });
   if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.direction !== undefined)
+    params.set("direction", options.direction);
+  if (options?.depth !== undefined) params.set("depth", String(options.depth));
+  if (options?.relationship !== undefined)
+    params.set("relationship", options.relationship);
+  if (options?.directOnly) params.set("directOnly", "true");
+  if (options?.writesOnly) params.set("writesOnly", "true");
   const response = await safeFetch(
     `/api/backend/api/v1/plsql/impact?${params}`,
     { cache: "no-store" },

@@ -30,6 +30,14 @@ export default {
         muted: "var(--color-selected-background)",
         accent: "var(--color-primary)",
         destructive: "var(--color-error)",
+        sidebar: {
+          DEFAULT: "var(--color-surface)",
+          foreground: "var(--color-text-primary)",
+          accent: "var(--color-selected-background)",
+          "accent-foreground": "var(--color-primary)",
+          border: "var(--color-border)",
+          ring: "var(--color-primary)",
+        },
       },
       boxShadow: {
         panel: "0 1px 2px rgb(16 24 40 / 0.08)",

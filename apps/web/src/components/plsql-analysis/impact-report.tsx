@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, LoaderCircle } from "lucide-react";
+import { Copy, LoaderCircle, X } from "lucide-react";
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { getPlsqlImpact, type PlsqlProblemCode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { DependencyPathTrail } from "./dependency-path-trail";
 import {
   displayPackageOf,
   evidenceLineLabel,
+  evidenceLocation,
   hopText,
   ObjectKindBadge,
 } from "./plsql-atoms";
@@ -84,6 +85,14 @@ export function sortImpactItems(items: PlsqlImpactItem[]): PlsqlImpactItem[] {
 function sortPaths(paths: PlsqlPath[]): PlsqlPath[] {
   return [...paths].sort(
     (a, b) => a.hopCount - b.hopCount || a.id.localeCompare(b.id),
+  );
+}
+
+/** Evidence for the shortest path's final hop, shown as the row's evidence. */
+function primaryEvidence(item: PlsqlImpactItem): PlsqlSourceCoordinate | null {
+  const [shortest] = sortPaths(item.paths);
+  return (
+    shortest?.relationships[shortest.relationships.length - 1]?.evidence ?? null
   );
 }
 
@@ -507,6 +516,9 @@ function ImpactBody({
                 <th scope="col" className="px-3 py-2 text-right font-medium">
                   Distance
                 </th>
+                <th scope="col" className="px-3 py-2 font-medium">
+                  Evidence
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -529,6 +541,7 @@ function ImpactBody({
           analyzedId={result.object.id}
           pathIndex={selectedPathIndex}
           onPathIndexChange={onPathIndexChange}
+          onClose={() => onToggle(selectedItem.id)}
           onOpenEvidence={onOpenEvidence}
           onOpenObject={onOpenObject}
           onInspectObject={onInspectObject}
@@ -553,6 +566,9 @@ function AffectedObjectRow({
   onSelect: (id: string) => void;
 }) {
   const pkg = displayPackageOf(item.dependent);
+  const evidence = primaryEvidence(item);
+  const evidenceLabel = evidenceLineLabel(evidence);
+  const evidenceTitle = evidenceLocation(evidence);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTableRowElement>) {
     if (event.key === "Enter" || event.key === " ") {
@@ -609,6 +625,30 @@ function AffectedObjectRow({
       <td className="px-3 py-1.5 text-right align-middle text-xs text-text-secondary">
         {hopText(item.distance)}
       </td>
+      <td className="px-3 py-1.5 align-middle">
+        {evidenceLabel === undefined ? (
+          <span className="text-text-muted">—</span>
+        ) : evidence?.sourceFileId ? (
+          <button
+            type="button"
+            title={evidenceTitle}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggle(item.id);
+            }}
+            className="break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            {evidenceLabel}
+          </button>
+        ) : (
+          <span
+            title={evidenceTitle}
+            className="break-words text-xs text-text-secondary"
+          >
+            {evidenceLabel}
+          </span>
+        )}
+      </td>
     </tr>
   );
 }
@@ -618,6 +658,7 @@ function ImpactDetail({
   analyzedId,
   pathIndex,
   onPathIndexChange,
+  onClose,
   onOpenEvidence,
   onOpenObject,
   onInspectObject,
@@ -629,6 +670,7 @@ function ImpactDetail({
   analyzedId: string;
   pathIndex: number;
   onPathIndexChange: (index: number) => void;
+  onClose: () => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
   onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectObject: (reference: PlsqlObjectReference) => void;
@@ -657,21 +699,31 @@ function ImpactDetail({
   return (
     <section
       aria-label={`Why ${item.dependent.name} is affected`}
-      className="mt-3 rounded-lg border bg-surface"
+      className="mt-6 rounded-lg border bg-background"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-        <h4 className="text-sm font-semibold text-text-secondary">
-          Why is this affected?
-        </h4>
-        <span
-          title={item.dependent.qualifiedName}
-          className="break-words text-xs text-text-muted"
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h4 className="text-sm font-semibold text-text-secondary">
+            Why is this affected?
+          </h4>
+          <span
+            title={item.dependent.qualifiedName}
+            className="break-words text-xs text-text-muted"
+          >
+            {item.dependent.qualifiedName}
+          </span>
+        </div>
+        <button
+          type="button"
+          aria-label={`Close why ${item.dependent.name} is affected`}
+          onClick={onClose}
+          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-text-secondary hover:bg-selected hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
-          {item.dependent.qualifiedName}
-        </span>
+          <X aria-hidden className="h-4 w-4" />
+        </button>
       </div>
-      <div className="grid items-start gap-4 px-4 py-3 lg:grid-cols-[35%_1fr]">
-        <div>
+      <div className="grid items-start divide-y lg:grid-cols-[35%_1fr] lg:divide-x lg:divide-y-0">
+        <div className="p-4">
           {path ? (
             <DependencyPathTrail
               path={path}
@@ -749,7 +801,7 @@ function ImpactDetail({
             {copied ? "Qualified name copied to clipboard." : ""}
           </p>
         </div>
-        <section aria-label="Source evidence" className="min-w-0">
+        <section aria-label="Source evidence" className="min-w-0 p-4">
           {finalEdge?.evidence?.sourceFileId ? (
             <SourceBody
               heading="Source evidence"

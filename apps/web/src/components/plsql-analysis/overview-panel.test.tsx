@@ -155,12 +155,20 @@ const onAnalyzeObject = vi.fn();
 const onExploreDependencies = vi.fn();
 const onExploreImpact = vi.fn();
 
-function renderPanel(object: PlsqlObject = getSalary) {
+function renderPanel(
+  object: PlsqlObject = getSalary,
+  overrides: {
+    onInspectObject?: (reference: PlsqlObjectReference) => void;
+    onInspectEdge?: (edge: PlsqlDependency) => void;
+  } = {},
+) {
   return render(
     <OverviewPanel
       object={object}
       onOpenEvidence={onOpenEvidence}
       onOpenObject={onOpenObject}
+      onInspectObject={overrides.onInspectObject}
+      onInspectEdge={overrides.onInspectEdge}
       onInspectPath={onInspectPath}
       onAnalyzeObject={onAnalyzeObject}
       onExploreDependencies={onExploreDependencies}
@@ -357,8 +365,9 @@ describe("OverviewPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("1 hop")).toBeInTheDocument();
     // The full path/line lives once, in the source evidence header; the
-    // relationship pane shows just the line number.
-    expect(screen.getByText("line 34")).toBeInTheDocument();
+    // relationship pane shows just the line number. (The detail table's
+    // Evidence column also shows "line 34", so there are two.)
+    expect(screen.getAllByText("line 34").length).toBeGreaterThan(0);
     expect(await screen.findByText("Source evidence")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Open object" }));
@@ -382,6 +391,52 @@ describe("OverviewPanel", () => {
     expect(onAnalyzeObject).toHaveBeenCalledWith(
       expect.objectContaining({ name: "RUN_PAYROLL" }),
     );
+  });
+
+  it("shows an Evidence column, inspects a trail node in place, and closes the detail", async () => {
+    getPlsqlImpact.mockResolvedValue(impactResult);
+    getPlsqlDependencies.mockResolvedValue(
+      dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
+    );
+    getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+      },
+      lines: ["  GET_SALARY(...);"],
+      highlight: { startLine: 34, endLine: 34 },
+    });
+    const onInspectObject = vi.fn();
+    const onInspectEdge = vi.fn();
+    const user = userEvent.setup();
+    renderPanel(getSalary, { onInspectObject, onInspectEdge });
+
+    const table = await screen.findByRole("table", { name: /Direct callers/ });
+    expect(
+      within(table).getByRole("columnheader", { name: "Evidence" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByText("RUN_PAYROLL"));
+    await screen.findByText("Why is this affected?");
+
+    // Clicking a node in the trail inspects it in place instead of navigating.
+    await user.click(
+      screen.getByRole("button", { name: "HR.PKG_EMP.GET_SALARY" }),
+    );
+    expect(onInspectObject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "GET_SALARY" }),
+    );
+    expect(onOpenObject).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "CALLS" }));
+    expect(onInspectEdge).toHaveBeenCalledWith(
+      expect.objectContaining({ relationship: "CALLS" }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Close why RUN_PAYROLL is related" }),
+    );
+    expect(screen.queryByText("Why is this affected?")).not.toBeInTheDocument();
   });
 
   it("preserves the selected card and row while switching away and back is not required for evidence actions", async () => {

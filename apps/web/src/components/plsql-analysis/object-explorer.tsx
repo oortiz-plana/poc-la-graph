@@ -115,7 +115,7 @@ export function ObjectExplorer({
     status === "ready" && groups.length === 0 && ungrouped.length === 0;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="sticky top-0 z-10 shrink-0 space-y-2 border-b bg-surface p-3">
         <label className="block text-sm font-medium">
           <span className="sr-only">Search objects</span>
@@ -135,7 +135,7 @@ export function ObjectExplorer({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 pt-2">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 pt-2">
         {status === "searching" && (
           <p
             role="status"

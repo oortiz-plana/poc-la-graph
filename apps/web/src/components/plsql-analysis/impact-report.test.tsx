@@ -227,8 +227,9 @@ describe("ImpactReport", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("DOCU_FIDE")).toBeInTheDocument();
     // The relationship pane shows just the line number; the full path lives
-    // once, in the source evidence header.
-    expect(screen.getByText("line 429")).toBeInTheDocument();
+    // once, in the source evidence header. (The affected-objects table's
+    // Evidence column also shows "line 429", so there are two.)
+    expect(screen.getAllByText("line 429").length).toBeGreaterThan(0);
     expect(await screen.findByText("Source evidence")).toBeInTheDocument();
     expect(await screen.findByText("hr/fa_qfact_calc.pkb")).toBeInTheDocument();
 
@@ -246,6 +247,31 @@ describe("ImpactReport", () => {
         startLine: 429,
       }),
     );
+  });
+
+  it("shows an Evidence column in the affected objects table and closes the detail", async () => {
+    getPlsqlImpact.mockResolvedValue(result);
+    renderPanel();
+
+    const table = await screen.findByRole("table", {
+      name: "Affected objects",
+    });
+    expect(
+      within(table).getByRole("columnheader", { name: "Evidence" }),
+    ).toBeInTheDocument();
+    expect(within(table).getByText("line 429")).toBeInTheDocument();
+
+    await selectFirstRow("CALC_IVA_MORA");
+    expect(
+      await screen.findByText("Why is this affected?"),
+    ).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Close why CALC_IVA_MORA is affected",
+      }),
+    );
+    expect(screen.queryByText("Why is this affected?")).not.toBeInTheDocument();
   });
 
   it("inspects a trail node and its relationship in place, without navigating", async () => {

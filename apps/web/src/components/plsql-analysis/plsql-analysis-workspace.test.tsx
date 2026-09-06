@@ -233,7 +233,9 @@ describe("PlsqlAnalysisWorkspace", () => {
   it("renders the workspace panes with an empty state before selection", () => {
     render(<PlsqlAnalysisWorkspace />);
     expect(screen.getByLabelText("Object Explorer")).toBeInTheDocument();
-    expect(screen.getByLabelText("Inspector")).toBeInTheDocument();
+    // The Inspector is contextual: nothing is selected yet, so it doesn't
+    // reserve any space.
+    expect(screen.queryByLabelText("Inspector")).not.toBeInTheDocument();
     expect(screen.getByText("No object selected")).toBeInTheDocument();
     expect(mocks.getPlsqlDependencies).not.toHaveBeenCalled();
   });
@@ -341,8 +343,9 @@ describe("PlsqlAnalysisWorkspace", () => {
       await screen.findByText("Why is this affected?"),
     ).toBeInTheDocument();
     // The relationship pane shows just the line number; the full path lives
-    // once, in the source evidence header.
-    expect(screen.getByText("line 12")).toBeInTheDocument();
+    // once, in the source evidence header. (The detail table's Evidence
+    // column also shows "line 12", so there are two.)
+    expect(screen.getAllByText("line 12").length).toBeGreaterThan(0);
 
     await user.click(
       screen.getByRole("button", { name: "Analyze impact for RUN_PAYROLL" }),
@@ -686,8 +689,9 @@ describe("PlsqlAnalysisWorkspace", () => {
       await screen.findByText("Why is this affected?"),
     ).toBeInTheDocument();
     // The relationship pane shows just the line number; the full path lives
-    // once, in the source evidence header.
-    expect(screen.getByText("line 12")).toBeInTheDocument();
+    // once, in the source evidence header. (The affected-objects table's
+    // Evidence column also shows "line 12", so there are two.)
+    expect(screen.getAllByText("line 12").length).toBeGreaterThan(0);
   });
 
   it("shows the empty impact state and truncation flag", async () => {
@@ -915,7 +919,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     );
   });
 
-  it("opens the file source viewer from a caller evidence link", async () => {
+  it("shows source inline from a caller evidence link, then opens the full Source tab on request", async () => {
     const user = userEvent.setup();
     const callEdge = dependencyFixture({
       evidence: {
@@ -950,14 +954,23 @@ describe("PlsqlAnalysisWorkspace", () => {
     await user.click(screen.getByRole("tab", { name: "Dependencies" }));
     await user.click(await screen.findByText("line 34"));
 
-    expect(screen.getByRole("tab", { name: "Source" })).toHaveAttribute(
+    // Evidence in the results table opens inline, in the Selected dependency
+    // panel's own Source evidence section, without switching tabs.
+    expect(screen.getByRole("tab", { name: "Dependencies" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
+    expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
     expect(await screen.findByText("hr/pkg_payroll.pkb")).toBeInTheDocument();
     expect(mocks.getPlsqlFileSource).toHaveBeenCalledWith(
       "file://sample/hr/pkg_payroll.pkb",
       { startLine: 34, endLine: 34 },
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open full source" }));
+    expect(screen.getByRole("tab", { name: "Source" })).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
   });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Copy, LoaderCircle } from "lucide-react";
+import { ArrowRight, Copy, LoaderCircle, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,7 @@ import {
   type PlsqlProblemCode,
 } from "@/lib/api";
 import type {
+  PlsqlDependency,
   PlsqlDependencyCategory,
   PlsqlDependencySummary,
   PlsqlImpactResult,
@@ -37,6 +38,7 @@ import {
 import {
   displayPackageOf,
   evidenceLineLabel,
+  evidenceLocation,
   hopText,
   ObjectKindBadge,
 } from "./plsql-atoms";
@@ -59,6 +61,8 @@ export function OverviewPanel({
   object,
   onOpenEvidence,
   onOpenObject,
+  onInspectObject,
+  onInspectEdge,
   onInspectPath,
   onAnalyzeObject,
   onExploreDependencies,
@@ -67,6 +71,11 @@ export function OverviewPanel({
   object: PlsqlObject;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
   onOpenObject: (reference: PlsqlObjectReference) => void;
+  /** The "Why is this affected?" trail inspects in place instead, matching
+   * the Dependencies/Impact/Paths views: navigating away would discard the
+   * selected metric row. */
+  onInspectObject?: (reference: PlsqlObjectReference) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
   onAnalyzeObject: (reference: PlsqlObjectReference) => void;
   onExploreDependencies: (category: PlsqlDependencyCategory) => void;
@@ -141,6 +150,10 @@ export function OverviewPanel({
       ensureCategory(metric.source.category);
   }
 
+  function toggleRow(id: string) {
+    setSelectedRowId((current) => (current === id ? undefined : id));
+  }
+
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} className="text-xl font-semibold">
@@ -169,9 +182,11 @@ export function OverviewPanel({
           selectedMetricKey={selectedMetricKey}
           selectedRowId={selectedRowId}
           onSelectMetric={selectMetric}
-          onSelectRowId={setSelectedRowId}
+          onSelectRowId={toggleRow}
           onOpenEvidence={onOpenEvidence}
           onOpenObject={onOpenObject}
+          onInspectObject={onInspectObject}
+          onInspectEdge={onInspectEdge}
           onInspectPath={onInspectPath}
           onAnalyzeObject={onAnalyzeObject}
           onExploreDependencies={onExploreDependencies}
@@ -192,6 +207,8 @@ function OverviewBody({
   onSelectRowId,
   onOpenEvidence,
   onOpenObject,
+  onInspectObject,
+  onInspectEdge,
   onInspectPath,
   onAnalyzeObject,
   onExploreDependencies,
@@ -206,6 +223,8 @@ function OverviewBody({
   onSelectRowId: (id: string) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
   onOpenObject: (reference: PlsqlObjectReference) => void;
+  onInspectObject?: (reference: PlsqlObjectReference) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
   onAnalyzeObject: (reference: PlsqlObjectReference) => void;
   onExploreDependencies: (category: PlsqlDependencyCategory) => void;
@@ -276,7 +295,7 @@ function OverviewBody({
             <div className="mt-2">
               <DependencyDetailTable
                 ariaLabel={metric.label}
-                columns={columnsFor(metric)}
+                columns={columnsFor(metric, (row) => onSelectRowId(row.id))}
                 rows={rows}
                 getRowId={(row) => row.id}
                 selectedId={selectedRowId}
@@ -289,8 +308,11 @@ function OverviewBody({
         {selectedRow && (
           <RelationshipInsight
             row={selectedRow}
+            onClose={() => onSelectRowId(selectedRow.id)}
             onOpenEvidence={onOpenEvidence}
             onOpenObject={onOpenObject}
+            onInspectObject={onInspectObject}
+            onInspectEdge={onInspectEdge}
             onInspectPath={onInspectPath}
             onAnalyzeObject={onAnalyzeObject}
           />
@@ -302,6 +324,7 @@ function OverviewBody({
 
 function columnsFor(
   metric: OverviewMetricDef,
+  onSelectRow: (row: OverviewDetailRow) => void,
 ): DetailTableColumn<OverviewDetailRow>[] {
   const subjectColumn: DetailTableColumn<OverviewDetailRow> = {
     header: metric.subjectColumnHeader,
@@ -336,7 +359,43 @@ function columnsFor(
           header: metric.columns === "operation" ? "Operation" : "Relationship",
           cell: (row) => row.relationship ?? "—",
         };
-  return [subjectColumn, packageColumn, typeColumn, lastColumn];
+  const evidenceColumn: DetailTableColumn<OverviewDetailRow> = {
+    header: "Evidence",
+    cell: (row) => {
+      const finalEdge =
+        row.path.relationships[row.path.relationships.length - 1];
+      const evidence = finalEdge?.evidence ?? null;
+      const label = evidenceLineLabel(evidence);
+      if (label === undefined) {
+        return <span className="text-text-muted">—</span>;
+      }
+      const fullLocation = evidenceLocation(evidence);
+      if (!evidence?.sourceFileId) {
+        return (
+          <span
+            title={fullLocation}
+            className="break-words text-xs text-text-secondary"
+          >
+            {label}
+          </span>
+        );
+      }
+      return (
+        <button
+          type="button"
+          title={fullLocation}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelectRow(row);
+          }}
+          className="break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          {label}
+        </button>
+      );
+    },
+  };
+  return [subjectColumn, packageColumn, typeColumn, lastColumn, evidenceColumn];
 }
 
 /** Every loaded page carries every category's counts; the first one found suffices. */
@@ -421,14 +480,20 @@ function rowsForMetric(
 
 function RelationshipInsight({
   row,
+  onClose,
   onOpenEvidence,
   onOpenObject,
+  onInspectObject,
+  onInspectEdge,
   onInspectPath,
   onAnalyzeObject,
 }: {
   row: OverviewDetailRow;
+  onClose: () => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
   onOpenObject: (reference: PlsqlObjectReference) => void;
+  onInspectObject?: (reference: PlsqlObjectReference) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
   onAnalyzeObject: (reference: PlsqlObjectReference) => void;
 }) {
@@ -450,22 +515,37 @@ function RelationshipInsight({
   return (
     <section
       aria-label={`Why ${row.subject.name} is related`}
-      className="mt-3 rounded-lg border bg-surface"
+      className="mt-6 rounded-lg border bg-background"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-        <h4 className="text-sm font-semibold text-text-secondary">
-          Why is this affected?
-        </h4>
-        <span
-          title={row.subject.qualifiedName}
-          className="break-words text-xs text-text-muted"
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h4 className="text-sm font-semibold text-text-secondary">
+            Why is this affected?
+          </h4>
+          <span
+            title={row.subject.qualifiedName}
+            className="break-words text-xs text-text-muted"
+          >
+            {row.subject.qualifiedName}
+          </span>
+        </div>
+        <button
+          type="button"
+          aria-label={`Close why ${row.subject.name} is related`}
+          onClick={onClose}
+          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-text-secondary hover:bg-selected hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
-          {row.subject.qualifiedName}
-        </span>
+          <X aria-hidden className="h-4 w-4" />
+        </button>
       </div>
-      <div className="grid items-start gap-4 px-4 py-3 lg:grid-cols-[35%_1fr]">
-        <div>
-          <DependencyPathTrail path={row.path} showKind />
+      <div className="grid items-start divide-y lg:grid-cols-[35%_1fr] lg:divide-x lg:divide-y-0">
+        <div className="p-4">
+          <DependencyPathTrail
+            path={row.path}
+            onOpenObject={onInspectObject}
+            onInspectEdge={onInspectEdge}
+            showKind
+          />
           {/* The full path/line already appears once, in the source evidence
            * header on the right. */}
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
@@ -509,7 +589,7 @@ function RelationshipInsight({
             {copied ? "Qualified name copied to clipboard." : ""}
           </p>
         </div>
-        <section aria-label="Source evidence" className="min-w-0">
+        <section aria-label="Source evidence" className="min-w-0 p-4">
           {finalEdge?.evidence?.sourceFileId ? (
             <SourceBody
               heading="Source evidence"

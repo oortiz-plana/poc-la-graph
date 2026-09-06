@@ -7,7 +7,6 @@ import {
   Ellipsis,
   FolderKanban,
   LogOut,
-  Menu,
   MessageSquare,
   Network,
   Pencil,
@@ -17,7 +16,13 @@ import {
   Undo2,
   Users,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -27,12 +32,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Sidebar,
+  SidebarContent,
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from "@/components/ui/sidebar";
 import {
   archiveConversation,
   createConversation,
@@ -63,35 +69,32 @@ export function ApplicationShell({
   section?: ProjectSection;
 }) {
   const auth = useAuth();
-  const [navigationOpen, setNavigationOpen] = useState(false);
   const navigation = (
     <ApplicationNavigation
       project={project}
       fileCount={fileCount}
       section={section}
-      close={() => setNavigationOpen(false)}
     />
   );
 
   return (
-    <div className="flex min-h-dvh bg-background">
-      <aside className="hidden w-[clamp(14rem,18vw,19rem)] shrink-0 border-r bg-surface lg:block">
-        {navigation}
-      </aside>
-      <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-20 border-b bg-surface/95 px-4 backdrop-blur">
+    <SidebarProvider
+      className="h-dvh min-h-0 overflow-hidden bg-background"
+      style={
+        { "--sidebar-width": "clamp(14rem, 18vw, 19rem)" } as CSSProperties
+      }
+    >
+      <Sidebar collapsible="offcanvas" className="border-r bg-surface">
+        <SidebarContent>{navigation}</SidebarContent>
+      </Sidebar>
+      <SidebarInset className="min-w-0 overflow-hidden">
+        <header className="shrink-0 border-b bg-surface/95 px-4 backdrop-blur">
           <div className="flex min-h-16 items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
-              <Button
-                variant="outline"
-                size="icon"
-                className="lg:hidden"
-                aria-label="Open navigation"
-                aria-expanded={navigationOpen}
-                onClick={() => setNavigationOpen(true)}
-              >
-                <Menu aria-hidden />
-              </Button>
+              <SidebarTrigger
+                aria-label="Toggle navigation"
+                className="h-11 w-11 [&_svg]:size-5"
+              />
               <div className="min-w-0">
                 <p className="truncate text-base font-semibold">
                   Graphify Knowledge Agent
@@ -122,25 +125,9 @@ export function ApplicationShell({
             </div>
           </div>
         </header>
-        {children}
-      </div>
-      {navigationOpen && (
-        <Sheet open onOpenChange={setNavigationOpen}>
-          <SheetContent
-            side="left"
-            className="w-[min(22rem,calc(100vw-2rem))] p-0"
-          >
-            <SheetHeader className="sr-only">
-              <SheetTitle>Primary navigation</SheetTitle>
-              <SheetDescription>
-                Project and conversation navigation
-              </SheetDescription>
-            </SheetHeader>
-            {navigation}
-          </SheetContent>
-        </Sheet>
-      )}
-    </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 
@@ -148,12 +135,10 @@ function ApplicationNavigation({
   project,
   fileCount,
   section,
-  close,
 }: {
   project?: Project;
   fileCount: number;
   section?: ProjectSection;
-  close: () => void;
 }) {
   const auth = useAuth();
   if (!project) {
@@ -191,7 +176,6 @@ function ApplicationNavigation({
       project={project}
       fileCount={fileCount}
       section={section}
-      close={close}
     />
   );
 }
@@ -200,13 +184,12 @@ function ProjectApplicationNavigation({
   project,
   fileCount,
   section,
-  close,
 }: {
   project: Project;
   fileCount: number;
   section?: ProjectSection;
-  close: () => void;
 }) {
+  const { setOpenMobile } = useSidebar();
   const [active, setActive] = useState<ConversationSummary[]>([]);
   const [archived, setArchived] = useState<ConversationSummary[]>([]);
   const [showArchived, setShowArchived] = useState(false);
@@ -236,7 +219,7 @@ function ProjectApplicationNavigation({
       `graphify-conversation-id:${project.id}`,
       conversation.id,
     );
-    close();
+    setOpenMobile(false);
     window.location.assign(chatHref);
   }
   async function create() {

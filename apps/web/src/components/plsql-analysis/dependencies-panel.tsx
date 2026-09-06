@@ -294,7 +294,7 @@ export function DependenciesPanel({
             title={fullLocation}
             onClick={(event) => {
               event.stopPropagation();
-              onOpenEvidence(row.edge.evidence);
+              selectEdge(row.edge);
             }}
             className="break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >

@@ -251,6 +251,47 @@ describe("DependenciesPanel results table", () => {
     const name = within(table).getByText("CALC_IVA_MORA");
     expect(name).toHaveAttribute("title", "HR.FA_QFACT_CALC.CALC_IVA_MORA");
   });
+
+  it("selects the dependency and shows it inline when its Evidence link is clicked", async () => {
+    const onOpenEvidence = vi.fn();
+    const callers = callerSummary();
+    callers.items[0] = {
+      ...callers.items[0],
+      evidence: {
+        sourceFileId: "file://sample/hr/fa_qfact_calc.pkb",
+        path: "hr/fa_qfact_calc.pkb",
+        startLine: 429,
+        startColumn: 1,
+        startOffset: 10,
+        endOffset: 20,
+      },
+    };
+    getPlsqlDependencies.mockResolvedValue(callers);
+    getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/fa_qfact_calc.pkb",
+        path: "hr/fa_qfact_calc.pkb",
+      },
+      lines: ["  DOCU_FIDE(...);"],
+      highlight: { startLine: 429, endLine: 429 },
+    });
+    const user = userEvent.setup();
+    render(
+      <DependenciesPanel
+        object={object}
+        onOpenEvidence={onOpenEvidence}
+        onOpenObject={vi.fn()}
+        onInspectObject={vi.fn()}
+      />,
+    );
+    const table = await screen.findByRole("table");
+    await user.click(within(table).getByText("line 429"));
+
+    // Shows inline in the Selected dependency split, without jumping tabs.
+    expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
+    expect(await screen.findByText("Source evidence")).toBeInTheDocument();
+    expect(onOpenEvidence).not.toHaveBeenCalled();
+  });
 });
 
 describe("DependenciesPanel selected dependency", () => {

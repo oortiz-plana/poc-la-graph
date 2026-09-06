@@ -126,7 +126,7 @@ describe("ProjectDetailWorkspace", () => {
       screen.getByRole("navigation", { name: "Project" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Open navigation" }),
+      screen.getByRole("button", { name: "Toggle navigation" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ApplicationShell } from "@/components/application-shell";
@@ -51,6 +51,23 @@ export function PlsqlAnalysisWorkspace() {
   const [dependenciesCategory, setDependenciesCategory] =
     useState<PlsqlDependencyCategory>();
   const headingRef = useRef<HTMLHeadingElement>(null);
+
+  // The workspace scrolls per pane (Explorer, main, Inspector) inside a
+  // fixed-height shell; a document-level scrollbar on top of that means two
+  // competing scroll containers, which throws off sticky headers and
+  // canvas-sized panels (Monaco, Cytoscape) that size themselves against the
+  // viewport at mount. Suppress it for as long as this view is mounted.
+  useEffect(() => {
+    const { documentElement, body } = document;
+    const previousHtmlOverflow = documentElement.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    documentElement.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      documentElement.style.overflow = previousHtmlOverflow;
+      body.style.overflow = previousBodyOverflow;
+    };
+  }, []);
 
   function navigate(object: PlsqlObject) {
     selectObject(object);
@@ -154,6 +171,7 @@ export function PlsqlAnalysisWorkspace() {
         </div>
       ) : (
         <WorkspaceShell
+          hasInspection={inspection !== undefined}
           explorer={
             <ObjectExplorer selectedId={selected?.id} onSelect={navigate} />
           }
@@ -203,6 +221,8 @@ export function PlsqlAnalysisWorkspace() {
                     object={selected}
                     onOpenEvidence={openEvidence}
                     onOpenObject={openReference}
+                    onInspectObject={inspectReference}
+                    onInspectEdge={inspectEdge}
                     onInspectPath={(path) =>
                       setInspection({ kind: "path", path })
                     }

@@ -7,6 +7,7 @@ import type {
   PlsqlPath,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
+import { RelationshipChip } from "./plsql-atoms";
 
 /** Minimal shape needed to render a chain of nodes joined by relationships. */
 export type PathLike = Pick<PlsqlPath, "nodes" | "relationships">;
@@ -51,14 +52,17 @@ export function DependencyPathTrail({
                 <button
                   type="button"
                   onClick={() => onInspectEdge(path.relationships[index - 1])}
-                  className="rounded py-0.5 text-xs font-medium text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                  className="group rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 >
-                  {path.relationships[index - 1].relationship}
+                  <RelationshipChip
+                    relationship={path.relationships[index - 1].relationship}
+                    className="group-hover:border-primary group-hover:text-primary"
+                  />
                 </button>
               ) : (
-                <span className="py-0.5 text-xs font-medium text-text-secondary">
-                  {path.relationships[index - 1].relationship}
-                </span>
+                <RelationshipChip
+                  relationship={path.relationships[index - 1].relationship}
+                />
               )}
               <span aria-hidden>▼</span>
               {onOpenEvidence && (

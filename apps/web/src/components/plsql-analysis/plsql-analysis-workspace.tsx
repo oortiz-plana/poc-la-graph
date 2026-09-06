@@ -218,6 +218,10 @@ export function PlsqlAnalysisWorkspace() {
                     onOpenObject={openReference}
                     onInspectObject={inspectReference}
                     onInspectEdge={inspectEdge}
+                    onAnalyzeObject={analyzeObject}
+                    onInspectPath={(path) =>
+                      setInspection({ kind: "path", path })
+                    }
                   />
                 </TabsContent>
                 <TabsContent value="impact">

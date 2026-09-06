@@ -230,7 +230,7 @@ export function SourceBody({ request }: { request: SourceRequest }) {
               className="min-h-11"
               onClick={() => focusLine(highlight.startLine)}
             >
-              Go to line {highlight.startLine}
+              Go to evidence
             </Button>
           )}
           <Button

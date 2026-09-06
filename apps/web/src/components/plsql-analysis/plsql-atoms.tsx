@@ -98,6 +98,29 @@ export function ResolutionBadge({
   );
 }
 
+/**
+ * Compact label for one relationship type (CALLS, READS, WRITES, …), shared
+ * wherever a relationship connects two nodes: the Dependencies list and
+ * selected-dependency trail, Impact's "why is this affected" trail, traced
+ * Paths, and the Inspector's edge/path detail. A plain chip reads better at a
+ * glance than underlined link text, which implies navigation it doesn't do.
+ */
+export function RelationshipChip({
+  relationship,
+  className = "",
+}: {
+  relationship: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-md border bg-surface px-2 py-0.5 text-xs font-medium text-text-secondary ${className}`}
+    >
+      {relationship}
+    </span>
+  );
+}
+
 export function evidenceLocation(
   evidence: {
     path?: string | null;

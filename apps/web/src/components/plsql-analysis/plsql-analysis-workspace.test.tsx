@@ -410,18 +410,10 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await screen.findByRole("button", { name: /Callers 1/ }),
     ).toBeInTheDocument();
+    const table = await screen.findByRole("table");
     await waitFor(() => {
-      const rows = screen.getAllByRole("listitem");
-      expect(
-        rows.some((row) => {
-          const text = row.textContent ?? "";
-          return (
-            text.includes("RUN_PAYROLL") &&
-            text.includes("CALLS") &&
-            text.includes("GET_SALARY")
-          );
-        }),
-      ).toBe(true);
+      expect(within(table).getByText("RUN_PAYROLL")).toBeInTheDocument();
+      expect(within(table).getByText("CALLS")).toBeInTheDocument();
     });
     expect(screen.getByText("Inferred")).toBeInTheDocument();
     expect(screen.getByText("Inferred")).toHaveAttribute(
@@ -464,12 +456,8 @@ describe("PlsqlAnalysisWorkspace", () => {
       /GET_SALARY/,
     );
     await user.click(screen.getByRole("tab", { name: "Dependencies" }));
-    await user.click(
-      await screen.findByRole("button", {
-        name: /Show dependency details for/,
-      }),
-    );
-    expect(await screen.findByText("Dependency")).toBeInTheDocument();
+    await user.click(await screen.findByText("RUN_PAYROLL"));
+    expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
 
     // A node in the split view's trail inspects it in place; it must not
     // navigate away and reset the panel back to its default category.
@@ -489,7 +477,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.getByText("Dependency")).toBeInTheDocument();
+    expect(screen.getByText("Selected dependency")).toBeInTheDocument();
 
     // The relationship line inspects the edge the same way.
     await user.click(screen.getByRole("button", { name: "CALLS" }));
@@ -548,11 +536,9 @@ describe("PlsqlAnalysisWorkspace", () => {
       functionObject.id,
       "reads",
     );
+    const table = await screen.findByRole("table");
     await waitFor(() => {
-      const rows = screen.getAllByRole("listitem");
-      expect(
-        rows.some((row) => (row.textContent ?? "").includes("HR.EMPLOYEES")),
-      ).toBe(true);
+      expect(within(table).getByText("EMPLOYEES")).toBeInTheDocument();
     });
     expect(screen.getByText("Results truncated")).toBeInTheDocument();
   });
@@ -900,7 +886,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       (await screen.findAllByText("hr/pkg_emp.pkb")).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "Go to line 1" }),
+      screen.getByRole("button", { name: "Go to evidence" }),
     ).toBeInTheDocument();
     expect(await screen.findByTestId("monaco-source-editor")).toHaveTextContent(
       "FUNCTION GET_SALARY(",

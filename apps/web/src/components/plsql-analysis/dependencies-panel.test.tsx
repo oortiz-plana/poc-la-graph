@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -6,6 +6,7 @@ import type {
   PlsqlDependencySummary,
   PlsqlObject,
   PlsqlObjectReference,
+  PlsqlPath,
 } from "@/lib/contracts";
 import { addedElements, resetCytoscapeMock } from "./cytoscape-mock";
 import { DependenciesPanel } from "./dependencies-panel";
@@ -80,6 +81,8 @@ function renderPanel(
     onOpenObject?: (reference: PlsqlObjectReference) => void;
     onInspectObject?: (reference: PlsqlObjectReference) => void;
     onInspectEdge?: (edge: PlsqlDependency) => void;
+    onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
+    onInspectPath?: (path: PlsqlPath) => void;
     initialCategory?: "callers" | "callees" | "reads" | "writes" | "other";
   } = {},
 ) {
@@ -91,6 +94,8 @@ function renderPanel(
       onOpenObject={overrides.onOpenObject ?? vi.fn()}
       onInspectObject={overrides.onInspectObject ?? vi.fn()}
       onInspectEdge={overrides.onInspectEdge}
+      onAnalyzeObject={overrides.onAnalyzeObject}
+      onInspectPath={overrides.onInspectPath}
     />,
   );
 }
@@ -213,7 +218,7 @@ describe("DependenciesPanel graph mode", () => {
   });
 });
 
-describe("DependenciesPanel split view", () => {
+describe("DependenciesPanel results table", () => {
   afterEach(() => {
     vi.clearAllMocks();
     getPlsqlDependencies.mockReset();
@@ -221,7 +226,35 @@ describe("DependenciesPanel split view", () => {
     resetCytoscapeMock(cyMock);
   });
 
-  it("opens a dependency-source split when a row is selected", async () => {
+  it("renders a compact row: the other object, relationship, resolution and source", async () => {
+    getPlsqlDependencies.mockResolvedValue(callerSummary());
+    renderPanel();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("Target")).toBeInTheDocument();
+    expect(within(table).getByText("Relationship")).toBeInTheDocument();
+    expect(within(table).getByText("Resolution")).toBeInTheDocument();
+    expect(within(table).getByText("Source")).toBeInTheDocument();
+    // Only the *other* object shows in the row; the analyzed object (DOCU_FIDE)
+    // is already the page subject and doesn't need repeating in every row.
+    expect(within(table).getByText("CALC_IVA_MORA")).toBeInTheDocument();
+    expect(within(table).queryByText("DOCU_FIDE")).not.toBeInTheDocument();
+    expect(within(table).getByText("CALLS")).toBeInTheDocument();
+    expect(within(table).getByText("Resolved")).toBeInTheDocument();
+    const name = within(table).getByText("CALC_IVA_MORA");
+    expect(name).toHaveAttribute("title", "HR.FA_QFACT_CALC.CALC_IVA_MORA");
+  });
+});
+
+describe("DependenciesPanel selected dependency", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    getPlsqlDependencies.mockReset();
+    getPlsqlFileSource.mockReset();
+    resetCytoscapeMock(cyMock);
+  });
+
+  it("opens a selected-dependency split when a row is selected", async () => {
     const callers = callerSummary();
     callers.items[0] = {
       ...callers.items[0],
@@ -245,13 +278,9 @@ describe("DependenciesPanel split view", () => {
     });
     const user = userEvent.setup();
     renderPanel();
-    await user.click(
-      await screen.findByRole("button", {
-        name: /Show dependency details for/,
-      }),
-    );
+    await user.click(await screen.findByText("CALC_IVA_MORA"));
 
-    expect(await screen.findByText("Dependency")).toBeInTheDocument();
+    expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
     expect(
       screen.getAllByText("hr/fa_qfact_calc.pkb:429").length,
     ).toBeGreaterThan(0);
@@ -261,10 +290,10 @@ describe("DependenciesPanel split view", () => {
       { startLine: 429, endLine: 429 },
     );
     await user.click(screen.getByRole("button", { name: "Close" }));
-    expect(screen.queryByText("Dependency")).not.toBeInTheDocument();
+    expect(screen.queryByText("Selected dependency")).not.toBeInTheDocument();
   });
 
-  it("inspects a split-view node and relationship in place, without navigating", async () => {
+  it("inspects the trail's node and relationship in place, without navigating", async () => {
     const callers = callerSummary();
     getPlsqlDependencies.mockResolvedValue(callers);
     const onOpenObject = vi.fn();
@@ -272,12 +301,8 @@ describe("DependenciesPanel split view", () => {
     const onInspectEdge = vi.fn();
     const user = userEvent.setup();
     renderPanel({ onOpenObject, onInspectObject, onInspectEdge });
-    await user.click(
-      await screen.findByRole("button", {
-        name: /Show dependency details for/,
-      }),
-    );
-    expect(await screen.findByText("Dependency")).toBeInTheDocument();
+    await user.click(await screen.findByText("CALC_IVA_MORA"));
+    expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: "HR.FA_QFACT_CALC.CALC_IVA_MORA" }),
@@ -291,7 +316,7 @@ describe("DependenciesPanel split view", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.getByText("Dependency")).toBeInTheDocument();
+    expect(screen.getByText("Selected dependency")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "CALLS" }));
     expect(onInspectEdge).toHaveBeenCalledWith(
@@ -315,9 +340,48 @@ describe("DependenciesPanel split view", () => {
     act(() => {
       edgeHandler({ target: { id: () => "edge://sample/CALLS/1" } });
     });
-    expect(await screen.findByText("Dependency")).toBeInTheDocument();
+    expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
     expect(
-      screen.getByText("No source evidence for this dependency"),
+      screen.getByText("No source evidence available for this dependency."),
     ).toBeInTheDocument();
+  });
+
+  it("provides Open object, Analyze impact, View full path and Copy qualified name actions", async () => {
+    const callers = callerSummary();
+    getPlsqlDependencies.mockResolvedValue(callers);
+    const onOpenObject = vi.fn();
+    const onAnalyzeObject = vi.fn();
+    const onInspectPath = vi.fn();
+    const user = userEvent.setup();
+    // userEvent.setup() attaches its own clipboard stub to navigator; spy on
+    // its writeText rather than replacing the whole navigator object.
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
+    renderPanel({ onOpenObject, onAnalyzeObject, onInspectPath });
+    await user.click(await screen.findByText("CALC_IVA_MORA"));
+    await screen.findByText("Selected dependency");
+
+    await user.click(screen.getByRole("button", { name: "Open object" }));
+    expect(onOpenObject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "CALC_IVA_MORA" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Analyze impact" }));
+    expect(onAnalyzeObject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "CALC_IVA_MORA" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "View full path" }));
+    expect(onInspectPath).toHaveBeenCalledWith(
+      expect.objectContaining({ hopCount: 1 }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Copy qualified name" }),
+    );
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("HR.FA_QFACT_CALC.CALC_IVA_MORA"),
+    );
   });
 });

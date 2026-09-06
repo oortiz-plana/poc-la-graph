@@ -10,6 +10,7 @@ import type {
 import {
   evidenceLocation,
   ObjectKindBadge,
+  RelationshipChip,
   ResolutionBadge,
 } from "./plsql-atoms";
 
@@ -119,7 +120,10 @@ function EdgeInspection({
           reference={edge.source}
           onOpenObject={onOpenObject}
         />
-        <Row label="Relationship" value={edge.relationship} />
+        <Row
+          label="Relationship"
+          value={<RelationshipChip relationship={edge.relationship} />}
+        />
         <ReferenceRow
           label="To"
           reference={edge.target}
@@ -166,14 +170,20 @@ function PathInspection({
         <p className="text-xs text-text-muted">Full path</p>
         <ol className="mt-2 space-y-1.5">
           {path.nodes.map((node, index) => (
-            <li key={`${node.id}-${index}`} className="break-words text-sm">
+            <li
+              key={`${node.id}-${index}`}
+              className="flex flex-wrap items-center gap-1.5 text-sm"
+            >
               {index > 0 && (
-                <span className="text-xs text-text-muted">
-                  {path.relationships[index - 1].relationship}
-                  {" · "}
-                </span>
+                <RelationshipChip
+                  relationship={path.relationships[index - 1].relationship}
+                />
               )}
-              <ObjectLink reference={node} onOpenObject={onOpenObject}>
+              <ObjectLink
+                reference={node}
+                onOpenObject={onOpenObject}
+                className="break-words"
+              >
                 {node.qualifiedName}
               </ObjectLink>
             </li>
@@ -184,7 +194,7 @@ function PathInspection({
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="px-4 py-2.5">
       <dt className="text-xs text-text-muted">{label}</dt>

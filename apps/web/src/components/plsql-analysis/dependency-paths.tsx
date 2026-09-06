@@ -1,10 +1,11 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
-import { Fragment, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { findPlsqlPaths, type PlsqlProblemCode } from "@/lib/api";
 import type {
+  PlsqlDependency,
   PlsqlObject,
   PlsqlObjectReference,
   PlsqlPath,
@@ -12,20 +13,25 @@ import type {
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
 import { AnalysisError, problemCodeOf } from "./analysis-error";
+import { DependencyPathTrail } from "./dependency-path-trail";
 import { PlsqlObjectCombobox } from "./object-combobox";
 
 type PathStatus = "idle" | "loading" | "ready" | "error";
 
 export function DependencyPathsSection({
   initialFrom,
-  onOpenObject,
+  onInspectObject,
   onOpenEvidence,
   onInspectPath,
+  onInspectEdge,
 }: {
   initialFrom?: PlsqlObject;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
+  /** Route nodes are inspected in place; clicking one must never navigate
+   * away or reset the traced route (see the shared onInspectEdge below). */
+  onInspectObject: (reference: PlsqlObjectReference) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
   onInspectPath?: (path: PlsqlPath) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
 }) {
   const [from, setFrom] = useState<PlsqlObject>();
   const [to, setTo] = useState<PlsqlObject>();
@@ -63,7 +69,10 @@ export function DependencyPathsSection({
       <h2 id={headingId} className="text-xl font-semibold">
         Dependency paths
       </h2>
-      <form onSubmit={(event) => void tracePaths(event)} className="mt-3 max-w-3xl">
+      <form
+        onSubmit={(event) => void tracePaths(event)}
+        className="mt-3 max-w-3xl"
+      >
         <div className="grid gap-4 sm:grid-cols-2">
           <PlsqlObjectCombobox
             id="plsql-path-from"
@@ -127,8 +136,9 @@ export function DependencyPathsSection({
                       current === path.id ? undefined : path.id,
                     );
                   }}
-                  onOpenObject={onOpenObject}
+                  onInspectObject={onInspectObject}
                   onOpenEvidence={onOpenEvidence}
+                  onInspectEdge={onInspectEdge}
                 />
               ))}
             </ol>
@@ -143,14 +153,16 @@ function PathRow({
   path,
   expanded,
   onToggle,
-  onOpenObject,
+  onInspectObject,
   onOpenEvidence,
+  onInspectEdge,
 }: {
   path: PlsqlPath;
   expanded: boolean;
   onToggle: () => void;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
+  onInspectObject: (reference: PlsqlObjectReference) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
 }) {
   const hopText = path.hopCount === 1 ? "1 hop" : `${path.hopCount} hops`;
   const from = path.nodes[0];
@@ -172,62 +184,17 @@ function PathRow({
       </button>
       {expanded && (
         <div className="border-t px-3 py-3">
-          <p className="text-sm font-semibold text-text-secondary">
-            Route
-          </p>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1 text-sm">
-            {path.nodes.map((node, index) => (
-              <Fragment key={`${node.id}-${index}`}>
-                {index > 0 && (
-                  <Fragment key={`hop-${index}`}>
-                    <span aria-hidden>→</span>
-                    <span className="font-medium">
-                      {path.relationships[index - 1].relationship}
-                    </span>
-                    <span aria-hidden>→</span>
-                  </Fragment>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onOpenObject(node)}
-                  className="min-h-11 min-w-0 max-w-full break-words rounded underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                >
-                  {node.qualifiedName}
-                </button>
-                {index > 0 && (
-                  <EvidenceLink
-                    edge={path.relationships[index - 1]}
-                    onOpenEvidence={onOpenEvidence}
-                  />
-                )}
-              </Fragment>
-            ))}
-          </p>
+          <p className="text-sm font-semibold text-text-secondary">Route</p>
+          <div className="mt-1">
+            <DependencyPathTrail
+              path={path}
+              onOpenObject={onInspectObject}
+              onOpenEvidence={onOpenEvidence}
+              onInspectEdge={onInspectEdge}
+            />
+          </div>
         </div>
       )}
     </li>
-  );
-}
-
-function EvidenceLink({
-  edge,
-  onOpenEvidence,
-}: {
-  edge: PlsqlPath["relationships"][number];
-  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
-}) {
-  const evidence = edge.evidence;
-  if (!evidence?.sourceFileId) return null;
-  const location =
-    evidence.path +
-    (evidence.startLine == null ? "" : `:${evidence.startLine}`);
-  return (
-    <button
-      type="button"
-      onClick={() => onOpenEvidence(evidence)}
-      className="min-h-11 min-w-0 max-w-full break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-    >
-      {location}
-    </button>
   );
 }

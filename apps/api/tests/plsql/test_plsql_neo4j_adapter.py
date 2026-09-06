@@ -33,6 +33,7 @@ from app.integrations.plsql.catalog import (
     EDGE_TABLE_ACCESS,
     EDGE_UNRESOLVED,
     OBJECT_DECLARATION,
+    SOURCE_FILES,
 )
 from app.integrations.plsql.errors import PlsqlLimitExceeded
 from app.integrations.plsql.models import (
@@ -192,6 +193,42 @@ def test_dependency_from_row_uses_file_map_when_file_id_not_embedded() -> None:
         unknown = client._dependency_from_row(row, file_paths={})
         assert unknown is not None
         assert unknown.evidence is None
+    finally:
+        client.close()
+
+
+async def test_file_map_resolves_a_source_file_id_written_as_a_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trigger-body CALLS evidence in the real graph writes the
+    project-relative path itself into ``sourceFileId`` instead of the
+    ``SourceFile`` node's id; both edge-evidence resolution and the
+    on-demand source fetch must still resolve it, sharing one file map."""
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        assert query == SOURCE_FILES
+        return [
+            {
+                "path": "Triggers/FM_GORPA_UPD.sql",
+                "fileId": "file://sample/Triggers/FM_GORPA_UPD.sql",
+            }
+        ]
+
+    client = Neo4jPlsqlAnalysisClient(project_id="sample", uri="bolt://127.0.0.1:9")
+    monkeypatch.setattr(client, "_execute", execute)
+    try:
+        mapping = await client._file_map()
+        row = _edge_row(sourceFileId="Triggers/FM_GORPA_UPD.sql")
+        record = client._dependency_from_row(row, mapping)
+        assert record is not None
+        assert record.evidence is not None
+        assert record.evidence.source_file_id == "Triggers/FM_GORPA_UPD.sql"
+        assert record.evidence.path == "Triggers/FM_GORPA_UPD.sql"
+
+        assert (
+            await client._resolve_path("Triggers/FM_GORPA_UPD.sql")
+            == "Triggers/FM_GORPA_UPD.sql"
+        )
     finally:
         client.close()
 

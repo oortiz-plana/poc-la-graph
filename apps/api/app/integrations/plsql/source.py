@@ -49,12 +49,16 @@ def resolve_source_file(root: Path, relative_path: str) -> Path:
     return resolved
 
 
-def read_source_lines(resolved: Path, max_bytes: int) -> list[str]:
+def read_source_lines(
+    resolved: Path, max_bytes: int, encoding: str = "iso-8859-1"
+) -> list[str]:
     """Read a resolved file, enforcing the byte cap and decoding text.
 
     Files are read fully only when they fit within ``max_bytes``; oversized
-    files raise :class:`PlsqlLimitExceeded`. Decoding uses replacement for
-    determinism, mirroring the read-only text contract.
+    files raise :class:`PlsqlLimitExceeded`. ``encoding`` is configurable
+    (``PLSQL_SOURCE_ENCODING``, defaulting to ``iso-8859-1``) since analyzed
+    PL/SQL corpora are not guaranteed to be UTF-8. Decoding uses replacement
+    for determinism, mirroring the read-only text contract.
     """
     try:
         size = resolved.stat().st_size
@@ -66,4 +70,4 @@ def read_source_lines(resolved: Path, max_bytes: int) -> list[str]:
         raw = resolved.read_bytes()
     except OSError as exc:
         raise PlsqlObjectNotFound("The requested source file is unavailable.") from exc
-    return raw.decode("utf-8", errors="replace").splitlines()
+    return raw.decode(encoding, errors="replace").splitlines()

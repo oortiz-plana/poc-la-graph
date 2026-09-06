@@ -85,11 +85,13 @@ class SyntheticPlsqlAnalysisClient:
         max_rows: int = 200,
         source_root: str | None = None,
         max_source_bytes: int = DEFAULT_MAX_SOURCE_BYTES,
+        source_encoding: str = "iso-8859-1",
     ) -> None:
         self._project_id = project_id
         self._max_rows = max(1, max_rows)
         self._source_root = source_root
         self._max_source_bytes = max(1, max_source_bytes)
+        self._source_encoding = source_encoding
         self._corpus: tuple[PlsqlObjectRecord, ...] = tuple(
             sorted(
                 build_corpus(project_id),
@@ -493,7 +495,9 @@ class SyntheticPlsqlAnalysisClient:
 
         def read() -> list[str]:
             resolved = resolve_source_file(root, path)
-            return read_source_lines(resolved, self._max_source_bytes)
+            return read_source_lines(
+                resolved, self._max_source_bytes, self._source_encoding
+            )
 
         lines = await asyncio.to_thread(read)
         return PlsqlSourceRecord(

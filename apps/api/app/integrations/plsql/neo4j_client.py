@@ -230,6 +230,7 @@ class Neo4jPlsqlAnalysisClient:
         max_traversal_edges: int = 20_000,
         source_root: str | None = None,
         max_source_bytes: int = 262_144,
+        source_encoding: str = "iso-8859-1",
     ) -> None:
         if not uri:
             raise PlsqlConfigurationError(
@@ -243,6 +244,7 @@ class Neo4jPlsqlAnalysisClient:
         self._max_traversal_edges = max(1, max_traversal_edges)
         self._source_root = source_root
         self._max_source_bytes = max(1, max_source_bytes)
+        self._source_encoding = source_encoding
         auth = (user, password) if user is not None and password is not None else None
         try:
             self._driver: neo4j.Driver = GraphDatabase.driver(
@@ -324,7 +326,14 @@ class Neo4jPlsqlAnalysisClient:
     # --- graph projections -------------------------------------------------
 
     async def _file_map(self) -> dict[str, str]:
-        """Map graph file ids to project-relative paths (lazy, cached)."""
+        """Map graph file ids to project-relative paths (lazy, cached).
+
+        Some extractors write the project-relative path itself into an
+        edge's ``sourceFileId`` instead of the ``SourceFile`` node's id (seen
+        on trigger-body ``CALLS`` evidence in the real graph), so a path
+        maps to itself here too: ``_resolve_path_sync`` then resolves either
+        form through the same single lookup.
+        """
         if self._file_map_cache is not None:
             return self._file_map_cache
         rows = await self._execute(SOURCE_FILES, projectId=self._project_id)
@@ -334,20 +343,20 @@ class Neo4jPlsqlAnalysisClient:
             file_key = row.get("fileId")
             if path and file_key:
                 mapping[str(file_key)] = str(path)
+                mapping[str(path)] = str(path)
         self._file_map_cache = mapping
         return mapping
 
     async def _resolve_path(self, file_id: str | None) -> str | None:
-        """Resolve a graph file id to a project-relative path, best effort."""
+        """Resolve a graph file id (or an already project-relative path) to
+        its canonical project-relative path, best effort. Delegates to
+        `_resolve_path_sync` so evidence resolution (edges/objects) and
+        on-demand source fetches share one implementation.
+        """
         if file_id is None:
             return None
         mapping = await self._file_map()
-        if file_id in mapping:
-            return mapping[file_id]
-        prefix = f"file://{self._project_id}/"
-        if file_id.startswith(prefix):
-            return file_id[len(prefix) :]
-        return None
+        return self._resolve_path_sync(file_id, mapping)
 
     def _evidence(
         self,
@@ -705,7 +714,7 @@ class Neo4jPlsqlAnalysisClient:
         root = source_root(self._source_root)
         resolved = resolve_source_file(root, path)
         lines = await asyncio.to_thread(
-            read_source_lines, resolved, self._max_source_bytes
+            read_source_lines, resolved, self._max_source_bytes, self._source_encoding
         )
         highlight = None
         if start_line is not None:

@@ -114,6 +114,7 @@ def build_analysis_client(settings: Settings) -> AnalysisGraphClient | None:
             max_rows=settings.plsql_max_rows,
             source_root=settings.plsql_source_root,
             max_source_bytes=settings.plsql_max_source_bytes,
+            source_encoding=settings.plsql_source_encoding,
         )
     if settings.plsql_adapter == "neo4j":
         if not settings.plsql_neo4j_uri:
@@ -135,6 +136,7 @@ def build_analysis_client(settings: Settings) -> AnalysisGraphClient | None:
                 max_traversal_edges=settings.plsql_max_traversal_edges,
                 source_root=settings.plsql_source_root,
                 max_source_bytes=settings.plsql_max_source_bytes,
+                source_encoding=settings.plsql_source_encoding,
             )
         except PlsqlConfigurationError as exc:
             logger.warning(

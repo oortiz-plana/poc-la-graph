@@ -7,6 +7,8 @@ import { ApplicationShell } from "@/components/application-shell";
 import { AnalysisHealth } from "./analysis-health";
 import { TabsContent } from "@/components/ui/tabs";
 import type {
+  PlsqlDependency,
+  PlsqlDependencyCategory,
   PlsqlObject,
   PlsqlObjectReference,
   PlsqlSourceCoordinate,
@@ -22,6 +24,22 @@ import { ObjectHeader, ObjectTabs, type PlsqlTab } from "./object-header";
 import { SourceViewer, type SourceRequest } from "./source-viewer";
 import { WorkspaceShell } from "./workspace-shell";
 
+/** A reference is a slim projection of an object; pad it to the full shape the object views expect. */
+function referenceToObject(reference: PlsqlObjectReference): PlsqlObject {
+  return {
+    id: reference.id,
+    kind: reference.kind,
+    name: reference.name,
+    schema: reference.schema,
+    qualifiedName: reference.qualifiedName,
+    projectId: "",
+    owner: null,
+    signature: null,
+    returnType: null,
+    declaration: null,
+  };
+}
+
 export function PlsqlAnalysisWorkspace() {
   const auth = useAuth();
   const [selected, setSelected] = useState<PlsqlObject>();
@@ -30,14 +48,13 @@ export function PlsqlAnalysisWorkspace() {
   const [inspection, setInspection] = useState<Inspection>();
   const [history, setHistory] = useState<PlsqlObject[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [dependenciesCategory, setDependenciesCategory] =
+    useState<PlsqlDependencyCategory>();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   function navigate(object: PlsqlObject) {
     selectObject(object);
-    setHistory((current) => [
-      ...current.slice(0, historyIndex + 1),
-      object,
-    ]);
+    setHistory((current) => [...current.slice(0, historyIndex + 1), object]);
     setHistoryIndex((index) => index + 1);
   }
 
@@ -61,18 +78,51 @@ export function PlsqlAnalysisWorkspace() {
   }
 
   function openReference(reference: PlsqlObjectReference) {
-    navigate({
-      id: reference.id,
-      kind: reference.kind,
-      name: reference.name,
-      schema: reference.schema,
-      qualifiedName: reference.qualifiedName,
-      projectId: "",
-      owner: null,
-      signature: null,
-      returnType: null,
-      declaration: null,
-    });
+    navigate(referenceToObject(reference));
+  }
+
+  /**
+   * Shows an object's details in the Inspector without navigating the
+   * primary view. Used where clicking a node is exploratory (e.g. a route's
+   * intermediate hops) and switching the analyzed object would discard
+   * in-progress state, unlike `openReference`'s full navigation.
+   */
+  function inspectReference(reference: PlsqlObjectReference) {
+    setInspection({ kind: "object", object: referenceToObject(reference) });
+  }
+
+  function inspectEdge(edge: PlsqlDependency) {
+    setInspection({ kind: "edge", edge });
+  }
+
+  /** Navigates to a related object and lands on a specific one of its tabs. */
+  function openObjectAt(reference: PlsqlObjectReference, next: PlsqlTab) {
+    navigate(referenceToObject(reference));
+    setTab(next);
+  }
+
+  /**
+   * The Inspector's one deliberate way out: clicking an object's name there
+   * navigates to its Overview, unlike inspecting a trail node in place.
+   */
+  function openObjectOverview(reference: PlsqlObjectReference) {
+    openObjectAt(reference, "overview");
+  }
+
+  /** Overview's drill-down action: go analyze the related object itself. */
+  function analyzeObject(reference: PlsqlObjectReference) {
+    openObjectAt(reference, "impact");
+  }
+
+  /** Opens Dependencies with a category pre-applied, e.g. from an Overview metric. */
+  function exploreDependencies(category: PlsqlDependencyCategory) {
+    setDependenciesCategory(category);
+    setTab("dependencies");
+  }
+
+  function changeTab(next: PlsqlTab) {
+    setDependenciesCategory(undefined);
+    setTab(next);
   }
 
   function openEvidence(evidence: PlsqlSourceCoordinate | null) {
@@ -87,7 +137,7 @@ export function PlsqlAnalysisWorkspace() {
   }
 
   function selectTab(next: PlsqlTab) {
-    setTab(next);
+    changeTab(next);
     if (next === "source" && selected) {
       setSourceRequest({ kind: "object", objectId: selected.id });
     }
@@ -105,12 +155,14 @@ export function PlsqlAnalysisWorkspace() {
       ) : (
         <WorkspaceShell
           explorer={
-            <ObjectExplorer
-              selectedId={selected?.id}
-              onSelect={navigate}
+            <ObjectExplorer selectedId={selected?.id} onSelect={navigate} />
+          }
+          inspector={
+            <InspectorPanel
+              inspection={inspection}
+              onOpenObject={openObjectOverview}
             />
           }
-          inspector={<InspectorPanel inspection={inspection} />}
         >
           {selected ? (
             <div className="mx-auto max-w-[75rem] p-4 sm:p-6">
@@ -145,20 +197,27 @@ export function PlsqlAnalysisWorkspace() {
                   </>
                 }
               />
-              <ObjectTabs value={tab} onChange={setTab}>
+              <ObjectTabs value={tab} onChange={changeTab}>
                 <TabsContent value="overview">
                   <OverviewPanel
-                    objectId={selected.id}
-                    onOpenObject={openReference}
-                    onExploreDependencies={() => setTab("dependencies")}
+                    object={selected}
+                    onOpenEvidence={openEvidence}
+                    onInspectPath={(path) =>
+                      setInspection({ kind: "path", path })
+                    }
+                    onAnalyzeObject={analyzeObject}
+                    onExploreDependencies={exploreDependencies}
+                    onExploreImpact={() => changeTab("impact")}
                   />
                 </TabsContent>
                 <TabsContent value="dependencies">
                   <DependenciesPanel
                     object={selected}
+                    initialCategory={dependenciesCategory}
                     onOpenEvidence={openEvidence}
                     onOpenObject={openReference}
-                    onInspectEdge={(edge) => setInspection({ kind: "edge", edge })}
+                    onInspectObject={inspectReference}
+                    onInspectEdge={inspectEdge}
                   />
                 </TabsContent>
                 <TabsContent value="impact">
@@ -166,15 +225,22 @@ export function PlsqlAnalysisWorkspace() {
                     objectId={selected.id}
                     onOpenEvidence={openEvidence}
                     onOpenObject={openReference}
-                    onInspectPath={(path) => setInspection({ kind: "path", path })}
+                    onInspectObject={inspectReference}
+                    onInspectEdge={inspectEdge}
+                    onInspectPath={(path) =>
+                      setInspection({ kind: "path", path })
+                    }
                   />
                 </TabsContent>
                 <TabsContent value="paths">
                   <DependencyPathsSection
                     initialFrom={selected}
-                    onOpenObject={openReference}
+                    onInspectObject={inspectReference}
                     onOpenEvidence={openEvidence}
-                    onInspectPath={(path) => setInspection({ kind: "path", path })}
+                    onInspectPath={(path) =>
+                      setInspection({ kind: "path", path })
+                    }
+                    onInspectEdge={inspectEdge}
                   />
                 </TabsContent>
                 <TabsContent value="source">

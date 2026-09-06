@@ -41,7 +41,10 @@ function newUser() {
   return userEvent.setup();
 }
 
-async function settleSearch(user: ReturnType<typeof newUser>, items: PlsqlObject[]) {
+async function settleSearch(
+  user: ReturnType<typeof newUser>,
+  items: PlsqlObject[],
+) {
   searchPlsqlObjects.mockResolvedValueOnce({
     items,
     truncated: false,
@@ -79,12 +82,20 @@ describe("ObjectExplorer", () => {
         "false",
       );
     }
+    expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("debounces the search and passes the kind filter", async () => {
     const user = newUser();
     render(<ObjectExplorer onSelect={vi.fn()} />);
-    searchPlsqlObjects.mockResolvedValue({ items: [], truncated: false, count: 0 });
+    searchPlsqlObjects.mockResolvedValue({
+      items: [],
+      truncated: false,
+      count: 0,
+    });
     await user.click(screen.getByRole("button", { name: "Tables" }));
     await user.type(screen.getByRole("searchbox"), "emp");
     expect(searchPlsqlObjects).not.toHaveBeenCalled();
@@ -96,15 +107,51 @@ describe("ObjectExplorer", () => {
     );
   });
 
-  it("groups package members under their package and lists other objects", async () => {
+  it("groups package members under their package, expanded by default", async () => {
     const user = newUser();
     render(<ObjectExplorer onSelect={vi.fn()} />);
     await settleSearch(user, [base, docuFide, employeeTable]);
+    const toggle = screen.getByRole("button", {
+      name: "Collapse package FA_QFACT_CALC",
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(
-      screen.getByRole("button", { name: /FA_QFACT_CALC Package/ }),
+      screen.getByRole("button", { name: "FA_QFACT_CALC" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "DOCU_FIDE" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "EMPLOYEE" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "DOCU_FIDE" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "EMPLOYEE" }),
+    ).toBeInTheDocument();
+  });
+
+  it("collapses and expands a package without losing the selection", async () => {
+    const user = newUser();
+    const onSelect = vi.fn();
+    render(<ObjectExplorer selectedId={docuFide.id} onSelect={onSelect} />);
+    await settleSearch(user, [base, docuFide]);
+    expect(
+      screen.getByRole("button", { name: "DOCU_FIDE" }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Collapse package FA_QFACT_CALC" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "DOCU_FIDE" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Expand package FA_QFACT_CALC" }),
+    ).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(
+      screen.getByRole("button", { name: "Expand package FA_QFACT_CALC" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "DOCU_FIDE" }),
+    ).toBeInTheDocument();
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it("marks the selected object and reports selection", async () => {
@@ -112,7 +159,7 @@ describe("ObjectExplorer", () => {
     const onSelect = vi.fn();
     render(<ObjectExplorer selectedId={docuFide.id} onSelect={onSelect} />);
     await settleSearch(user, [docuFide]);
-    const row = screen.getByRole("button", { name: /DOCU_FIDE/ });
+    const row = screen.getByRole("button", { name: "DOCU_FIDE" });
     expect(row).toHaveAttribute("aria-current", "true");
     await user.click(row);
     expect(onSelect).toHaveBeenCalledWith(docuFide);
@@ -125,16 +172,58 @@ describe("ObjectExplorer", () => {
     expect(screen.getByText("No objects match")).toBeInTheDocument();
   });
 
+  it("shows an actionable message when results are truncated", async () => {
+    const user = newUser();
+    render(<ObjectExplorer onSelect={vi.fn()} />);
+    searchPlsqlObjects.mockResolvedValueOnce({
+      items: [employeeTable],
+      truncated: true,
+      count: 1,
+    });
+    await user.type(screen.getByRole("searchbox"), "qf");
+    await waitFor(() =>
+      expect(screen.getByText("Showing first 100 results")).toBeInTheDocument(),
+    );
+  });
+
   it("renders the shared error panel and retries on demand", async () => {
     const user = newUser();
     render(<ObjectExplorer onSelect={vi.fn()} />);
     searchPlsqlObjects.mockRejectedValueOnce({ code: "analysis_unavailable" });
-    searchPlsqlObjects.mockResolvedValueOnce({ items: [], truncated: false, count: 0 });
+    searchPlsqlObjects.mockResolvedValueOnce({
+      items: [],
+      truncated: false,
+      count: 0,
+    });
     await user.type(screen.getByRole("searchbox"), "qf");
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("unavailable"),
     );
-    await user.click(screen.getByRole("button", { name: "Retry analysis query" }));
+    await user.click(
+      screen.getByRole("button", { name: "Retry analysis query" }),
+    );
     await waitFor(() => expect(searchPlsqlObjects).toHaveBeenCalledTimes(2));
+  });
+
+  it("exposes trigger and other kinds behind the More filter", async () => {
+    const user = newUser();
+    render(<ObjectExplorer onSelect={vi.fn()} />);
+    searchPlsqlObjects.mockResolvedValue({
+      items: [],
+      truncated: false,
+      count: 0,
+    });
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(screen.getByRole("menuitem", { name: "Triggers" }));
+    await waitFor(() =>
+      expect(searchPlsqlObjects).toHaveBeenCalledWith("", {
+        kinds: ["Trigger"],
+        limit: 100,
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Triggers" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });

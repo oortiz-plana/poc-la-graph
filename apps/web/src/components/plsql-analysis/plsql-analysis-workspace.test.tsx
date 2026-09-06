@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -101,7 +101,9 @@ function referenceFixture(
   return { id, kind, name, schema, qualifiedName };
 }
 
-function dependencyFixture(overrides: Partial<PlsqlDependency>): PlsqlDependency {
+function dependencyFixture(
+  overrides: Partial<PlsqlDependency>,
+): PlsqlDependency {
   return {
     id: "edge://sample/CALLS",
     relationship: "CALLS",
@@ -112,7 +114,12 @@ function dependencyFixture(overrides: Partial<PlsqlDependency>): PlsqlDependency
       "RUN_PAYROLL",
       "HR.PKG_PAYROLL.RUN_PAYROLL",
     ),
-    target: referenceFixture(functionObject.id, "Function", "GET_SALARY", functionObject.qualifiedName),
+    target: referenceFixture(
+      functionObject.id,
+      "Function",
+      "GET_SALARY",
+      functionObject.qualifiedName,
+    ),
     evidence: null,
     ...overrides,
   };
@@ -120,7 +127,12 @@ function dependencyFixture(overrides: Partial<PlsqlDependency>): PlsqlDependency
 
 function emptyImpactResult(): PlsqlImpactResult {
   return {
-    object: referenceFixture(functionObject.id, "Function", "GET_SALARY", functionObject.qualifiedName),
+    object: referenceFixture(
+      functionObject.id,
+      "Function",
+      "GET_SALARY",
+      functionObject.qualifiedName,
+    ),
     items: [],
     truncated: false,
     count: 0,
@@ -192,7 +204,12 @@ describe("PlsqlAnalysisWorkspace", () => {
     });
     mocks.getPlsqlImpact.mockResolvedValue(emptyImpactResult());
     mocks.getPlsqlOverview.mockResolvedValue({
-      object: referenceFixture(functionObject.id, "Function", "GET_SALARY", functionObject.qualifiedName),
+      object: referenceFixture(
+        functionObject.id,
+        "Function",
+        "GET_SALARY",
+        functionObject.qualifiedName,
+      ),
       directDependents: 0,
       indirectDependents: 0,
       callers: 0,
@@ -221,7 +238,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(mocks.getPlsqlDependencies).not.toHaveBeenCalled();
   });
 
-  it("shows the persistent header with breadcrumb and defers section loading to tab activation", async () => {
+  it("shows the persistent header with breadcrumb", async () => {
     const user = userEvent.setup();
     render(<PlsqlAnalysisWorkspace />);
     await selectFromExplorer(
@@ -249,7 +266,114 @@ describe("PlsqlAnalysisWorkspace", () => {
       "aria-selected",
       "true",
     );
-    expect(mocks.getPlsqlDependencies).not.toHaveBeenCalled();
+  });
+
+  it("drills down from an Overview metric into a related object's Impact tab", async () => {
+    const user = userEvent.setup();
+    const step = dependencyFixture({
+      id: "edge://sample/CALLS/PAYROLL",
+      source: referenceFixture(
+        payrollObject.id,
+        "Procedure",
+        "RUN_PAYROLL",
+        payrollObject.qualifiedName,
+      ),
+      evidence: {
+        sourceFileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+        startLine: 12,
+        startColumn: 1,
+        startOffset: 10,
+        endOffset: 30,
+      },
+    });
+    const path: PlsqlPath = {
+      id: "path://sample/overview-1",
+      nodes: [step.source, step.target],
+      relationships: [step],
+      hopCount: 1,
+    };
+    mocks.getPlsqlImpact.mockResolvedValue({
+      object: referenceFixture(
+        functionObject.id,
+        "Function",
+        "GET_SALARY",
+        functionObject.qualifiedName,
+      ),
+      items: [
+        {
+          id: "impact://sample/overview-d1",
+          dependent: step.source,
+          distance: 1,
+          paths: [path],
+        },
+      ],
+      truncated: false,
+      count: 1,
+      summary: { direct: 1, indirect: 0, packages: 1, tablesModified: 0 },
+    });
+    mocks.getPlsqlDependencies.mockResolvedValue({
+      counts: { callers: 0, callees: 2, reads: 0, writes: 0, other: 0 },
+      items: [],
+      truncated: false,
+      total: 0,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+    await selectFromExplorer(
+      user,
+      { items: [functionObject], truncated: false, count: 1 },
+      /GET_SALARY/,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /Direct callers/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByText("RUN_PAYROLL"));
+    expect(
+      await screen.findByText("Why is this affected?"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("hr/pkg_payroll.pkb:12")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Analyze object" }));
+    expect(
+      await screen.findByRole("heading", { name: "RUN_PAYROLL" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Impact" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("opens Dependencies with a metric's category filter via Overview's View all link", async () => {
+    const user = userEvent.setup();
+    mocks.getPlsqlImpact.mockResolvedValue(emptyImpactResult());
+    mocks.getPlsqlDependencies.mockResolvedValue({
+      counts: { callers: 0, callees: 2, reads: 0, writes: 0, other: 0 },
+      items: [],
+      truncated: false,
+      total: 0,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+    await selectFromExplorer(
+      user,
+      { items: [functionObject], truncated: false, count: 1 },
+      /GET_SALARY/,
+    );
+    await screen.findByRole("button", { name: /Direct callers/ });
+
+    await user.click(screen.getByRole("button", { name: /Callees/ }));
+    await screen.findByText("No callees");
+    await user.click(
+      screen.getByRole("button", { name: "View all in Dependencies" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /Callees 2/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("tab", { name: "Dependencies" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("loads the unified dependency view with category chips when the Dependencies tab opens", async () => {
@@ -307,6 +431,71 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(screen.getByText("hr/pkg_payroll.pkb:34")).toBeInTheDocument();
   });
 
+  it("inspects a dependency split-view node and edge without resetting the panel", async () => {
+    const user = userEvent.setup();
+    const callEdge = dependencyFixture({
+      evidence: {
+        sourceFileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+        startLine: 34,
+        startColumn: 1,
+        startOffset: 100,
+        endOffset: 120,
+      },
+    });
+    mocks.getPlsqlDependencies.mockResolvedValue({
+      counts: { callers: 1, callees: 0, reads: 0, writes: 0, other: 0 },
+      items: [callEdge],
+      truncated: false,
+      total: 1,
+    });
+    mocks.getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+      },
+      lines: ["  RUN_PAYROLL(...);"],
+      highlight: { startLine: 34, endLine: 34 },
+    });
+    render(<PlsqlAnalysisWorkspace />);
+    await selectFromExplorer(
+      user,
+      { items: [functionObject], truncated: false, count: 1 },
+      /GET_SALARY/,
+    );
+    await user.click(screen.getByRole("tab", { name: "Dependencies" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: /Show dependency details for/,
+      }),
+    );
+    expect(await screen.findByText("Dependency")).toBeInTheDocument();
+
+    // A node in the split view's trail inspects it in place; it must not
+    // navigate away and reset the panel back to its default category.
+    // Selecting the row above already put the same node in the Inspector as
+    // its own link, so scope to the main pane to click the trail's copy.
+    const main = screen.getByRole("main", { name: "Analysis workspace" });
+    await user.click(
+      within(main).getByRole("button", { name: "HR.PKG_PAYROLL.RUN_PAYROLL" }),
+    );
+    const inspector = screen.getByLabelText("Inspector");
+    expect(within(inspector).getByText("Object details")).toBeInTheDocument();
+    expect(within(inspector).getByText("RUN_PAYROLL")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "GET_SALARY" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Callers 1/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("Dependency")).toBeInTheDocument();
+
+    // The relationship line inspects the edge the same way.
+    await user.click(screen.getByRole("button", { name: "CALLS" }));
+    expect(within(inspector).getByText("Dependency edge")).toBeInTheDocument();
+  });
+
   it("switches category chips and refetches the selected list", async () => {
     const user = userEvent.setup();
     const reads = dependencyFixture({
@@ -325,6 +514,14 @@ describe("PlsqlAnalysisWorkspace", () => {
         "EMPLOYEES",
         "HR.EMPLOYEES",
       ),
+    });
+    // The Overview tab's own eager fetch (category "callees") runs first,
+    // as soon as the object is selected, before the Dependencies tab opens.
+    mocks.getPlsqlDependencies.mockResolvedValueOnce({
+      counts: { callers: 0, callees: 0, reads: 1, writes: 0, other: 0 },
+      items: [],
+      truncated: false,
+      total: 0,
     });
     mocks.getPlsqlDependencies.mockResolvedValueOnce({
       counts: { callers: 0, callees: 0, reads: 1, writes: 0, other: 0 },
@@ -363,6 +560,14 @@ describe("PlsqlAnalysisWorkspace", () => {
   it("retries a failed dependencies query independently", async () => {
     const user = userEvent.setup();
     mocks.getPlsqlDependencies
+      // The Overview tab's own eager fetch runs first, as soon as the
+      // object is selected, before the Dependencies tab opens.
+      .mockResolvedValueOnce({
+        counts: { callers: 0, callees: 0, reads: 0, writes: 0, other: 0 },
+        items: [],
+        truncated: false,
+        total: 0,
+      })
       .mockRejectedValueOnce(problemError("analysis_unavailable"))
       .mockResolvedValue({
         counts: { callers: 0, callees: 0, reads: 0, writes: 0, other: 0 },
@@ -381,8 +586,12 @@ describe("PlsqlAnalysisWorkspace", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("unavailable"),
     );
-    await user.click(screen.getByRole("button", { name: "Retry analysis query" }));
-    expect(await screen.findByText("No matching dependencies")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Retry analysis query" }),
+    );
+    expect(
+      await screen.findByText("No matching dependencies"),
+    ).toBeInTheDocument();
   });
 
   it("shows the deterministic size-limit error without a retry in a dependency section", async () => {
@@ -436,7 +645,12 @@ describe("PlsqlAnalysisWorkspace", () => {
         functionObject.qualifiedName,
       ),
       items: [
-        { id: "impact://sample/d1", dependent: step.source, distance: 1, paths: [path] },
+        {
+          id: "impact://sample/d1",
+          dependent: step.source,
+          distance: 1,
+          paths: [path],
+        },
       ],
       truncated: false,
       count: 1,
@@ -460,13 +674,18 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(screen.getByText("PKG_PAYROLL")).toBeInTheDocument();
     expect(screen.getByText("1 hop")).toBeInTheDocument();
     await user.click(screen.getByText("RUN_PAYROLL"));
-    expect(await screen.findByText("Why is this affected?")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Why is this affected?"),
+    ).toBeInTheDocument();
     expect(screen.getByText("hr/pkg_payroll.pkb:12")).toBeInTheDocument();
   });
 
   it("shows the empty impact state and truncation flag", async () => {
     const user = userEvent.setup();
-    mocks.getPlsqlImpact.mockResolvedValue({ ...emptyImpactResult(), truncated: true });
+    mocks.getPlsqlImpact.mockResolvedValue({
+      ...emptyImpactResult(),
+      truncated: true,
+    });
     render(<PlsqlAnalysisWorkspace />);
     await selectFromExplorer(
       user,
@@ -474,78 +693,137 @@ describe("PlsqlAnalysisWorkspace", () => {
       /GET_SALARY/,
     );
     await user.click(screen.getByRole("tab", { name: "Impact" }));
-    expect(await screen.findByText("No impacted dependents")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No impacted dependents"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Results truncated")).toBeInTheDocument();
   });
 
-  it("traces paths in the Paths tab and navigates to a path node", { timeout: 15000 }, async () => {
-    const user = userEvent.setup();
-    const step = dependencyFixture({
-      id: "edge://sample/CALLS/PAYROLL",
-      source: referenceFixture(
-        payrollObject.id,
-        "Procedure",
-        "RUN_PAYROLL",
-        payrollObject.qualifiedName,
-      ),
-    });
-    const path: PlsqlPath = {
-      id: "path://sample/p1",
-      nodes: [step.source, step.target],
-      relationships: [step],
-      hopCount: 1,
-    };
-    mocks.findPlsqlPaths.mockResolvedValue({
-      items: [path],
-      truncated: false,
-      count: 1,
-    } satisfies PlsqlPathResult);
-    const payrollSearch = {
-      items: [payrollObject],
-      truncated: false,
-      count: 1,
-    };
-    render(<PlsqlAnalysisWorkspace />);
-    await selectFromExplorer(
-      user,
-      { items: [functionObject], truncated: false, count: 1 },
-      /GET_SALARY/,
-    );
-    await user.click(screen.getByRole("tab", { name: "Paths" }));
-    mocks.searchPlsqlObjects.mockResolvedValue(payrollSearch);
-    expect(screen.getByLabelText("From object")).toHaveValue(
-      "Function · HR.PKG_EMP.GET_SALARY",
-    );
-    await pickPathObject(user, "To object", "payroll", "Procedure · HR.PKG_PAYROLL.RUN_PAYROLL");
-    await user.click(screen.getByRole("button", { name: "Find paths" }));
+  it(
+    "traces paths in the Paths tab and inspects a route node and edge in place",
+    { timeout: 15000 },
+    async () => {
+      const user = userEvent.setup();
+      const step = dependencyFixture({
+        id: "edge://sample/CALLS/PAYROLL",
+        source: referenceFixture(
+          payrollObject.id,
+          "Procedure",
+          "RUN_PAYROLL",
+          payrollObject.qualifiedName,
+        ),
+      });
+      const path: PlsqlPath = {
+        id: "path://sample/p1",
+        nodes: [step.source, step.target],
+        relationships: [step],
+        hopCount: 1,
+      };
+      mocks.findPlsqlPaths.mockResolvedValue({
+        items: [path],
+        truncated: false,
+        count: 1,
+      } satisfies PlsqlPathResult);
+      const payrollSearch = {
+        items: [payrollObject],
+        truncated: false,
+        count: 1,
+      };
+      render(<PlsqlAnalysisWorkspace />);
+      await selectFromExplorer(
+        user,
+        { items: [functionObject], truncated: false, count: 1 },
+        /GET_SALARY/,
+      );
+      await user.click(screen.getByRole("tab", { name: "Paths" }));
+      mocks.searchPlsqlObjects.mockResolvedValue(payrollSearch);
+      expect(screen.getByLabelText("From object")).toHaveValue(
+        "Function · HR.PKG_EMP.GET_SALARY",
+      );
+      await pickPathObject(
+        user,
+        "To object",
+        "payroll",
+        "Procedure · HR.PKG_PAYROLL.RUN_PAYROLL",
+      );
+      await user.click(screen.getByRole("button", { name: "Find paths" }));
 
-    expect(await screen.findByText("1 hop")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /GET_SALARY.*RUN_PAYROLL|RUN_PAYROLL.*GET_SALARY/ }));
-    expect(await screen.findByText("Route")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "HR.PKG_PAYROLL.RUN_PAYROLL" }));
-    expect(
-      await screen.findByRole("heading", { name: "RUN_PAYROLL" }),
-    ).toBeInTheDocument();
-  });
+      expect(await screen.findByText("1 hop")).toBeInTheDocument();
+      await user.click(
+        screen.getByRole("button", {
+          name: /GET_SALARY.*RUN_PAYROLL|RUN_PAYROLL.*GET_SALARY/,
+        }),
+      );
+      expect(await screen.findByText("Route")).toBeInTheDocument();
 
-  it("requires distinct From and To objects before tracing", { timeout: 15000 }, async () => {
-    const user = userEvent.setup();
-    mocks.searchPlsqlObjects.mockResolvedValue({
-      items: [functionObject],
-      truncated: false,
-      count: 1,
-    });
-    render(<PlsqlAnalysisWorkspace />);
-    await selectFromExplorer(
-      user,
-      { items: [functionObject], truncated: false, count: 1 },
-      /GET_SALARY/,
-    );
-    await user.click(screen.getByRole("tab", { name: "Paths" }));
-    const optionName = "Function · HR.PKG_EMP.GET_SALARY";
-    await pickPathObject(user, "To object", "salary", optionName);
-    expect(screen.getByRole("button", { name: "Find paths" })).toBeDisabled();
-  });
+      // Clicking a route node inspects it in the right-hand panel instead of
+      // navigating away, so the traced route stays open and intact. Scoped
+      // to the main pane: the Inspector already shows the same node (from
+      // expanding the row above) as its own link with the same name.
+      const main = screen.getByRole("main", { name: "Analysis workspace" });
+      await user.click(
+        within(main).getByRole("button", {
+          name: "HR.PKG_PAYROLL.RUN_PAYROLL",
+        }),
+      );
+      const inspector = screen.getByLabelText("Inspector");
+      expect(within(inspector).getByText("Object details")).toBeInTheDocument();
+      expect(within(inspector).getByText("RUN_PAYROLL")).toBeInTheDocument();
+      expect(screen.getByText("Route")).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "GET_SALARY" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { name: "RUN_PAYROLL" }),
+      ).not.toBeInTheDocument();
+
+      // Clicking the relationship line inspects the edge the same way.
+      await user.click(screen.getByRole("button", { name: "CALLS" }));
+      expect(
+        within(inspector).getByText("Dependency edge"),
+      ).toBeInTheDocument();
+
+      // Re-inspect the object, then jump to its Overview from the Inspector.
+      await user.click(
+        within(main).getByRole("button", {
+          name: "HR.PKG_PAYROLL.RUN_PAYROLL",
+        }),
+      );
+      await user.click(
+        within(inspector).getByRole("button", { name: "RUN_PAYROLL" }),
+      );
+      expect(
+        await screen.findByRole("heading", { name: "RUN_PAYROLL" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    },
+  );
+
+  it(
+    "requires distinct From and To objects before tracing",
+    { timeout: 15000 },
+    async () => {
+      const user = userEvent.setup();
+      mocks.searchPlsqlObjects.mockResolvedValue({
+        items: [functionObject],
+        truncated: false,
+        count: 1,
+      });
+      render(<PlsqlAnalysisWorkspace />);
+      await selectFromExplorer(
+        user,
+        { items: [functionObject], truncated: false, count: 1 },
+        /GET_SALARY/,
+      );
+      await user.click(screen.getByRole("tab", { name: "Paths" }));
+      const optionName = "Function · HR.PKG_EMP.GET_SALARY";
+      await pickPathObject(user, "To object", "salary", optionName);
+      expect(screen.getByRole("button", { name: "Find paths" })).toBeDisabled();
+    },
+  );
 
   it("opens Analysis Health scoped to the selected object", async () => {
     const user = userEvent.setup();
@@ -580,9 +858,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       { items: [functionObject], truncated: false, count: 1 },
       /GET_SALARY/,
     );
-    await user.click(
-      screen.getByRole("button", { name: /Analysis Health/ }),
-    );
+    await user.click(screen.getByRole("button", { name: /Analysis Health/ }));
 
     expect(
       await screen.findByRole("heading", { name: "Analysis Health" }),
@@ -650,7 +926,10 @@ describe("PlsqlAnalysisWorkspace", () => {
       total: 1,
     });
     mocks.getPlsqlFileSource.mockResolvedValue({
-      file: { fileId: "file://sample/hr/pkg_payroll.pkb", path: "hr/pkg_payroll.pkb" },
+      file: {
+        fileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+      },
       lines: ["  GET_SALARY(...);"],
       highlight: { startLine: 34, endLine: 34 },
     });
@@ -746,11 +1025,11 @@ describe("PlsqlAnalysisWorkspace", () => {
       /GET_SALARY/,
     );
     await user.click(screen.getByRole("tab", { name: "Dependencies" }));
-    expect(await screen.findByRole("button", { name: /Callers 0/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Callers 0/ }),
+    ).toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole("button", { name: /RUN_PAYROLL/ }),
-    );
+    await user.click(screen.getByRole("button", { name: /RUN_PAYROLL/ }));
     expect(
       await screen.findByRole("heading", { name: "RUN_PAYROLL" }),
     ).toBeInTheDocument();

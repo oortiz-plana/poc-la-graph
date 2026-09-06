@@ -1,27 +1,48 @@
 "use client";
 
 import {
+  Braces,
   DatabaseZap,
   Eye,
   Package,
-  SquareFunction,
+  Sigma,
   Table2,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
-import type { PlsqlObjectKind, PlsqlResolution } from "@/lib/contracts";
+import type {
+  PlsqlObjectKind,
+  PlsqlObjectReference,
+  PlsqlResolution,
+} from "@/lib/contracts";
 
 const KIND_ICONS: Record<PlsqlObjectKind, LucideIcon> = {
   Package: Package,
-  Procedure: SquareFunction,
-  Function: SquareFunction,
+  Procedure: Braces,
+  Function: Sigma,
   Table: Table2,
   View: Eye,
-  Trigger: DatabaseZap,
+  Trigger: Zap,
   Sequence: DatabaseZap,
   Index: DatabaseZap,
   Synonym: DatabaseZap,
   Type: DatabaseZap,
-  AnonymousBlock: SquareFunction,
+  AnonymousBlock: DatabaseZap,
+};
+
+/** Plain-language label for one object kind, shared wherever a kind is rendered as text. */
+export const KIND_LABELS: Record<PlsqlObjectKind, string> = {
+  Package: "Package",
+  Procedure: "Procedure",
+  Function: "Function",
+  Table: "Table",
+  View: "View",
+  Trigger: "Trigger",
+  Sequence: "Sequence",
+  Index: "Index",
+  Synonym: "Synonym",
+  Type: "Type",
+  AnonymousBlock: "Anonymous block",
 };
 
 export function ObjectKindIcon({
@@ -62,7 +83,11 @@ const RESOLUTION_TONES: Record<PlsqlResolution, string> = {
  * (Resolved/Inferred/Unresolved) so EXACT never promises guaranteed runtime
  * execution; the precise pipeline value stays available as a tooltip.
  */
-export function ResolutionBadge({ resolution }: { resolution: PlsqlResolution }) {
+export function ResolutionBadge({
+  resolution,
+}: {
+  resolution: PlsqlResolution;
+}) {
   return (
     <span
       title={`Confidence: ${resolution}`}
@@ -73,13 +98,33 @@ export function ResolutionBadge({ resolution }: { resolution: PlsqlResolution })
   );
 }
 
-
-export function evidenceLocation(evidence: {
-  path?: string | null;
-  startLine?: number | null;
-} | null): string | undefined {
+export function evidenceLocation(
+  evidence: {
+    path?: string | null;
+    startLine?: number | null;
+  } | null,
+): string | undefined {
   if (!evidence?.path) return undefined;
   return evidence.startLine == null
     ? evidence.path
     : `${evidence.path}:${evidence.startLine}`;
+}
+
+const ROUTINE_KINDS = new Set<PlsqlObjectKind>(["Procedure", "Function"]);
+
+/** Bare package name (without schema), for a routine reference nested under a package. */
+export function displayPackageOf(
+  ref: PlsqlObjectReference,
+): string | undefined {
+  if (ref.kind === "Package") return undefined;
+  const segments = ref.qualifiedName.split(".");
+  if (ROUTINE_KINDS.has(ref.kind) && segments.length >= 3) {
+    return segments.slice(1, -1).join(".");
+  }
+  return undefined;
+}
+
+/** "1 hop" / "N hops" for a traversal distance. */
+export function hopText(distance: number): string {
+  return distance === 1 ? "1 hop" : `${distance} hops`;
 }

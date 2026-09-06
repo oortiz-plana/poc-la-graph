@@ -198,3 +198,16 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## Development Guidelines
+
+- Keep components small and single-purpose. Split components when they mix data fetching, state management, business rules, navigation, and presentation.
+- Separate server state, UI state, and derived state. Fetch remote data through a dedicated data layer, keep interaction state local, and calculate derived values instead of duplicating them in useState.
+- Prefer composition and reusable primitives over duplicated JSX. Extract shared UI patterns, domain renderers, icons, tables, loading states, and filters instead of copying implementations between views.
+- Keep business and transformation logic outside React components. Use pure functions, hooks, and domain services for filtering, graph transformation, normalization, and calculations so they can be tested independently.
+- Do not overuse React optimizations. Add useMemo, useCallback, and React.memo only when computation or reference stability has measurable value; avoid cargo-cult memoization.
+- Use TypeScript as a design tool, not just type annotation. Avoid any, model domain concepts explicitly, prefer immutable types and discriminated unions, and keep API contracts separate from presentation models when needed.
+- Make state ownership explicit and local. Lift state only when multiple components genuinely need to coordinate; avoid global state for transient UI behavior and avoid storing the same information in multiple places.
+- Design every interactive component for accessibility and all UI states. Support keyboard navigation, focus visibility, semantic HTML, ARIA where necessary, and consistent loading, empty, error, disabled, selected, and truncated states.
+- Optimize for maintainability before cleverness. Prefer established libraries and simple patterns, avoid custom implementations of routing, virtualization, caching, tables, or complex controls when mature solutions already exist, and do not introduce abstractions before they are needed.
+- Test behavior and enforce consistency automatically. Use linting, formatting, strict TypeScript, component tests for user-visible behavior, unit tests for pure logic, and shared design-system conventions so code quality does not depend on individual discipline.

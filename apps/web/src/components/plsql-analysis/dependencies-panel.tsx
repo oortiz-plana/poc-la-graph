@@ -17,6 +17,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "./dependency-graph";
+import { dependencyToPath, DependencyPathTrail } from "./dependency-path-trail";
 import { evidenceLocation, ResolutionBadge } from "./plsql-atoms";
 import { SourceBody } from "./source-viewer";
 import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
@@ -33,24 +34,35 @@ const CATEGORIES: { value: PlsqlDependencyCategory; label: string }[] = [
 
 export function DependenciesPanel({
   object,
+  initialCategory,
   onOpenEvidence,
   onOpenObject,
+  onInspectObject,
   onInspectEdge,
 }: {
   object: PlsqlObject;
+  /** Category selected on first render, e.g. arriving from Overview's "View all in Dependencies". */
+  initialCategory?: PlsqlDependencyCategory;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  /** Graph node taps navigate: drilling into a node's own neighborhood is the point of the graph. */
   onOpenObject: (reference: PlsqlObjectReference) => void;
+  /** Source/target chips in the list-mode detail card inspect in place instead,
+   * matching the Paths view: navigating away would reset this panel back to
+   * its default category (see the objectId-keyed reset effect above). */
+  onInspectObject: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
 }) {
   const objectId = object.id;
   const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [category, setCategory] = useState<PlsqlDependencyCategory>("callers");
+  const [category, setCategory] = useState<PlsqlDependencyCategory>(
+    initialCategory ?? "callers",
+  );
   const [pages, setPages] = useState<
     Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>
   >({});
-  const [expanded, setExpanded] = useState<ReadonlySet<PlsqlDependencyCategory>>(
-    () => new Set(),
-  );
+  const [expanded, setExpanded] = useState<
+    ReadonlySet<PlsqlDependencyCategory>
+  >(() => new Set());
   const [status, setStatus] = useState<SectionStatus>("loading");
   const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
   const [attempt, setAttempt] = useState(0);
@@ -60,9 +72,9 @@ export function DependenciesPanel({
   useEffect(() => {
     setPages({});
     setExpanded(new Set());
-    setCategory("callers");
+    setCategory(initialCategory ?? "callers");
     setSelectedEdge(undefined);
-  }, [objectId]);
+  }, [objectId, initialCategory]);
 
   // List mode: load the active category.
   useEffect(() => {
@@ -146,13 +158,16 @@ export function DependenciesPanel({
         refById.set(ref.id, ref);
       }
     };
-    ensure({
-      id: object.id,
-      kind: object.kind,
-      name: object.name,
-      schema: object.schema,
-      qualifiedName: object.qualifiedName,
-    }, true);
+    ensure(
+      {
+        id: object.id,
+        kind: object.kind,
+        name: object.name,
+        schema: object.schema,
+        qualifiedName: object.qualifiedName,
+      },
+      true,
+    );
     for (const entry of CATEGORIES) {
       if (!expanded.has(entry.value)) continue;
       const page = pages[entry.value];
@@ -198,7 +213,11 @@ export function DependenciesPanel({
     <section aria-label="Dependencies">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {viewMode === "list" ? (
-          <div role="group" aria-label="Dependency category" className="flex flex-wrap gap-2">
+          <div
+            role="group"
+            aria-label="Dependency category"
+            className="flex flex-wrap gap-2"
+          >
             {CATEGORIES.map((entry) => {
               const active = entry.value === category;
               const count = counts?.[entry.value];
@@ -225,7 +244,11 @@ export function DependenciesPanel({
             })}
           </div>
         ) : (
-          <div role="group" aria-label="Graph expansion" className="flex flex-wrap gap-2">
+          <div
+            role="group"
+            aria-label="Graph expansion"
+            className="flex flex-wrap gap-2"
+          >
             {CATEGORIES.map((entry) => {
               const isExpanded = expanded.has(entry.value);
               const count = counts?.[entry.value];
@@ -288,6 +311,8 @@ export function DependenciesPanel({
         <DependencySourceSplit
           edge={selectedEdge}
           onClose={() => setSelectedEdge(undefined)}
+          onInspectObject={onInspectObject}
+          onInspectEdge={onInspectEdge}
         />
       )}
       {viewMode === "graph" && status === "ready" && (
@@ -310,8 +335,7 @@ export function DependenciesPanel({
           />
           {expanded.size === 0 && (
             <p className="mt-2 text-sm text-text-secondary">
-              Expand a category to explore the neighborhood of{" "}
-              {object.name}.
+              Expand a category to explore the neighborhood of {object.name}.
             </p>
           )}
         </>
@@ -393,12 +417,19 @@ function DependencyRow({
 function DependencySourceSplit({
   edge,
   onClose,
+  onInspectObject,
+  onInspectEdge,
 }: {
   edge: PlsqlDependency;
   onClose: () => void;
+  onInspectObject: (reference: PlsqlObjectReference) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
 }) {
   const evidence = edge.evidence;
   const location = evidenceLocation(evidence);
+  // A single edge is a one-hop path, so it reuses the same trail the
+  // Impact and Paths views use to explain a chain of relationships.
+  const path = dependencyToPath(edge);
   return (
     <div className="mt-4 grid gap-4 lg:grid-cols-2">
       <section
@@ -417,13 +448,13 @@ function DependencySourceSplit({
             Close
           </button>
         </div>
-        <p className="mt-3 break-words text-sm">
-          {edge.source.qualifiedName}
-          <span aria-hidden> → </span>
-          <span className="font-medium">{edge.relationship}</span>
-          <span aria-hidden> → </span>
-          {edge.target.qualifiedName}
-        </p>
+        <div className="mt-3">
+          <DependencyPathTrail
+            path={path}
+            onOpenObject={onInspectObject}
+            onInspectEdge={onInspectEdge}
+          />
+        </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <ResolutionBadge resolution={edge.resolution} />
           {location !== undefined && (

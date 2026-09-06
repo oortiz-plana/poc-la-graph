@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type {
   ImpactDirection,
   ImpactRelationship,
+  PlsqlDependency,
   PlsqlImpactItem,
   PlsqlImpactResult,
   PlsqlObjectReference,
@@ -20,7 +21,13 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "./dependency-graph";
-import { evidenceLocation, ObjectKindBadge } from "./plsql-atoms";
+import { DependencyPathTrail } from "./dependency-path-trail";
+import {
+  displayPackageOf,
+  evidenceLocation,
+  hopText,
+  ObjectKindBadge,
+} from "./plsql-atoms";
 import { StatCard } from "./stat-card";
 import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
 
@@ -56,22 +63,8 @@ function packageOf(qualifiedName: string, kind: string): string | undefined {
   return undefined;
 }
 
-/** Bare package name (without schema) shown in the Object table. */
-function displayPackageOf(ref: PlsqlObjectReference): string | undefined {
-  if (ref.kind === "Package") return undefined;
-  const segments = ref.qualifiedName.split(".");
-  if (ROUTINE_KINDS.has(ref.kind) && segments.length >= 3) {
-    return segments.slice(1, -1).join(".");
-  }
-  return undefined;
-}
-
-function hopText(distance: number): string {
-  return distance === 1 ? "1 hop" : `${distance} hops`;
-}
-
 /** Distance → Package → Object name, the default scan order. */
-function sortImpactItems(items: PlsqlImpactItem[]): PlsqlImpactItem[] {
+export function sortImpactItems(items: PlsqlImpactItem[]): PlsqlImpactItem[] {
   return [...items].sort((a, b) => {
     if (a.distance !== b.distance) return a.distance - b.distance;
     const pkgA = displayPackageOf(a.dependent) ?? "";
@@ -97,11 +90,19 @@ export function ImpactReport({
   objectId,
   onOpenEvidence,
   onOpenObject,
+  onInspectObject,
+  onInspectEdge,
   onInspectPath,
 }: {
   objectId: string;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  /** Graph node taps navigate: drilling into a node's own neighborhood is the point of the graph. */
   onOpenObject: (reference: PlsqlObjectReference) => void;
+  /** The "Why is this affected?" trail inspects in place instead, matching
+   * the Paths/Dependencies views: navigating away would discard the
+   * analyzed object's blast-radius selection. */
+  onInspectObject: (reference: PlsqlObjectReference) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
 }) {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -222,6 +223,8 @@ export function ImpactReport({
               onSelect={selectId}
               onPathIndexChange={setSelectedPathIndex}
               onOpenEvidence={onOpenEvidence}
+              onInspectObject={onInspectObject}
+              onInspectEdge={onInspectEdge}
               onInspectPath={onInspectPath}
               onFocusInGraph={focusInGraph}
             />
@@ -436,6 +439,8 @@ function ImpactBody({
   onSelect,
   onPathIndexChange,
   onOpenEvidence,
+  onInspectObject,
+  onInspectEdge,
   onInspectPath,
   onFocusInGraph,
 }: {
@@ -446,6 +451,8 @@ function ImpactBody({
   onSelect: (id: string) => void;
   onPathIndexChange: (index: number) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  onInspectObject: (reference: PlsqlObjectReference) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
   onFocusInGraph: (nodeId: string) => void;
 }) {
@@ -519,6 +526,8 @@ function ImpactBody({
           pathIndex={selectedPathIndex}
           onPathIndexChange={onPathIndexChange}
           onOpenEvidence={onOpenEvidence}
+          onInspectObject={onInspectObject}
+          onInspectEdge={onInspectEdge}
           onInspectPath={onInspectPath}
           onFocusInGraph={onFocusInGraph}
         />
@@ -605,6 +614,8 @@ function ImpactDetail({
   pathIndex,
   onPathIndexChange,
   onOpenEvidence,
+  onInspectObject,
+  onInspectEdge,
   onInspectPath,
   onFocusInGraph,
 }: {
@@ -613,6 +624,8 @@ function ImpactDetail({
   pathIndex: number;
   onPathIndexChange: (index: number) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  onInspectObject: (reference: PlsqlObjectReference) => void;
+  onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
   onFocusInGraph: (nodeId: string) => void;
 }) {
@@ -641,7 +654,12 @@ function ImpactDetail({
       </div>
       <div className="px-4 py-3">
         {path ? (
-          <MiniDependencyPath path={path} highlightedId={analyzedId} />
+          <DependencyPathTrail
+            path={path}
+            highlightedId={analyzedId}
+            onOpenObject={onInspectObject}
+            onInspectEdge={onInspectEdge}
+          />
         ) : (
           <p className="text-sm text-text-secondary">No path available</p>
         )}
@@ -705,45 +723,5 @@ function ImpactDetail({
         </div>
       </div>
     </section>
-  );
-}
-
-function MiniDependencyPath({
-  path,
-  highlightedId,
-}: {
-  path: PlsqlPath;
-  highlightedId: string;
-}) {
-  return (
-    <ol className="flex flex-col items-center">
-      {path.nodes.map((node, index) => (
-        <li key={`${node.id}-${index}`} className="flex flex-col items-center">
-          {index > 0 && (
-            <div
-              aria-hidden
-              className="flex flex-col items-center py-1 text-text-muted"
-            >
-              <span className="h-2.5 w-px bg-border" />
-              <span className="py-0.5 text-xs font-medium text-text-secondary">
-                {path.relationships[index - 1].relationship}
-              </span>
-              <span aria-hidden>▼</span>
-            </div>
-          )}
-          <span
-            title={node.qualifiedName}
-            className={cn(
-              "inline-flex max-w-full items-center rounded-md border px-3 py-1 text-sm font-medium",
-              node.id === highlightedId
-                ? "border-primary bg-selected text-primary"
-                : "bg-surface text-text-primary",
-            )}
-          >
-            <span className="break-words">{node.name}</span>
-          </span>
-        </li>
-      ))}
-    </ol>
   );
 }

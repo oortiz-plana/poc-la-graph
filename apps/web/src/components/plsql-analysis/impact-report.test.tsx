@@ -94,6 +94,8 @@ const result: PlsqlImpactResult = {
 
 const onOpenEvidence = vi.fn();
 const onOpenObject = vi.fn();
+const onInspectObject = vi.fn();
+const onInspectEdge = vi.fn();
 const onInspectPath = vi.fn();
 
 function renderPanel() {
@@ -102,6 +104,8 @@ function renderPanel() {
       objectId="plsql://sample/HR/FUNCTION/DOCU_FIDE"
       onOpenEvidence={onOpenEvidence}
       onOpenObject={onOpenObject}
+      onInspectObject={onInspectObject}
+      onInspectEdge={onInspectEdge}
       onInspectPath={onInspectPath}
     />,
   );
@@ -116,6 +120,8 @@ describe("ImpactReport", () => {
     getPlsqlImpact.mockReset();
     onOpenEvidence.mockReset();
     onOpenObject.mockReset();
+    onInspectObject.mockReset();
+    onInspectEdge.mockReset();
     onInspectPath.mockReset();
     resetCytoscapeMock(cyMock);
   });
@@ -211,6 +217,28 @@ describe("ImpactReport", () => {
         path: "hr/fa_qfact_calc.pkb",
         startLine: 429,
       }),
+    );
+  });
+
+  it("inspects a trail node and its relationship in place, without navigating", async () => {
+    getPlsqlImpact.mockResolvedValue(result);
+    renderPanel();
+    await selectFirstRow("CALC_IVA_MORA");
+    await screen.findByText("Why is this affected?");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "HR.FA_QFACT_CALC.DOCU_FIDE" }),
+    );
+    expect(onInspectObject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "DOCU_FIDE" }),
+    );
+    expect(onOpenObject).not.toHaveBeenCalled();
+    // Still on the same analysis: the detail stays open.
+    expect(screen.getByText("Why is this affected?")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "CALLS" }));
+    expect(onInspectEdge).toHaveBeenCalledWith(
+      expect.objectContaining({ relationship: "CALLS" }),
     );
   });
 
@@ -362,6 +390,8 @@ describe("ImpactReport graph mode", () => {
     getPlsqlImpact.mockReset();
     onOpenEvidence.mockReset();
     onOpenObject.mockReset();
+    onInspectObject.mockReset();
+    onInspectEdge.mockReset();
     onInspectPath.mockReset();
     resetCytoscapeMock(cyMock);
   });

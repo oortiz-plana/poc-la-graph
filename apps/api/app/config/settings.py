@@ -131,6 +131,7 @@ class Settings(BaseSettings):
     plsql_max_traversal_edges: int = Field(default=20_000, ge=1, le=1_000_000)
     plsql_query_timeout_seconds: float = Field(default=10.0, gt=0, le=300)
     plsql_max_source_bytes: int = Field(default=262_144, ge=1024, le=10_485_760)
+    plsql_source_encoding: str = "iso-8859-1"
 
     @field_validator(
         "llm_api_base",

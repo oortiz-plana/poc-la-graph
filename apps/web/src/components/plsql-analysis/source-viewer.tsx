@@ -1,7 +1,7 @@
 "use client";
 
 import { Copy, LoaderCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -17,6 +17,11 @@ import {
 } from "@/lib/api";
 import type { PlsqlSourceContent } from "@/lib/contracts";
 import { AnalysisError, problemCodeOf } from "./analysis-error";
+import type { MonacoSourceEditorHandle } from "./monaco-source-editor";
+
+// The Monaco editor is heavy and touches browser-only globals, so it is
+// loaded lazily and rendered only after a client-side mount.
+const MonacoSourceEditor = lazy(() => import("./monaco-source-editor"));
 
 export type SourceRequest =
   | { kind: "object"; objectId: string }
@@ -126,6 +131,12 @@ export function SourceBody({ request }: { request: SourceRequest }) {
   const [content, setContent] = useState<PlsqlSourceContent>();
   const [copied, setCopied] = useState(false);
   const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
+  const [mounted, setMounted] = useState(false);
+  const editorRef = useRef<MonacoSourceEditorHandle>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,13 +172,6 @@ export function SourceBody({ request }: { request: SourceRequest }) {
   }, [request, attempt]);
 
   const highlight = content?.highlight ?? null;
-  useEffect(() => {
-    if (!highlight) return;
-    const element = document.getElementById(lineAnchor(highlight.startLine));
-    if (typeof element?.scrollIntoView === "function") {
-      element.scrollIntoView({ block: "center" });
-    }
-  }, [highlight]);
 
   if (status === "loading") {
     return (
@@ -209,12 +213,7 @@ export function SourceBody({ request }: { request: SourceRequest }) {
   }
 
   function focusLine(line: number) {
-    const element = document.getElementById(lineAnchor(line));
-    if (!element) return;
-    if (typeof element.scrollIntoView === "function") {
-      element.scrollIntoView({ block: "center" });
-    }
-    element.focus({ preventScroll: true });
+    editorRef.current?.revealLine(line);
   }
 
   return (
@@ -251,47 +250,30 @@ export function SourceBody({ request }: { request: SourceRequest }) {
           File is empty
         </p>
       ) : (
-        <ol
-          aria-label="File lines"
-          className="mt-3 max-h-[70dvh] overflow-auto rounded-lg border bg-background font-mono text-xs leading-5"
-        >
-          {lines.map((line, index) => {
-            const lineNumber = index + 1;
-            const isStart =
-              highlight !== null && lineNumber === highlight.startLine;
-            const inRange =
-              highlight !== null &&
-              lineNumber >= highlight.startLine &&
-              lineNumber <= highlight.endLine;
-            return (
-              <li
-                key={lineNumber}
-                id={lineAnchor(lineNumber)}
-                tabIndex={isStart ? -1 : undefined}
-                aria-current={isStart ? "location" : undefined}
-                data-highlighted={inRange ? "true" : undefined}
-                className={`flex scroll-m-20 items-stretch gap-0 ${
-                  inRange ? "bg-selected" : ""
-                }`}
-              >
-                <span
-                  aria-hidden
-                  className="select-none border-r border-border px-3 py-0.5 text-right text-text-secondary"
+        <div className="mt-3">
+          {mounted && (
+            <Suspense
+              fallback={
+                <p
+                  role="status"
+                  className="flex items-center gap-2 text-sm text-text-secondary"
                 >
-                  {lineNumber}
-                </span>
-                <span className="whitespace-pre px-3 py-0.5 text-foreground">
-                  {line === "" ? "\u00a0" : line}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
+                  <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
+                  Loading editor…
+                </p>
+              }
+            >
+              <MonacoSourceEditor
+                ref={editorRef}
+                value={lines.join("\n")}
+                language="sql"
+                path={file.path}
+                highlight={highlight}
+              />
+            </Suspense>
+          )}
+        </div>
       )}
     </div>
   );
-}
-
-function lineAnchor(line: number) {
-  return `plsql-source-line-${line}`;
 }

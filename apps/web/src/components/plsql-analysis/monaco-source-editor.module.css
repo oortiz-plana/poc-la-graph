@@ -1,0 +1,24 @@
+.container {
+  height: 70dvh;
+  min-height: 16rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+
+/*
+ * Monaco applies these class names to the whole-line decoration we create for
+ * the evidence highlight. The selectors are scoped under the local `.container`
+ * class (Next.js requires `:global()` selectors to be mixed with a local
+ * class), while the class Monaco sees stays a plain, non-hashed string.
+ */
+.container :global(.plsql-source-highlight) {
+  background: var(--color-selected-background);
+}
+
+.container :global(.plsql-source-highlight--gutter) {
+  background: var(--color-primary);
+  width: 2px !important;
+  left: 0;
+}

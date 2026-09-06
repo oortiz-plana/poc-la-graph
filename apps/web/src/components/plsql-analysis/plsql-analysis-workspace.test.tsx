@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   PlsqlDependency,
@@ -35,6 +36,17 @@ vi.mock("../auth-provider", () => ({
     logout: vi.fn(),
     config: authState.config,
   }),
+}));
+// Monaco needs a real browser layout engine, so render the joined source lines
+// as plain text in jsdom and assert the source viewer wires them into the
+// editor.
+vi.mock("./monaco-source-editor", () => ({
+  default: (props: { value?: string }) =>
+    React.createElement(
+      "pre",
+      { "data-testid": "monaco-source-editor" },
+      props.value ?? "",
+    ),
 }));
 
 import { PlsqlAnalysisWorkspace } from "./plsql-analysis-workspace";
@@ -444,11 +456,10 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(await screen.findByText("Blast radius")).toBeInTheDocument();
     expect(screen.getByText("Direct")).toBeInTheDocument();
     expect(screen.getByText("Indirect dependents")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getAllByText("HR.PKG_PAYROLL.RUN_PAYROLL").length).toBeGreaterThan(0),
-    );
+    expect(screen.getByText("RUN_PAYROLL")).toBeInTheDocument();
+    expect(screen.getByText("PKG_PAYROLL")).toBeInTheDocument();
     expect(screen.getByText("1 hop")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /RUN_PAYROLL/ }));
+    await user.click(screen.getByText("RUN_PAYROLL"));
     expect(await screen.findByText("Why is this affected?")).toBeInTheDocument();
     expect(screen.getByText("hr/pkg_payroll.pkb:12")).toBeInTheDocument();
   });
@@ -615,6 +626,9 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       screen.getByRole("button", { name: "Go to line 1" }),
     ).toBeInTheDocument();
+    expect(await screen.findByTestId("monaco-source-editor")).toHaveTextContent(
+      "FUNCTION GET_SALARY(",
+    );
   });
 
   it("opens the file source viewer from a caller evidence link", async () => {

@@ -166,6 +166,7 @@ export function PlsqlAnalysisWorkspace() {
                     objectId={selected.id}
                     onOpenEvidence={openEvidence}
                     onOpenObject={openReference}
+                    onInspectPath={(path) => setInspection({ kind: "path", path })}
                   />
                 </TabsContent>
                 <TabsContent value="paths">

@@ -5,7 +5,12 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "monaco-editor": fileURLToPath(
+        new URL("./tests/monaco-editor-stub.ts", import.meta.url),
+      ),
+    },
   },
   test: {
     environment: "jsdom",

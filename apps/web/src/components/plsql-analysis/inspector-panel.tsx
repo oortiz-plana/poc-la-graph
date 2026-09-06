@@ -101,6 +101,22 @@ function PathInspection({ path }: { path: PlsqlPath }) {
           value={path.hopCount === 1 ? "1 hop" : `${path.hopCount} hops`}
         />
       </dl>
+      <div className="border-t px-4 py-3">
+        <p className="text-xs text-text-muted">Full path</p>
+        <ol className="mt-2 space-y-1.5">
+          {path.nodes.map((node, index) => (
+            <li key={`${node.id}-${index}`} className="break-words text-sm">
+              {index > 0 && (
+                <span className="text-xs text-text-muted">
+                  {path.relationships[index - 1].relationship}
+                  {" · "}
+                </span>
+              )}
+              {node.qualifiedName}
+            </li>
+          ))}
+        </ol>
+      </div>
     </div>
   );
 }

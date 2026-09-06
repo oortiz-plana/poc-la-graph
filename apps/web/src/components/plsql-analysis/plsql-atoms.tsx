@@ -133,6 +133,21 @@ export function evidenceLocation(
     : `${evidence.path}:${evidence.startLine}`;
 }
 
+/**
+ * Compact "line N" label for a table cell or inline detail, where the full
+ * path is already shown elsewhere (a tooltip, or the source evidence header)
+ * and repeating it in every row would just add noise.
+ */
+export function evidenceLineLabel(
+  evidence: {
+    path?: string | null;
+    startLine?: number | null;
+  } | null,
+): string | undefined {
+  if (evidence?.startLine != null) return `line ${evidence.startLine}`;
+  return evidence?.path ?? undefined;
+}
+
 const ROUTINE_KINDS = new Set<PlsqlObjectKind>(["Procedure", "Function"]);
 
 /** Bare package name (without schema), for a routine reference nested under a package. */

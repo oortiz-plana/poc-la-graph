@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, LoaderCircle } from "lucide-react";
+import { ArrowRight, Copy, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,10 +36,11 @@ import {
 } from "./overview-metrics";
 import {
   displayPackageOf,
-  evidenceLocation,
+  evidenceLineLabel,
   hopText,
   ObjectKindBadge,
 } from "./plsql-atoms";
+import { SourceBody } from "./source-viewer";
 
 type SectionStatus = "loading" | "ready" | "error";
 
@@ -57,6 +58,7 @@ type OverviewDetailRow = {
 export function OverviewPanel({
   object,
   onOpenEvidence,
+  onOpenObject,
   onInspectPath,
   onAnalyzeObject,
   onExploreDependencies,
@@ -64,6 +66,7 @@ export function OverviewPanel({
 }: {
   object: PlsqlObject;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectPath: (path: PlsqlPath) => void;
   onAnalyzeObject: (reference: PlsqlObjectReference) => void;
   onExploreDependencies: (category: PlsqlDependencyCategory) => void;
@@ -168,6 +171,7 @@ export function OverviewPanel({
           onSelectMetric={selectMetric}
           onSelectRowId={setSelectedRowId}
           onOpenEvidence={onOpenEvidence}
+          onOpenObject={onOpenObject}
           onInspectPath={onInspectPath}
           onAnalyzeObject={onAnalyzeObject}
           onExploreDependencies={onExploreDependencies}
@@ -187,6 +191,7 @@ function OverviewBody({
   onSelectMetric,
   onSelectRowId,
   onOpenEvidence,
+  onOpenObject,
   onInspectPath,
   onAnalyzeObject,
   onExploreDependencies,
@@ -200,6 +205,7 @@ function OverviewBody({
   onSelectMetric: (metric: OverviewMetricDef) => void;
   onSelectRowId: (id: string) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectPath: (path: PlsqlPath) => void;
   onAnalyzeObject: (reference: PlsqlObjectReference) => void;
   onExploreDependencies: (category: PlsqlDependencyCategory) => void;
@@ -284,6 +290,7 @@ function OverviewBody({
           <RelationshipInsight
             row={selectedRow}
             onOpenEvidence={onOpenEvidence}
+            onOpenObject={onOpenObject}
             onInspectPath={onInspectPath}
             onAnalyzeObject={onAnalyzeObject}
           />
@@ -415,17 +422,30 @@ function rowsForMetric(
 function RelationshipInsight({
   row,
   onOpenEvidence,
+  onOpenObject,
   onInspectPath,
   onAnalyzeObject,
 }: {
   row: OverviewDetailRow;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectPath: (path: PlsqlPath) => void;
   onAnalyzeObject: (reference: PlsqlObjectReference) => void;
 }) {
   const finalEdge = row.path.relationships[row.path.relationships.length - 1];
-  const location = evidenceLocation(finalEdge?.evidence);
-  const hasEvidence = Boolean(finalEdge?.evidence?.sourceFileId);
+  const lineLabel = evidenceLineLabel(finalEdge?.evidence);
+  const [copied, setCopied] = useState(false);
+
+  async function copyQualifiedName() {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(row.subject.qualifiedName);
+      }
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <section
@@ -443,40 +463,70 @@ function RelationshipInsight({
           {row.subject.qualifiedName}
         </span>
       </div>
-      <div className="px-4 py-3">
-        <DependencyPathTrail path={row.path} />
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
-          <span className="font-medium text-text-primary">
-            {hopText(row.hopCount)}
-          </span>
-          <span className="text-text-muted">
-            {location ?? "No source evidence"}
-          </span>
+      <div className="grid items-start gap-4 px-4 py-3 lg:grid-cols-[35%_1fr]">
+        <div>
+          <DependencyPathTrail path={row.path} showKind />
+          {/* The full path/line already appears once, in the source evidence
+           * header on the right. */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
+            <span className="font-medium text-text-primary">
+              {hopText(row.hopCount)}
+            </span>
+            {lineLabel !== undefined && <span>{lineLabel}</span>}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onOpenObject(row.subject)}
+            >
+              Open object
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              aria-label={`Analyze impact for ${row.subject.name}`}
+              onClick={() => onAnalyzeObject(row.subject)}
+            >
+              Analyze impact
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onInspectPath(row.fullPath)}
+            >
+              View path
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void copyQualifiedName()}
+            >
+              <Copy aria-hidden /> {copied ? "Copied" : "Copy qualified name"}
+            </Button>
+          </div>
+          <p aria-live="polite" className="sr-only">
+            {copied ? "Qualified name copied to clipboard." : ""}
+          </p>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onOpenEvidence(finalEdge?.evidence ?? null)}
-            disabled={!hasEvidence}
-          >
-            Open source
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onInspectPath(row.fullPath)}
-          >
-            View path
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onAnalyzeObject(row.subject)}
-          >
-            Analyze object
-          </Button>
-        </div>
+        <section aria-label="Source evidence" className="min-w-0">
+          {finalEdge?.evidence?.sourceFileId ? (
+            <SourceBody
+              heading="Source evidence"
+              onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
+              request={{
+                kind: "file",
+                fileId: finalEdge.evidence.sourceFileId,
+                startLine: finalEdge.evidence.startLine ?? undefined,
+                endLine: finalEdge.evidence.startLine ?? undefined,
+              }}
+            />
+          ) : (
+            <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
+              No source evidence available for this relationship.
+            </p>
+          )}
+        </section>
       </div>
     </section>
   );

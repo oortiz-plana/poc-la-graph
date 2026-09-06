@@ -202,6 +202,7 @@ export function PlsqlAnalysisWorkspace() {
                   <OverviewPanel
                     object={selected}
                     onOpenEvidence={openEvidence}
+                    onOpenObject={openReference}
                     onInspectPath={(path) =>
                       setInspection({ kind: "path", path })
                     }
@@ -245,6 +246,8 @@ export function PlsqlAnalysisWorkspace() {
                       setInspection({ kind: "path", path })
                     }
                     onInspectEdge={inspectEdge}
+                    onOpenObject={openReference}
+                    onAnalyzeObject={analyzeObject}
                   />
                 </TabsContent>
                 <TabsContent value="source">

@@ -15,6 +15,14 @@ const getPlsqlDependencies = vi.hoisted(() => vi.fn());
 const getPlsqlFileSource = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({ getPlsqlDependencies, getPlsqlFileSource }));
 
+// Monaco needs a real browser layout engine, so render the joined source
+// lines as plain text in jsdom instead of loading the real editor.
+vi.mock("./monaco-source-editor", () => ({
+  default: (props: { value?: string }) => (
+    <pre data-testid="monaco-source-editor">{props.value ?? ""}</pre>
+  ),
+}));
+
 const cyMock = vi.hoisted(() => ({
   on: vi.fn(),
   destroy: vi.fn(),
@@ -230,10 +238,10 @@ describe("DependenciesPanel results table", () => {
     getPlsqlDependencies.mockResolvedValue(callerSummary());
     renderPanel();
     const table = await screen.findByRole("table");
-    expect(within(table).getByText("Target")).toBeInTheDocument();
+    expect(within(table).getByText("Related object")).toBeInTheDocument();
     expect(within(table).getByText("Relationship")).toBeInTheDocument();
     expect(within(table).getByText("Resolution")).toBeInTheDocument();
-    expect(within(table).getByText("Source")).toBeInTheDocument();
+    expect(within(table).getByText("Evidence")).toBeInTheDocument();
     // Only the *other* object shows in the row; the analyzed object (DOCU_FIDE)
     // is already the page subject and doesn't need repeating in every row.
     expect(within(table).getByText("CALC_IVA_MORA")).toBeInTheDocument();
@@ -281,15 +289,22 @@ describe("DependenciesPanel selected dependency", () => {
     await user.click(await screen.findByText("CALC_IVA_MORA"));
 
     expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
-    expect(
-      screen.getAllByText("hr/fa_qfact_calc.pkb:429").length,
-    ).toBeGreaterThan(0);
+    // The relationship pane shows just the line number; the full path lives
+    // once, in the source evidence header, so the two panes don't repeat it.
+    // (The compact table row above also shows "line 429", so there are two.)
+    expect(screen.getAllByText("line 429").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Source evidence")).toBeInTheDocument();
     expect(await screen.findByText("hr/fa_qfact_calc.pkb")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open full source" }),
+    ).toBeInTheDocument();
     expect(getPlsqlFileSource).toHaveBeenCalledWith(
       "file://sample/hr/fa_qfact_calc.pkb",
       { startLine: 429, endLine: 429 },
     );
-    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(
+      screen.getByRole("button", { name: "Close selected dependency" }),
+    );
     expect(screen.queryByText("Selected dependency")).not.toBeInTheDocument();
   });
 
@@ -367,7 +382,9 @@ describe("DependenciesPanel selected dependency", () => {
       expect.objectContaining({ name: "CALC_IVA_MORA" }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Analyze impact" }));
+    await user.click(
+      screen.getByRole("button", { name: "Analyze impact for CALC_IVA_MORA" }),
+    );
     expect(onAnalyzeObject).toHaveBeenCalledWith(
       expect.objectContaining({ name: "CALC_IVA_MORA" }),
     );

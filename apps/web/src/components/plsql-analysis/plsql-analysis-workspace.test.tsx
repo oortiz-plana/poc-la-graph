@@ -318,6 +318,14 @@ describe("PlsqlAnalysisWorkspace", () => {
       truncated: false,
       total: 0,
     });
+    mocks.getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+      },
+      lines: ["  RUN_PAYROLL(...);"],
+      highlight: { startLine: 12, endLine: 12 },
+    });
     render(<PlsqlAnalysisWorkspace />);
     await selectFromExplorer(
       user,
@@ -332,9 +340,13 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await screen.findByText("Why is this affected?"),
     ).toBeInTheDocument();
-    expect(screen.getByText("hr/pkg_payroll.pkb:12")).toBeInTheDocument();
+    // The relationship pane shows just the line number; the full path lives
+    // once, in the source evidence header.
+    expect(screen.getByText("line 12")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Analyze object" }));
+    await user.click(
+      screen.getByRole("button", { name: "Analyze impact for RUN_PAYROLL" }),
+    );
     expect(
       await screen.findByRole("heading", { name: "RUN_PAYROLL" }),
     ).toBeInTheDocument();
@@ -420,7 +432,9 @@ describe("PlsqlAnalysisWorkspace", () => {
       "title",
       "Confidence: INFERRED",
     );
-    expect(screen.getByText("hr/pkg_payroll.pkb:34")).toBeInTheDocument();
+    const sourceLink = screen.getByText("line 34");
+    expect(sourceLink).toBeInTheDocument();
+    expect(sourceLink).toHaveAttribute("title", "hr/pkg_payroll.pkb:34");
   });
 
   it("inspects a dependency split-view node and edge without resetting the panel", async () => {
@@ -642,6 +656,14 @@ describe("PlsqlAnalysisWorkspace", () => {
       count: 1,
       summary: { direct: 1, indirect: 0, packages: 1, tablesModified: 0 },
     });
+    mocks.getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+      },
+      lines: ["  RUN_PAYROLL(...);"],
+      highlight: { startLine: 12, endLine: 12 },
+    });
     render(<PlsqlAnalysisWorkspace />);
     await selectFromExplorer(
       user,
@@ -663,7 +685,9 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await screen.findByText("Why is this affected?"),
     ).toBeInTheDocument();
-    expect(screen.getByText("hr/pkg_payroll.pkb:12")).toBeInTheDocument();
+    // The relationship pane shows just the line number; the full path lives
+    // once, in the source evidence header.
+    expect(screen.getByText("line 12")).toBeInTheDocument();
   });
 
   it("shows the empty impact state and truncation flag", async () => {
@@ -736,11 +760,9 @@ describe("PlsqlAnalysisWorkspace", () => {
 
       expect(await screen.findByText("1 hop")).toBeInTheDocument();
       await user.click(
-        screen.getByRole("button", {
-          name: /GET_SALARY.*RUN_PAYROLL|RUN_PAYROLL.*GET_SALARY/,
-        }),
+        screen.getByText(/GET_SALARY.*RUN_PAYROLL|RUN_PAYROLL.*GET_SALARY/),
       );
-      expect(await screen.findByText("Route")).toBeInTheDocument();
+      expect(await screen.findByText("Selected path")).toBeInTheDocument();
 
       // Clicking a route node inspects it in the right-hand panel instead of
       // navigating away, so the traced route stays open and intact. Scoped
@@ -926,7 +948,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       /GET_SALARY/,
     );
     await user.click(screen.getByRole("tab", { name: "Dependencies" }));
-    await user.click(await screen.findByText("hr/pkg_payroll.pkb:34"));
+    await user.click(await screen.findByText("line 34"));
 
     expect(screen.getByRole("tab", { name: "Source" })).toHaveAttribute(
       "aria-selected",

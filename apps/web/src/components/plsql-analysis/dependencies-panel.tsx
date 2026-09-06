@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, LoaderCircle, Minus, Plus } from "lucide-react";
+import { Copy, LoaderCircle, Minus, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { getPlsqlDependencies, type PlsqlProblemCode } from "@/lib/api";
@@ -25,6 +25,7 @@ import {
 } from "./dependency-graph";
 import { dependencyToPath, DependencyPathTrail } from "./dependency-path-trail";
 import {
+  evidenceLineLabel,
   evidenceLocation,
   RelationshipChip,
   ResolutionBadge,
@@ -251,7 +252,7 @@ export function DependenciesPanel({
 
   const columns: DetailTableColumn<DependencyListRow>[] = [
     {
-      header: "Target",
+      header: "Related object",
       cell: (row) => (
         <span
           title={row.other.qualifiedName}
@@ -270,29 +271,34 @@ export function DependenciesPanel({
       cell: (row) => <ResolutionBadge resolution={row.edge.resolution} />,
     },
     {
-      header: "Source",
+      header: "Evidence",
       cell: (row) => {
-        const location = evidenceLocation(row.edge.evidence);
-        if (location === undefined) {
+        const label = evidenceLineLabel(row.edge.evidence);
+        const fullLocation = evidenceLocation(row.edge.evidence);
+        if (label === undefined) {
           return <span className="text-text-muted">—</span>;
         }
         if (!row.edge.evidence?.sourceFileId) {
           return (
-            <span className="break-words text-xs text-text-secondary">
-              {location}
+            <span
+              title={fullLocation}
+              className="break-words text-xs text-text-secondary"
+            >
+              {label}
             </span>
           );
         }
         return (
           <button
             type="button"
+            title={fullLocation}
             onClick={(event) => {
               event.stopPropagation();
               onOpenEvidence(row.edge.evidence);
             }}
             className="break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >
-            {location}
+            {label}
           </button>
         );
       },
@@ -422,10 +428,18 @@ export function DependenciesPanel({
       )}
 
       {viewMode === "list" && activeSummary && (
-        <div className="mt-3">
-          {activeSummary.truncated && (
-            <p className="mb-2 text-sm text-warning">Results truncated</p>
-          )}
+        <section
+          aria-label="Dependency results"
+          className="mt-3 rounded-lg border bg-surface"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+            <h3 className="text-sm font-semibold text-text-secondary">
+              Dependency results
+            </h3>
+            {activeSummary.truncated && (
+              <span className="text-xs text-warning">Results truncated</span>
+            )}
+          </div>
           <DependencyDetailTable
             ariaLabel={`${activeCategoryLabel ?? "Dependency"} results`}
             columns={columns}
@@ -434,8 +448,9 @@ export function DependenciesPanel({
             selectedId={selectedEdge?.id}
             onSelectRow={(row) => selectEdge(row.edge)}
             emptyMessage="No matching dependencies"
+            bordered={false}
           />
-        </div>
+        </section>
       )}
 
       {status === "ready" && selectedEdge && (
@@ -448,6 +463,7 @@ export function DependenciesPanel({
           onInspectEdge={onInspectEdge}
           onAnalyzeObject={onAnalyzeObject}
           onInspectPath={onInspectPath}
+          onOpenEvidence={onOpenEvidence}
         />
       )}
     </section>
@@ -463,6 +479,7 @@ function SelectedDependency({
   onInspectEdge,
   onAnalyzeObject,
   onInspectPath,
+  onOpenEvidence,
 }: {
   edge: PlsqlDependency;
   objectId: string;
@@ -472,10 +489,11 @@ function SelectedDependency({
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
   onInspectPath?: (path: PlsqlPath) => void;
+  onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
 }) {
   const other = edge.source.id === objectId ? edge.target : edge.source;
   const evidence = edge.evidence;
-  const location = evidenceLocation(evidence);
+  const lineLabel = evidenceLineLabel(evidence);
   // A single edge is a one-hop path, so it reuses the same trail the
   // Impact and Paths views use to explain a chain of relationships.
   const path = dependencyToPath(edge);
@@ -493,31 +511,44 @@ function SelectedDependency({
   }
 
   return (
-    <section aria-label="Selected dependency" className="mt-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <section
+      aria-label="Selected dependency"
+      className="mt-6 rounded-lg border bg-background"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
         <h3 className="text-sm font-semibold text-text-secondary">
           Selected dependency
         </h3>
         <button
           type="button"
+          aria-label="Close selected dependency"
           onClick={onClose}
-          className="min-h-11 rounded px-2 text-sm underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-text-secondary hover:bg-selected hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
-          Close
+          <X aria-hidden className="h-4 w-4" />
         </button>
       </div>
-      <div className="mt-2 grid items-start gap-4 lg:grid-cols-[35%_1fr]">
-        <div className="rounded-lg border bg-surface p-4">
+      <div className="grid items-start divide-y lg:grid-cols-[35%_1fr] lg:divide-x lg:divide-y-0">
+        <div className="p-4">
           <DependencyPathTrail
             path={path}
             onOpenObject={onInspectObject}
             onInspectEdge={onInspectEdge}
+            showKind
           />
+          {/* The full path/line already appears once, in the source evidence
+           * header on the right; here we only need the line number next to
+           * the confidence badge (see item 4's "Resolved · line 58"). */}
           <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
             <ResolutionBadge resolution={edge.resolution} />
-            {location !== undefined && <span>{location}</span>}
+            {lineLabel !== undefined && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{lineLabel}</span>
+              </>
+            )}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant="outline"
@@ -529,6 +560,7 @@ function SelectedDependency({
               <Button
                 size="sm"
                 variant="outline"
+                aria-label={`Analyze impact for ${other.name}`}
                 onClick={() => onAnalyzeObject(other)}
               >
                 Analyze impact
@@ -537,7 +569,7 @@ function SelectedDependency({
             {onInspectPath && (
               <Button
                 size="sm"
-                variant="outline"
+                variant="ghost"
                 onClick={() =>
                   onInspectPath({ id: edge.id, ...path, hopCount: 1 })
                 }
@@ -547,7 +579,7 @@ function SelectedDependency({
             )}
             <Button
               size="sm"
-              variant="outline"
+              variant="ghost"
               onClick={() => void copyQualifiedName()}
             >
               <Copy aria-hidden /> {copied ? "Copied" : "Copy qualified name"}
@@ -557,9 +589,11 @@ function SelectedDependency({
             {copied ? "Qualified name copied to clipboard." : ""}
           </p>
         </div>
-        <section aria-label="Source evidence" className="min-w-0">
+        <section aria-label="Source evidence" className="min-w-0 p-4">
           {evidence?.sourceFileId ? (
             <SourceBody
+              heading="Source evidence"
+              onOpenFullSource={() => onOpenEvidence(evidence)}
               request={{
                 kind: "file",
                 fileId: evidence.sourceFileId,

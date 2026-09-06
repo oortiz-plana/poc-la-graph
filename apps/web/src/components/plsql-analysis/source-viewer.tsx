@@ -16,6 +16,7 @@ import {
   type PlsqlProblemCode,
 } from "@/lib/api";
 import type { PlsqlSourceContent } from "@/lib/contracts";
+import { cn } from "@/lib/utils";
 import { AnalysisError, problemCodeOf } from "./analysis-error";
 import type { MonacoSourceEditorHandle } from "./monaco-source-editor";
 
@@ -125,7 +126,19 @@ function SourcePanel({
   );
 }
 
-export function SourceBody({ request }: { request: SourceRequest }) {
+export function SourceBody({
+  request,
+  heading,
+  onOpenFullSource,
+}: {
+  request: SourceRequest;
+  /** Visible title shown above the location line, e.g. "Source evidence" for
+   * an inline inspector; omitted where the surrounding view already has its
+   * own "Source" heading (the dedicated Source tab). */
+  heading?: string;
+  /** Escalates from an inline evidence preview to the full Source tab. */
+  onOpenFullSource?: () => void;
+}) {
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SourceStatus>("loading");
   const [content, setContent] = useState<PlsqlSourceContent>();
@@ -201,10 +214,11 @@ export function SourceBody({ request }: { request: SourceRequest }) {
         ? String(highlight.startLine)
         : null;
 
-  async function copyPath() {
+  async function copyLocation() {
+    const location = range !== null ? `${file.path}:${range}` : file.path;
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(file.path);
+        await navigator.clipboard.writeText(location);
       }
       setCopied(true);
     } catch {
@@ -217,8 +231,16 @@ export function SourceBody({ request }: { request: SourceRequest }) {
   }
 
   return (
-    <div className="mt-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className={cn(!heading && "mt-4")}>
+      {heading && (
+        <h3 className="text-sm font-semibold text-text-secondary">{heading}</h3>
+      )}
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3",
+          heading && "mt-2",
+        )}
+      >
         <p className="min-w-0 break-words text-sm text-text-secondary">
           <span className="break-words">{file.path}</span>
           {range !== null && <span aria-hidden> · line {range}</span>}
@@ -233,17 +255,26 @@ export function SourceBody({ request }: { request: SourceRequest }) {
               Go to evidence
             </Button>
           )}
+          {onOpenFullSource && (
+            <Button
+              variant="outline"
+              className="min-h-11"
+              onClick={onOpenFullSource}
+            >
+              Open full source
+            </Button>
+          )}
           <Button
             variant="outline"
             className="min-h-11"
-            onClick={() => void copyPath()}
+            onClick={() => void copyLocation()}
           >
-            <Copy aria-hidden /> {copied ? "Copied" : "Copy path"}
+            <Copy aria-hidden /> {copied ? "Copied" : "Copy location"}
           </Button>
         </div>
       </div>
       <p aria-live="polite" className="sr-only">
-        {copied ? "Source path copied to clipboard." : ""}
+        {copied ? "Source location copied to clipboard." : ""}
       </p>
       {lines.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-text-secondary">

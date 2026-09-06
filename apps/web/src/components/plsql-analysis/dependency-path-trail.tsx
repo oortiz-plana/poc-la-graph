@@ -7,7 +7,7 @@ import type {
   PlsqlPath,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
-import { RelationshipChip } from "./plsql-atoms";
+import { KIND_LABELS, ObjectKindIcon, RelationshipChip } from "./plsql-atoms";
 
 /** Minimal shape needed to render a chain of nodes joined by relationships. */
 export type PathLike = Pick<PlsqlPath, "nodes" | "relationships">;
@@ -30,12 +30,17 @@ export function DependencyPathTrail({
   onOpenObject,
   onOpenEvidence,
   onInspectEdge,
+  showKind,
 }: {
   path: PathLike;
   highlightedId?: string;
   onOpenObject?: (reference: PlsqlObjectReference) => void;
   onOpenEvidence?: (evidence: PlsqlSourceCoordinate | null) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
+  /** Shows each node's kind icon and plain-language label beneath its name.
+   * Used where a single relationship is the whole point of the view (the
+   * Dependencies inspector); the longer chains elsewhere stay compact. */
+  showKind?: boolean;
 }) {
   const hasHopDetail = Boolean(onOpenEvidence || onInspectEdge);
   return (
@@ -77,6 +82,7 @@ export function DependencyPathTrail({
             node={node}
             highlighted={node.id === highlightedId}
             onOpenObject={onOpenObject}
+            showKind={showKind}
           />
         </li>
       ))}
@@ -88,37 +94,51 @@ function PathNode({
   node,
   highlighted,
   onOpenObject,
+  showKind,
 }: {
   node: PlsqlObjectReference;
   highlighted: boolean;
   onOpenObject?: (reference: PlsqlObjectReference) => void;
+  showKind?: boolean;
 }) {
   const chipClass = cn(
-    "inline-flex max-w-full items-center rounded-md border px-3 py-1 text-sm font-medium",
+    "inline-flex max-w-full items-center gap-1.5 rounded-md border px-3 py-1 text-sm font-medium",
     highlighted
       ? "border-primary bg-selected text-primary"
       : "bg-surface text-text-primary",
   );
-  if (!onOpenObject) {
-    return (
-      <span title={node.qualifiedName} className={chipClass}>
-        <span className="break-words">{node.name}</span>
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      title={node.qualifiedName}
-      aria-label={node.qualifiedName}
-      onClick={() => onOpenObject(node)}
-      className={cn(
-        chipClass,
-        "min-h-9 hover:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-      )}
-    >
+  const inner = (
+    <>
+      <ObjectKindIcon kind={node.kind} className="h-4 w-4 shrink-0" />
       <span className="break-words">{node.name}</span>
-    </button>
+    </>
+  );
+  return (
+    <span className="flex flex-col items-center gap-0.5">
+      {onOpenObject ? (
+        <button
+          type="button"
+          title={node.qualifiedName}
+          aria-label={node.qualifiedName}
+          onClick={() => onOpenObject(node)}
+          className={cn(
+            chipClass,
+            "min-h-9 hover:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+          )}
+        >
+          {inner}
+        </button>
+      ) : (
+        <span title={node.qualifiedName} className={chipClass}>
+          {inner}
+        </span>
+      )}
+      {showKind && (
+        <span className="text-xs text-text-muted">
+          {KIND_LABELS[node.kind]}
+        </span>
+      )}
+    </span>
   );
 }
 

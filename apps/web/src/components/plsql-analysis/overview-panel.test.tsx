@@ -12,7 +12,20 @@ import { OverviewPanel } from "./overview-panel";
 
 const getPlsqlImpact = vi.hoisted(() => vi.fn());
 const getPlsqlDependencies = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/api", () => ({ getPlsqlImpact, getPlsqlDependencies }));
+const getPlsqlFileSource = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/api", () => ({
+  getPlsqlImpact,
+  getPlsqlDependencies,
+  getPlsqlFileSource,
+}));
+
+// Monaco needs a real browser layout engine, so render the joined source
+// lines as plain text in jsdom instead of loading the real editor.
+vi.mock("./monaco-source-editor", () => ({
+  default: (props: { value?: string }) => (
+    <pre data-testid="monaco-source-editor">{props.value ?? ""}</pre>
+  ),
+}));
 
 function ref(
   id: string,
@@ -136,6 +149,7 @@ function dependencySummary(
 }
 
 const onOpenEvidence = vi.fn();
+const onOpenObject = vi.fn();
 const onInspectPath = vi.fn();
 const onAnalyzeObject = vi.fn();
 const onExploreDependencies = vi.fn();
@@ -146,6 +160,7 @@ function renderPanel(object: PlsqlObject = getSalary) {
     <OverviewPanel
       object={object}
       onOpenEvidence={onOpenEvidence}
+      onOpenObject={onOpenObject}
       onInspectPath={onInspectPath}
       onAnalyzeObject={onAnalyzeObject}
       onExploreDependencies={onExploreDependencies}
@@ -158,7 +173,9 @@ describe("OverviewPanel", () => {
   afterEach(() => {
     getPlsqlImpact.mockReset();
     getPlsqlDependencies.mockReset();
+    getPlsqlFileSource.mockReset();
     onOpenEvidence.mockReset();
+    onOpenObject.mockReset();
     onInspectPath.mockReset();
     onAnalyzeObject.mockReset();
     onExploreDependencies.mockReset();
@@ -322,6 +339,14 @@ describe("OverviewPanel", () => {
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
+    getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+      },
+      lines: ["  GET_SALARY(...);"],
+      highlight: { startLine: 34, endLine: 34 },
+    });
     const user = userEvent.setup();
     renderPanel();
     await screen.findByRole("table", { name: /Direct callers/ });
@@ -331,8 +356,17 @@ describe("OverviewPanel", () => {
       await screen.findByText("Why is this affected?"),
     ).toBeInTheDocument();
     expect(screen.getByText("1 hop")).toBeInTheDocument();
+    // The full path/line lives once, in the source evidence header; the
+    // relationship pane shows just the line number.
+    expect(screen.getByText("line 34")).toBeInTheDocument();
+    expect(await screen.findByText("Source evidence")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Open source" }));
+    await user.click(screen.getByRole("button", { name: "Open object" }));
+    expect(onOpenObject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "RUN_PAYROLL" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open full source" }));
     expect(onOpenEvidence).toHaveBeenCalledWith(
       expect.objectContaining({ path: "hr/pkg_payroll.pkb", startLine: 34 }),
     );
@@ -342,7 +376,9 @@ describe("OverviewPanel", () => {
       expect.objectContaining({ id: "path://sample/direct" }),
     );
 
-    await user.click(screen.getByRole("button", { name: "Analyze object" }));
+    await user.click(
+      screen.getByRole("button", { name: "Analyze impact for RUN_PAYROLL" }),
+    );
     expect(onAnalyzeObject).toHaveBeenCalledWith(
       expect.objectContaining({ name: "RUN_PAYROLL" }),
     );
@@ -353,13 +389,21 @@ describe("OverviewPanel", () => {
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
+    getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/pkg_payroll.pkb",
+        path: "hr/pkg_payroll.pkb",
+      },
+      lines: ["  GET_SALARY(...);"],
+      highlight: { startLine: 34, endLine: 34 },
+    });
     const user = userEvent.setup();
     renderPanel();
     await screen.findByRole("table", { name: /Direct callers/ });
     await user.click(screen.getByText("RUN_PAYROLL"));
     await screen.findByText("Why is this affected?");
 
-    await user.click(screen.getByRole("button", { name: "Open source" }));
+    await user.click(screen.getByRole("button", { name: "Open full source" }));
     // Selection survives the action: still on Direct callers, row still shown.
     expect(
       screen.getByRole("button", { name: /Direct callers/ }),

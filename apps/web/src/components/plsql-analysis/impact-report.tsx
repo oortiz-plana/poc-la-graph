@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle } from "lucide-react";
+import { Copy, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { getPlsqlImpact, type PlsqlProblemCode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -24,10 +24,11 @@ import {
 import { DependencyPathTrail } from "./dependency-path-trail";
 import {
   displayPackageOf,
-  evidenceLocation,
+  evidenceLineLabel,
   hopText,
   ObjectKindBadge,
 } from "./plsql-atoms";
+import { SourceBody } from "./source-viewer";
 import { StatCard } from "./stat-card";
 import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
 
@@ -223,6 +224,7 @@ export function ImpactReport({
               onSelect={selectId}
               onPathIndexChange={setSelectedPathIndex}
               onOpenEvidence={onOpenEvidence}
+              onOpenObject={onOpenObject}
               onInspectObject={onInspectObject}
               onInspectEdge={onInspectEdge}
               onInspectPath={onInspectPath}
@@ -439,6 +441,7 @@ function ImpactBody({
   onSelect,
   onPathIndexChange,
   onOpenEvidence,
+  onOpenObject,
   onInspectObject,
   onInspectEdge,
   onInspectPath,
@@ -451,6 +454,7 @@ function ImpactBody({
   onSelect: (id: string) => void;
   onPathIndexChange: (index: number) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectObject: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
@@ -526,6 +530,7 @@ function ImpactBody({
           pathIndex={selectedPathIndex}
           onPathIndexChange={onPathIndexChange}
           onOpenEvidence={onOpenEvidence}
+          onOpenObject={onOpenObject}
           onInspectObject={onInspectObject}
           onInspectEdge={onInspectEdge}
           onInspectPath={onInspectPath}
@@ -614,6 +619,7 @@ function ImpactDetail({
   pathIndex,
   onPathIndexChange,
   onOpenEvidence,
+  onOpenObject,
   onInspectObject,
   onInspectEdge,
   onInspectPath,
@@ -624,6 +630,7 @@ function ImpactDetail({
   pathIndex: number;
   onPathIndexChange: (index: number) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
+  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectObject: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
@@ -633,8 +640,19 @@ function ImpactDetail({
   const activeIndex = Math.min(pathIndex, paths.length - 1);
   const path = paths[activeIndex];
   const finalEdge = path?.relationships[path.relationships.length - 1];
-  const location = evidenceLocation(finalEdge?.evidence);
-  const hasEvidence = Boolean(finalEdge?.evidence?.sourceFileId);
+  const lineLabel = evidenceLineLabel(finalEdge?.evidence);
+  const [copied, setCopied] = useState(false);
+
+  async function copyQualifiedName() {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(item.dependent.qualifiedName);
+      }
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <section
@@ -652,75 +670,103 @@ function ImpactDetail({
           {item.dependent.qualifiedName}
         </span>
       </div>
-      <div className="px-4 py-3">
-        {path ? (
-          <DependencyPathTrail
-            path={path}
-            highlightedId={analyzedId}
-            onOpenObject={onInspectObject}
-            onInspectEdge={onInspectEdge}
-          />
-        ) : (
-          <p className="text-sm text-text-secondary">No path available</p>
-        )}
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
-          <span className="font-medium text-text-primary">
-            {path ? hopText(path.hopCount) : null}
-          </span>
-          {paths.length > 1 && (
-            <span aria-live="polite">{paths.length} paths found</span>
+      <div className="grid items-start gap-4 px-4 py-3 lg:grid-cols-[35%_1fr]">
+        <div>
+          {path ? (
+            <DependencyPathTrail
+              path={path}
+              highlightedId={analyzedId}
+              onOpenObject={onInspectObject}
+              onInspectEdge={onInspectEdge}
+              showKind
+            />
+          ) : (
+            <p className="text-sm text-text-secondary">No path available</p>
           )}
-          <span className="text-text-muted">
-            {location ?? "No source evidence"}
-          </span>
-        </div>
-        {paths.length > 1 && (
-          <div className="mt-2">
-            <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
-              Path
-              <select
-                value={activeIndex}
-                onChange={(event) =>
-                  onPathIndexChange(Number(event.target.value))
-                }
-                className="min-h-9 rounded-md border bg-surface px-2 text-sm"
-              >
-                {paths.map((candidate, candidateIndex) => (
-                  <option key={candidate.id} value={candidateIndex}>
-                    Path {candidateIndex + 1}
-                    {candidateIndex === 0 ? " · shortest" : ""} ·{" "}
-                    {hopText(candidate.hopCount)}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
+            <span className="font-medium text-text-primary">
+              {path ? hopText(path.hopCount) : null}
+            </span>
+            {paths.length > 1 && (
+              <span aria-live="polite">{paths.length} paths found</span>
+            )}
+            {lineLabel !== undefined && <span>{lineLabel}</span>}
           </div>
-        )}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onOpenEvidence(finalEdge?.evidence ?? null)}
-            disabled={!hasEvidence}
-          >
-            Open source
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => path && onInspectPath(path)}
-            disabled={!path}
-          >
-            View full path
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onFocusInGraph(item.dependent.id)}
-          >
-            Focus in graph
-          </Button>
+          {paths.length > 1 && (
+            <div className="mt-2">
+              <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
+                Path
+                <select
+                  value={activeIndex}
+                  onChange={(event) =>
+                    onPathIndexChange(Number(event.target.value))
+                  }
+                  className="min-h-9 rounded-md border bg-surface px-2 text-sm"
+                >
+                  {paths.map((candidate, candidateIndex) => (
+                    <option key={candidate.id} value={candidateIndex}>
+                      Path {candidateIndex + 1}
+                      {candidateIndex === 0 ? " · shortest" : ""} ·{" "}
+                      {hopText(candidate.hopCount)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onOpenObject(item.dependent)}
+            >
+              Open object
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => path && onInspectPath(path)}
+              disabled={!path}
+            >
+              View full path
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onFocusInGraph(item.dependent.id)}
+            >
+              Focus in graph
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void copyQualifiedName()}
+            >
+              <Copy aria-hidden /> {copied ? "Copied" : "Copy qualified name"}
+            </Button>
+          </div>
+          <p aria-live="polite" className="sr-only">
+            {copied ? "Qualified name copied to clipboard." : ""}
+          </p>
         </div>
+        <section aria-label="Source evidence" className="min-w-0">
+          {finalEdge?.evidence?.sourceFileId ? (
+            <SourceBody
+              heading="Source evidence"
+              onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
+              request={{
+                kind: "file",
+                fileId: finalEdge.evidence.sourceFileId,
+                startLine: finalEdge.evidence.startLine ?? undefined,
+                endLine: finalEdge.evidence.startLine ?? undefined,
+              }}
+            />
+          ) : (
+            <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
+              No source evidence available for this relationship.
+            </p>
+          )}
+        </section>
       </div>
     </section>
   );

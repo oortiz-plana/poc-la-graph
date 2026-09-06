@@ -23,6 +23,7 @@ export function DependencyDetailTable<T>({
   selectedId,
   onSelectRow,
   emptyMessage,
+  bordered = true,
 }: {
   ariaLabel: string;
   columns: DetailTableColumn<T>[];
@@ -31,16 +32,30 @@ export function DependencyDetailTable<T>({
   selectedId?: string;
   onSelectRow: (row: T) => void;
   emptyMessage: string;
+  /** Set false when the caller already provides the surrounding card (border
+   * + background), e.g. a section with its own header, so the table doesn't
+   * nest a second box inside it. */
+  bordered?: boolean;
 }) {
   if (rows.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
+      <p
+        className={cn(
+          "p-4 text-sm text-text-secondary",
+          bordered && "rounded-lg border border-dashed",
+        )}
+      >
         {emptyMessage}
       </p>
     );
   }
   return (
-    <div className="overflow-x-auto rounded-lg border bg-surface">
+    <div
+      className={cn(
+        "overflow-x-auto",
+        bordered && "rounded-lg border bg-surface",
+      )}
+    >
       <table aria-label={ariaLabel} className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-text-secondary">
@@ -133,8 +148,10 @@ function DetailTableRow<T>({
       onClick={onSelect}
       onKeyDown={handleKeyDown}
       className={cn(
-        "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary",
-        selected ? "bg-selected" : "hover:bg-background",
+        "cursor-pointer border-l-2 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary",
+        selected
+          ? "border-l-primary bg-selected"
+          : "border-l-transparent hover:bg-background",
       )}
     >
       {columns.map((column, index) => (

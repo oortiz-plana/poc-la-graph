@@ -11,7 +11,16 @@ import { addedElements, resetCytoscapeMock } from "./cytoscape-mock";
 import { ImpactReport } from "./impact-report";
 
 const getPlsqlImpact = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/api", () => ({ getPlsqlImpact }));
+const getPlsqlFileSource = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/api", () => ({ getPlsqlImpact, getPlsqlFileSource }));
+
+// Monaco needs a real browser layout engine, so render the joined source
+// lines as plain text in jsdom instead of loading the real editor.
+vi.mock("./monaco-source-editor", () => ({
+  default: (props: { value?: string }) => (
+    <pre data-testid="monaco-source-editor">{props.value ?? ""}</pre>
+  ),
+}));
 
 const cyMock = vi.hoisted(() => ({
   on: vi.fn(),
@@ -202,6 +211,14 @@ describe("ImpactReport", () => {
 
   it("reveals the why-affected detail with a mini path and opens source", async () => {
     getPlsqlImpact.mockResolvedValue(result);
+    getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/fa_qfact_calc.pkb",
+        path: "hr/fa_qfact_calc.pkb",
+      },
+      lines: ["  DOCU_FIDE(...);"],
+      highlight: { startLine: 429, endLine: 429 },
+    });
     renderPanel();
     await selectFirstRow("CALC_IVA_MORA");
 
@@ -209,9 +226,20 @@ describe("ImpactReport", () => {
       await screen.findByText("Why is this affected?"),
     ).toBeInTheDocument();
     expect(screen.getByText("DOCU_FIDE")).toBeInTheDocument();
-    expect(screen.getByText("hr/fa_qfact_calc.pkb:429")).toBeInTheDocument();
+    // The relationship pane shows just the line number; the full path lives
+    // once, in the source evidence header.
+    expect(screen.getByText("line 429")).toBeInTheDocument();
+    expect(await screen.findByText("Source evidence")).toBeInTheDocument();
+    expect(await screen.findByText("hr/fa_qfact_calc.pkb")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Open source" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open object" }));
+    expect(onOpenObject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "CALC_IVA_MORA" }),
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open full source" }),
+    );
     expect(onOpenEvidence).toHaveBeenCalledWith(
       expect.objectContaining({
         path: "hr/fa_qfact_calc.pkb",

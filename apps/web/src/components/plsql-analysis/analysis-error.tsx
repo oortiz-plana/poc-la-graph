@@ -19,13 +19,19 @@ export function problemCodeOf(error: unknown): string | undefined {
  * Shared error panel for analysis queries. `analysis_limit_exceeded` is
  * deterministic for the current project size (the backend cap is the cause),
  * so no retry is offered; every other code keeps the transient treatment.
+ * `context` only changes the `analysis_limit_exceeded` copy: the graph-view
+ * cap ("too large to compute") doesn't describe why reading a *source file*
+ * failed, which is a byte-size cap on that one file instead (see the source
+ * viewer's use of `context="source"`).
  */
 export function AnalysisError({
   code,
   onRetry,
+  context = "analysis",
 }: {
   code?: string;
   onRetry?: () => void;
+  context?: "analysis" | "source";
 }) {
   const limitExceeded = code === "analysis_limit_exceeded";
   return (
@@ -35,13 +41,16 @@ export function AnalysisError({
     >
       <p className="text-sm">
         {limitExceeded
-          ? "This project is too large to compute this view right now."
+          ? context === "source"
+            ? "This file is too large to preview here."
+            : "This project is too large to compute this view right now."
           : "Analysis is unavailable"}
       </p>
       {limitExceeded ? (
         <p className="mt-2 text-xs text-text-secondary">
-          The analysis backend caps how much data this view may compute, so
-          retrying would fail the same way.
+          {context === "source"
+            ? "The source viewer caps how much of a single file it can load, so retrying would fail the same way."
+            : "The analysis backend caps how much data this view may compute, so retrying would fail the same way."}
         </p>
       ) : (
         onRetry && (

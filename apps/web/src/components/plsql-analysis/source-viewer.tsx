@@ -201,6 +201,7 @@ export function SourceBody({
     return (
       <AnalysisError
         code={errorCode}
+        context="source"
         onRetry={() => setAttempt((current) => current + 1)}
       />
     );

@@ -51,19 +51,12 @@ describe("WorkspaceShell", () => {
 
   it("uses a clamped, flexible width rather than a fixed panel width", () => {
     renderShell();
-    const explorer = screen.getByLabelText("Object Explorer");
-    const inspector = screen.getByLabelText("Inspector");
-    // The width itself is the CSS var `--sidebar-width`, set on the
-    // SidebarProvider ancestor to a clamp() expression rather than hardcoded
-    // in the panel's own class list.
-    const explorerWidth = explorer
-      .closest<HTMLElement>("[style*='--sidebar-width']")
-      ?.style.getPropertyValue("--sidebar-width");
-    const inspectorWidth = inspector
-      .closest<HTMLElement>("[style*='--sidebar-width']")
-      ?.style.getPropertyValue("--sidebar-width");
-    expect(explorerWidth).toContain("clamp(");
-    expect(inspectorWidth).toContain("clamp(");
+    expect(screen.getByLabelText("Object Explorer").style.width).toContain(
+      "clamp(",
+    );
+    expect(screen.getByLabelText("Inspector").style.width).toContain(
+      "clamp(",
+    );
     expect(screen.getByRole("main").className).toContain("min-w-0");
     expect(screen.getByRole("main").className).toContain("flex-1");
   });

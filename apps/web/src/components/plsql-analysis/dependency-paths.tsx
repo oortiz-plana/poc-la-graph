@@ -170,6 +170,7 @@ export function DependencyPathsSection({
           />
           {selected && (
             <SelectedPath
+              key={selected.id}
               path={selected}
               onClose={() => setSelectedId(undefined)}
               onInspectObject={onInspectObject}
@@ -204,7 +205,12 @@ function SelectedPath({
 }) {
   const destination = path.nodes[path.nodes.length - 1];
   const finalEdge = path.relationships[path.relationships.length - 1];
-  const lineLabel = evidenceLineLabel(finalEdge?.evidence);
+  // Which hop's evidence the "Source evidence" pane shows: the final hop by
+  // default, or whichever hop's evidence link in the trail was clicked. A
+  // hop link only ever selects it in place here; it never jumps to the
+  // Source tab (that's "Open full source" below, an explicit escalation).
+  const [selectedEvidence, setSelectedEvidence] = useState(finalEdge?.evidence);
+  const lineLabel = evidenceLineLabel(selectedEvidence);
   const [copied, setCopied] = useState(false);
 
   async function copyQualifiedName() {
@@ -237,7 +243,7 @@ function SelectedPath({
           <DependencyPathTrail
             path={path}
             onOpenObject={onInspectObject}
-            onOpenEvidence={onOpenEvidence}
+            onOpenEvidence={setSelectedEvidence}
             onInspectEdge={onInspectEdge}
             showKind
           />
@@ -280,15 +286,15 @@ function SelectedPath({
           </p>
         </div>
         <section aria-label="Source evidence" className="min-w-0">
-          {finalEdge?.evidence?.sourceFileId ? (
+          {selectedEvidence?.sourceFileId ? (
             <SourceBody
               heading="Source evidence"
-              onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
+              onOpenFullSource={() => onOpenEvidence(selectedEvidence)}
               request={{
                 kind: "file",
-                fileId: finalEdge.evidence.sourceFileId,
-                startLine: finalEdge.evidence.startLine ?? undefined,
-                endLine: finalEdge.evidence.startLine ?? undefined,
+                fileId: selectedEvidence.sourceFileId,
+                startLine: selectedEvidence.startLine ?? undefined,
+                endLine: selectedEvidence.startLine ?? undefined,
               }}
             />
           ) : (

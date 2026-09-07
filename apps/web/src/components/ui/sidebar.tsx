@@ -67,6 +67,12 @@ const SidebarProvider = React.forwardRef<
      * disable it. Only one SidebarProvider per page should keep the
      * default: multiple global listeners on the same key fire together. */
     keyboardShortcut?: string | false;
+    /** Skip the mobile/`openMobile` distinction entirely: `toggleSidebar`
+     * always flips `open`. Use this for a sidebar that doesn't render the
+     * library's own mobile Sheet (e.g. it isn't page-level, and the caller
+     * has its own drawer for narrow screens) — otherwise a toggle button
+     * would silently flip the unused `openMobile` flag instead. */
+    desktopOnly?: boolean;
   }
 >(
   (
@@ -76,6 +82,7 @@ const SidebarProvider = React.forwardRef<
       onOpenChange: setOpenProp,
       cookieName = SIDEBAR_COOKIE_NAME,
       keyboardShortcut = SIDEBAR_KEYBOARD_SHORTCUT,
+      desktopOnly = false,
       className,
       style,
       children,
@@ -83,7 +90,7 @@ const SidebarProvider = React.forwardRef<
     },
     ref,
   ) => {
-    const isMobile = useIsMobile();
+    const isMobile = useIsMobile() && !desktopOnly;
     const [openMobile, setOpenMobile] = React.useState(false);
 
     // This is the internal state of the sidebar.
@@ -187,11 +194,6 @@ const Sidebar = React.forwardRef<
     side?: "left" | "right";
     variant?: "sidebar" | "floating" | "inset";
     collapsible?: "offcanvas" | "icon" | "none";
-    /** Renders the desktop structure at every viewport width instead of
-     * swapping to the mobile Sheet below `md`. Use this for a sidebar
-     * nested inside a layout that already has its own page-level sidebar
-     * (and, typically, its own mobile drawer for this pane already). */
-    forceDesktop?: boolean;
   }
 >(
   (
@@ -199,7 +201,6 @@ const Sidebar = React.forwardRef<
       side = "left",
       variant = "sidebar",
       collapsible = "offcanvas",
-      forceDesktop = false,
       className,
       children,
       ...props
@@ -223,7 +224,7 @@ const Sidebar = React.forwardRef<
       );
     }
 
-    if (isMobile && !forceDesktop) {
+    if (isMobile) {
       return (
         <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
           <SheetContent

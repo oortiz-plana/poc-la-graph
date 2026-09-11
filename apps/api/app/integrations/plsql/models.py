@@ -107,7 +107,12 @@ class PlsqlSearchPage(BaseModel):
 
 
 class PlsqlDependencyRecord(BaseModel):
-    """One typed dependency edge between two projected objects."""
+    """One typed dependency edge between two projected objects.
+
+    ``evidence_kind``/``derived``/``events``/``via_table_*`` are populated
+    only for derived edges (currently only ``TRIGGERS``); every other
+    relationship type leaves them ``None``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -123,6 +128,13 @@ class PlsqlDependencyRecord(BaseModel):
     target_name: str
     target_qualified_name: str
     evidence: PlsqlEvidence | None = None
+    evidence_kind: str | None = None
+    derived: bool | None = None
+    events: str | None = None
+    via_table_id: str | None = None
+    via_table_kind: ObjectKind | None = None
+    via_table_name: str | None = None
+    via_table_qualified_name: str | None = None
 
 
 class PlsqlDependencyPage(BaseModel):

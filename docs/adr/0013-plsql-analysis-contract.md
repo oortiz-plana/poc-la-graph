@@ -77,6 +77,24 @@ current persistence model.
 - Bounds are enforced server-side (hops, rows, truncation, timeouts) and
   surfaced through `truncated` flags; the UI must show truncation and
   resolution explicitly.
+
+## Amendment (2026-09-06)
+
+The `TRIGGERS` relationship (a derived, trigger-mediated invocation edge —
+a routine's DML statement fires a database trigger that invokes another
+routine) is added to the public relationship vocabulary alongside the
+existing `TRIGGER_ON` (table→trigger declaration) relationship. Adding it
+required reintroducing two evidence properties this ADR's Context
+documented as existing upstream but that the original Decision deliberately
+left out of the public contract: `evidenceKind` and a `derived` flag, plus
+`events` (the DML event that fires the mediating trigger) and `viaTable`
+(a reference to the mediating table). All four are optional on
+`PlsqlDependency` and populated only for derived edges; every other
+relationship type leaves them `null`. `importId` (an ingestion-run
+bookkeeping property observed on the same real edge) remains internal-only,
+consistent with `sourceRole` already being excluded from the public
+contract. This is additive per the Consequences above and did not require a
+new ADR.
 - Source content is never part of graph or evidence payloads except through
   the dedicated source endpoint, which serves read-only text scoped to the
   configured source root (ADR 0012).

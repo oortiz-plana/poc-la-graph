@@ -52,6 +52,7 @@ from app.integrations.plsql.catalog import (
     EDGE_TABLE_ACCESS,
     EDGE_UNRESOLVED,
     KIND_LABELS,
+    KIND_TOKENS,
     OBJECT_BY_QUALIFIED_NAME,
     OBJECT_DECLARATION,
     PATH_RELATIONSHIPS,
@@ -112,6 +113,9 @@ from app.models.plsql import (
 CONNECTIVITY_QUERY: Final = "RETURN 1 AS ok"
 
 _TABLE_OR_VIEW: Final[frozenset[str]] = frozenset({"Table", "View"})
+# `PATH_RELATIONSHIPS` already includes `TRIGGERS` (catalog.py); this set
+# just adds `TRIGGER_ON` on top, so a new `PATH_RELATIONSHIPS` member is
+# picked up here automatically and never needs a direct edit.
 _TRIGGER_AWARE_RELATIONSHIPS: Final[frozenset[str]] = PATH_RELATIONSHIPS | {
     "TRIGGER_ON"
 }
@@ -189,6 +193,31 @@ def _kind_from_labels(labels: Sequence[str]) -> ObjectKind | None:
         if label in KIND_LABELS:
             return cast(ObjectKind, label)
     return None
+
+
+def _via_table_reference(
+    raw: object, project_id: str
+) -> tuple[str, ObjectKind, str, str] | None:
+    """Parse a `viaTable` edge property into an object reference.
+
+    Expected format: ``plsql://<project>/<SCHEMA>/<KIND_TOKEN>/<NAME>``
+    (the synthetic adapter's own object-id convention, coincidentally what
+    the real extractor also writes into this property). Returns
+    ``(object_id, kind, name, qualified_name)``, or ``None`` on any
+    malformed or unrecognized input — this is an upstream-format
+    assumption, never a hard failure.
+    """
+    if not isinstance(raw, str) or not raw.startswith("plsql://"):
+        return None
+    parts = raw[len("plsql://") :].split("/")
+    if len(parts) != 4:
+        return None
+    _project, schema, kind_token, name = parts
+    kind = KIND_TOKENS.get(kind_token)
+    if kind is None or not schema or not name:
+        return None
+    qualified_name = f"{schema}.{name}"
+    return (object_id(project_id, qualified_name), kind, name, qualified_name)
 
 
 def _node_value(node: Any, key: str, default: Any = None) -> Any:
@@ -447,6 +476,7 @@ class Neo4jPlsqlAnalysisClient:
             start_offset=_int_or_none(row.get(SCHEMA_EDGE_START_OFFSET)),
             end_offset=_int_or_none(row.get(SCHEMA_EDGE_END_OFFSET)),
         )
+        via_table = _via_table_reference(row.get("viaTable"), self._project_id)
         return PlsqlDependencyRecord(
             id=edge_id(
                 self._project_id,
@@ -465,6 +495,15 @@ class Neo4jPlsqlAnalysisClient:
             target_name=str(target_name),
             target_qualified_name=target_qn_s,
             evidence=evidence,
+            evidence_kind=_str_or_none(row.get("evidenceKind")),
+            derived=(
+                row.get("derived") if isinstance(row.get("derived"), bool) else None
+            ),
+            events=_str_or_none(row.get("events")),
+            via_table_id=via_table[0] if via_table else None,
+            via_table_kind=via_table[1] if via_table else None,
+            via_table_name=via_table[2] if via_table else None,
+            via_table_qualified_name=via_table[3] if via_table else None,
         )
 
     @staticmethod

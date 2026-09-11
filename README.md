@@ -477,3 +477,14 @@ for direct test commands.
 - This is a local POC, not a hardened multi-user or production deployment.
 
 For common failures, see [Troubleshooting](docs/troubleshooting.md).
+
+
+
+# Oracle
+https://hub.docker.com/r/dragonbest520/oracle-xe-10g
+
+hostname: localhost
+port: 1521
+sid: xe
+username: system
+password: oracle

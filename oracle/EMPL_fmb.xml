@@ -1,0 +1,25 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122011900" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule Name="EMPL" DirtyInfo="true" Title="MODULE1" ConsoleWindow="WINDOW1" MenuModule="DEFAULT&amp;SMARTBAR">
+      <Coordinate CharacterCellWidth="9" RealUnit="Point" DefaultFontScaling="true" CharacterCellHeight="16" CoordinateSystem="Real"/>
+      <Block Name="DEMO_EMPLOYEE" QueryDataSourceName="DEMO_EMPLOYEE" DirtyInfo="true" ScrollbarWidth="18" ScrollbarLength="158">
+         <Item Name="EMPLOYEE_ID" Prompt="Employee Id" TabPageName="" PromptAttachmentOffset="9" DistanceBetweenRecords="64" Width="99" MaximumLength="40" ItemType="Text Item" DataType="Number" XPosition="92" Required="true" YPosition="33" DirtyInfo="true" CanvasName="CANVAS2" ColumnName="EMPLOYEE_ID" PromptDisplayStyle="All Records" ItemsDisplay="0" Height="16"/>
+         <Item Name="EMPLOYEE_NAME" Prompt="Employee Name" TabPageName="" PromptAttachmentOffset="9" DistanceBetweenRecords="64" Width="549" MaximumLength="100" ItemType="Text Item" XPosition="92" Required="true" YPosition="49" DirtyInfo="true" CanvasName="CANVAS2" ColumnName="EMPLOYEE_NAME" PromptDisplayStyle="All Records" ItemsDisplay="0" Height="16"/>
+         <Item Name="SALARY" Prompt="Salary" TabPageName="" PromptAttachmentOffset="9" DistanceBetweenRecords="64" Width="135" MaximumLength="14" ItemType="Text Item" DataType="Number" XPosition="92" YPosition="65" DirtyInfo="true" CanvasName="CANVAS2" ColumnName="SALARY" PromptDisplayStyle="All Records" ItemsDisplay="0" Height="16"/>
+         <Item Name="STATUS" Prompt="Status" TabPageName="" PromptAttachmentOffset="9" DistanceBetweenRecords="64" Width="189" MaximumLength="20" ItemType="Text Item" XPosition="92" YPosition="81" DirtyInfo="true" CanvasName="CANVAS2" ColumnName="STATUS" PromptDisplayStyle="All Records" ItemsDisplay="0" Height="16"/>
+         <Item Name="CREATED_DATE" Prompt="Created Date" TabPageName="" PromptAttachmentOffset="9" DistanceBetweenRecords="64" Width="108" MaximumLength="11" ItemType="Text Item" DataType="Date" XPosition="92" YPosition="97" DirtyInfo="true" CanvasName="CANVAS2" ColumnName="CREATED_DATE" PromptDisplayStyle="All Records" ItemsDisplay="0" Height="16"/>
+         <Item Name="PUSH_BUTTON4" Width="65" ItemType="Push Button" BackColor="white" XPosition="142" FontName="Segoe UI" YPosition="140" FontSize="900" FontStyle="Plain" DirtyInfo="true" FontWeight="Demilight" Label="Increase salary" FontSpacing="Normal" ForegroundColor="black" CanvasName="CANVAS2" Height="20">
+            <Trigger Name="WHEN-BUTTON-PRESSED" DirtyInfo="true" TriggerText="BEGIN&amp;#10;    UPDATE_EMPLOYEE_SALARY(&amp;#10;        :DEMO_EMPLOYEE.EMPLOYEE_ID,&amp;#10;        10&amp;#10;    );&amp;#10;&amp;#10;    STANDARD.COMMIT;&amp;#10;&amp;#10;    EXECUTE_QUERY;&amp;#10;&amp;#10;    MESSAGE('Salary updated successfully');&amp;#10;    MESSAGE(' ');&amp;#10;&amp;#10;EXCEPTION&amp;#10;    WHEN OTHERS THEN&amp;#10;        MESSAGE(SQLERRM);&amp;#10;        MESSAGE(' ');&amp;#10;        RAISE FORM_TRIGGER_FAILURE;&amp;#10;END;"/>
+         </Item>
+         <DataSourceColumn DSCLength="0" DSCMandatory="true" DSCPrecision="0" DSCName="EMPLOYEE_ID" DSCScale="-127" DSCType="NUMBER" DSCNochildren="false" Type="Query"/>
+         <DataSourceColumn DSCLength="100" DSCMandatory="true" DSCPrecision="0" DSCName="EMPLOYEE_NAME" DSCScale="0" DSCType="VARCHAR2" DSCNochildren="false" Type="Query"/>
+         <DataSourceColumn DSCLength="0" DSCMandatory="false" DSCPrecision="12" DSCName="SALARY" DSCScale="2" DSCType="NUMBER" DSCNochildren="false" Type="Query"/>
+         <DataSourceColumn DSCLength="20" DSCMandatory="false" DSCPrecision="0" DSCName="STATUS" DSCScale="0" DSCType="VARCHAR2" DSCNochildren="false" Type="Query"/>
+         <DataSourceColumn DSCLength="0" DSCMandatory="false" DSCPrecision="0" DSCName="CREATED_DATE" DSCScale="0" DSCType="DATE" DSCNochildren="false" Type="Query"/>
+      </Block>
+      <Canvas Name="CANVAS2" CanvasType="Content" DirtyInfo="true" Width="720" WindowName="WINDOW1" Height="378" ViewportHeight="378" ViewportWidth="720">
+         <Graphics Name="FRAME3" Width="641" EdgeBackColor="white" FillPattern="none" EdgePattern="solid" FrameTitleOffset="18" XPosition="9" FrameTitleSpacing="9" YPosition="17" Bevel="Inset" DirtyInfo="true" LayoutDataBlockName="DEMO_EMPLOYEE" GraphicsType="Frame" HorizontalMargin="9" ScrollbarWidth="18" VerticalMargin="16" HorizontalObjectOffset="18" Height="112" StartPromptOffset="9"/>
+      </Canvas>
+      <Window Name="WINDOW1" Width="720" Height="378"/>
+   </FormModule>
+</Module>

@@ -13,5 +13,6 @@ export function GET() {
       maxTotalBytes: Number(process.env.UPLOAD_MAX_TOTAL_BYTES ?? 33554432),
     },
     plsqlEnabled: process.env.PLSQL_ENABLED === "true",
+    plsqlMaxHops: Number(process.env.PLSQL_MAX_HOPS ?? 5),
   });
 }

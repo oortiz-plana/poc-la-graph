@@ -26,6 +26,7 @@ PlsqlRelationship = Literal[
     "WRITES",
     "VIEW_DEPENDS_ON",
     "TRIGGER_ON",
+    "TRIGGERS",
     "INDEXES",
     "SYNONYM_FOR",
     "DECLARES",
@@ -40,7 +41,7 @@ PlsqlDependencyCategory = Literal[
 
 ImpactDirection = Literal["upstream", "downstream"]
 
-ImpactRelationship = Literal["CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON"]
+ImpactRelationship = Literal["CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS"]
 
 
 class ApiModel(BaseModel):
@@ -134,7 +135,12 @@ class PlsqlObjectReference(ApiModel):
 
 
 class PlsqlDependency(ApiModel):
-    """One typed dependency edge with resolution and source evidence."""
+    """One typed dependency edge with resolution and source evidence.
+
+    ``evidenceKind``/``derived``/``events``/``viaTable`` are populated only
+    for derived edges (e.g. ``TRIGGERS``, a trigger-mediated invocation); a
+    literal ``CALLS``/``READS``/``WRITES`` edge leaves them ``null``.
+    """
 
     id: str = Field(min_length=1, max_length=512)
     relationship: PlsqlRelationship
@@ -142,6 +148,10 @@ class PlsqlDependency(ApiModel):
     target: PlsqlObjectReference
     resolution: PlsqlResolution
     evidence: PlsqlSourceCoordinate | None = None
+    evidence_kind: str | None = Field(default=None, alias="evidenceKind")
+    derived: bool | None = None
+    events: str | None = None
+    via_table: PlsqlObjectReference | None = Field(default=None, alias="viaTable")
 
 
 class PlsqlDependencyResult(ApiModel):

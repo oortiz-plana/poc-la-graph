@@ -2997,6 +2997,7 @@ components:
           - WRITES
           - VIEW_DEPENDS_ON
           - TRIGGER_ON
+          - TRIGGERS
           - INDEXES
           - SYNONYM_FOR
           - DECLARES
@@ -3017,6 +3018,25 @@ components:
         evidence:
           anyOf:
           - $ref: '#/components/schemas/PlsqlSourceCoordinate'
+          - type: 'null'
+        evidenceKind:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Evidencekind
+        derived:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Derived
+        events:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Events
+        viaTable:
+          anyOf:
+          - $ref: '#/components/schemas/PlsqlObjectReference'
           - type: 'null'
       additionalProperties: false
       type: object

@@ -7,12 +7,30 @@ created for this repository; they never contain proprietary code.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from app.integrations.plsql.models import (
     PlsqlDependencyRecord,
     PlsqlEvidence,
     PlsqlObjectRecord,
 )
 from app.models.plsql import ObjectKind, PlsqlRelationship, PlsqlResolution
+
+
+class _EdgeSpec(NamedTuple):
+    """One synthetic edge, with optional evidence for derived relationships
+    (currently only ``TRIGGERS``)."""
+
+    source_qualified_name: str
+    target_qualified_name: str
+    relationship: PlsqlRelationship
+    resolution: PlsqlResolution
+    path: str
+    line: int
+    via_table: str | None = None
+    events: str | None = None
+    derived: bool | None = None
+    evidence_kind: str | None = None
 
 
 def _record(
@@ -187,6 +205,13 @@ def build_corpus(project_id: str) -> list[PlsqlObjectRecord]:
             path="hr/employee_info.sql",
             line=1,
         ),
+        _record(
+            project_id,
+            kind="Procedure",
+            name="NOTIFY_HR_AUDIT",
+            path="hr/notify_hr_audit.sql",
+            line=5,
+        ),
     ]
 
 
@@ -202,8 +227,8 @@ def build_edges(
 
     corpus = corpus if corpus is not None else build_corpus(project_id)
     by_qualified = {record.qualified_name.casefold(): record for record in corpus}
-    edges: list[tuple[str, str, PlsqlRelationship, PlsqlResolution, str, int]] = [
-        (
+    edges: list[_EdgeSpec] = [
+        _EdgeSpec(
             "HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
             "HR.EMPLOYEES",
             "WRITES",
@@ -211,7 +236,7 @@ def build_edges(
             "hr/pkg_employee.pkb",
             12,
         ),
-        (
+        _EdgeSpec(
             "HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
             "HR.DEPARTMENTS",
             "READS",
@@ -219,7 +244,7 @@ def build_edges(
             "hr/pkg_employee.pkb",
             15,
         ),
-        (
+        _EdgeSpec(
             "HR.PKG_EMPLOYEE.CALCULATE_BONUS",
             "HR.EMPLOYEES",
             "READS",
@@ -227,7 +252,7 @@ def build_edges(
             "hr/pkg_employee.pkb",
             25,
         ),
-        (
+        _EdgeSpec(
             "HR.PKG_PAYROLL.CALCULATE_MORA",
             "HR.PKG_EMPLOYEE.CALCULATE_BONUS",
             "CALLS",
@@ -235,7 +260,7 @@ def build_edges(
             "hr/pkg_payroll.pkb",
             11,
         ),
-        (
+        _EdgeSpec(
             "HR.PKG_PAYROLL.CALCULATE_MORA",
             "HR.EMPLOYEES",
             "READS",
@@ -243,7 +268,7 @@ def build_edges(
             "hr/pkg_payroll.pkb",
             13,
         ),
-        (
+        _EdgeSpec(
             "HR.PKG_PAYROLL.CALCULATE_MORA",
             "HR.COUNT_EMPLOYEES",
             "CALLS",
@@ -251,7 +276,7 @@ def build_edges(
             "hr/pkg_payroll.pkb",
             16,
         ),
-        (
+        _EdgeSpec(
             "HR.PKG_PAYROLL.CALCULATE_MORA",
             "HR.PKG_LEGACY.RUN_UNKNOWN",
             "CALLS",
@@ -259,7 +284,7 @@ def build_edges(
             "hr/pkg_payroll.pkb",
             40,
         ),
-        (
+        _EdgeSpec(
             "HR.PKG_PAYROLL.RUN_PAYROLL",
             "HR.PKG_PAYROLL.CALCULATE_MORA",
             "CALLS",
@@ -267,7 +292,7 @@ def build_edges(
             "hr/pkg_payroll.pkb",
             34,
         ),
-        (
+        _EdgeSpec(
             "HR.PKG_PAYROLL.RUN_PAYROLL",
             "HR.DEPARTMENTS",
             "WRITES",
@@ -275,7 +300,7 @@ def build_edges(
             "hr/pkg_payroll.pkb",
             36,
         ),
-        (
+        _EdgeSpec(
             "HR.ARCHIVE_EMPLOYEE",
             "HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
             "CALLS",
@@ -283,7 +308,7 @@ def build_edges(
             "hr/archive_employee.sql",
             8,
         ),
-        (
+        _EdgeSpec(
             "HR.TRG_EMPLOYEES_AUDIT",
             "HR.EMPLOYEES",
             "TRIGGER_ON",
@@ -291,7 +316,7 @@ def build_edges(
             "hr/trg_employees_audit.sql",
             4,
         ),
-        (
+        _EdgeSpec(
             "HR.EMPLOYEE_DETAILS",
             "HR.EMPLOYEES",
             "VIEW_DEPENDS_ON",
@@ -299,7 +324,7 @@ def build_edges(
             "hr/employee_details.sql",
             6,
         ),
-        (
+        _EdgeSpec(
             "HR.EMPLOYEE_DETAILS",
             "HR.DEPARTMENTS",
             "VIEW_DEPENDS_ON",
@@ -307,7 +332,7 @@ def build_edges(
             "hr/employee_details.sql",
             7,
         ),
-        (
+        _EdgeSpec(
             "HR.COUNT_EMPLOYEES",
             "HR.EMPLOYEES",
             "READS",
@@ -317,7 +342,7 @@ def build_edges(
         ),
         # AMBIGUOUS sample: the same standalone routine also reads a view that
         # may resolve to several underlying tables; never presented as certain.
-        (
+        _EdgeSpec(
             "HR.ARCHIVE_EMPLOYEE",
             "HR.EMPLOYEE_DETAILS",
             "READS",
@@ -325,32 +350,55 @@ def build_edges(
             "hr/archive_employee.sql",
             9,
         ),
+        # TRIGGERS sample: CREATE_EMPLOYEE's insert into EMPLOYEES fires a
+        # table trigger that invokes NOTIFY_HR_AUDIT — a derived, inferred
+        # control-flow edge, not a literal source-code CALL.
+        _EdgeSpec(
+            "HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
+            "HR.NOTIFY_HR_AUDIT",
+            "TRIGGERS",
+            "INFERRED",
+            "hr/trg_employees_audit.sql",
+            4,
+            via_table="HR.EMPLOYEES",
+            events="INSERT",
+            derived=True,
+            evidence_kind="TriggerInvocation",
+        ),
     ]
 
     dependencies: list[PlsqlDependencyRecord] = []
-    for source_q, target_q, relationship, resolution, path, line in edges:
-        source = by_qualified[source_q.casefold()]
-        target = by_qualified.get(target_q.casefold())
+    for spec in edges:
+        source = by_qualified[spec.source_qualified_name.casefold()]
+        target = by_qualified.get(spec.target_qualified_name.casefold())
         if target is None:
             # Unresolved placeholder outside the analyzed corpus.
-            schema = target_q.split(".", 1)[0]
-            name = target_q.rsplit(".", 1)[-1]
+            schema = spec.target_qualified_name.split(".", 1)[0]
+            name = spec.target_qualified_name.rsplit(".", 1)[-1]
             target = PlsqlObjectRecord(
-                id=f"plsql://{project_id}/{target_q.replace('.', '/')}",
+                id=(
+                    f"plsql://{project_id}/"
+                    f"{spec.target_qualified_name.replace('.', '/')}"
+                ),
                 kind="Procedure",
                 name=name,
                 schema_name=schema,
-                qualified_name=target_q,
+                qualified_name=spec.target_qualified_name,
                 project_id=project_id,
             )
+        via_table = (
+            by_qualified.get(spec.via_table.casefold())
+            if spec.via_table is not None
+            else None
+        )
         dependencies.append(
             PlsqlDependencyRecord(
                 id=(
-                    f"edge://{project_id}/{relationship}/"
+                    f"edge://{project_id}/{spec.relationship}/"
                     f"{source.id.replace('://', '/')}/{target.id.replace('://', '/')}"
                 ),
-                relationship=relationship,
-                resolution=resolution,
+                relationship=spec.relationship,
+                resolution=spec.resolution,
                 source_id=source.id,
                 source_kind=source.kind,
                 source_name=source.name,
@@ -360,10 +408,19 @@ def build_edges(
                 target_name=target.name,
                 target_qualified_name=target.qualified_name,
                 evidence=PlsqlEvidence(
-                    source_file_id=f"file://{project_id}/{path}",
-                    path=path,
-                    start_line=line,
+                    source_file_id=f"file://{project_id}/{spec.path}",
+                    path=spec.path,
+                    start_line=spec.line,
                     start_column=1,
+                ),
+                evidence_kind=spec.evidence_kind,
+                derived=spec.derived,
+                events=spec.events,
+                via_table_id=via_table.id if via_table is not None else None,
+                via_table_kind=via_table.kind if via_table is not None else None,
+                via_table_name=via_table.name if via_table is not None else None,
+                via_table_qualified_name=(
+                    via_table.qualified_name if via_table is not None else None
                 ),
             )
         )

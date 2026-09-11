@@ -24,6 +24,11 @@ single-file change:
   DatabaseObject``); the edge ``sourceFileId`` is the build-host EMF resource
   URI (e.g. ``file:/C:/…``) and is not a project-relative path, so source
   reads resolve through ``SourceFile.path``.
+- Derived edges (currently only ``TRIGGERS``) additionally carry
+  ``derived``, ``events``, ``evidenceKind``, and ``viaTable`` (a
+  ``plsql://<project>/<SCHEMA>/<KIND_TOKEN>/<NAME>`` reference to the table
+  whose trigger mediates the invocation). These are ``null`` on every other
+  relationship type.
 
 Before changing an assumption against a new graph revision, confirm it against
 the graph and adjust only this module (catalog entries) plus any row-mapping
@@ -47,6 +52,23 @@ KIND_LABELS: Final[frozenset[str]] = frozenset(get_args(ObjectKind))
 RELATIONSHIPS: Final[frozenset[str]] = frozenset(get_args(PlsqlRelationship))
 RESOLUTIONS: Final[frozenset[str]] = frozenset(get_args(PlsqlResolution))
 
+# Reverse of the synthetic adapter's kind-token convention (fixtures.py's
+# `_kind_token()`), used to parse the `viaTable` edge property's kind token
+# back into an `ObjectKind`.
+KIND_TOKENS: Final[dict[str, ObjectKind]] = {
+    "TABLE": "Table",
+    "VIEW": "View",
+    "PACKAGE": "Package",
+    "SEQUENCE": "Sequence",
+    "TRIGGER": "Trigger",
+    "INDEX": "Index",
+    "SYNONYM": "Synonym",
+    "TYPE": "Type",
+    "PROCEDURE": "Procedure",
+    "FUNCTION": "Function",
+    "ANONYMOUS_BLOCK": "AnonymousBlock",
+}
+
 # Kind labels that never surface in object search results: synonyms are
 # aliases to other objects, not analyzable objects (mirrored by the synthetic
 # adapter's SEARCH_EXCLUDED_KINDS).
@@ -62,10 +84,14 @@ SCHEMA_EDGE_START_LINE: Final = "startLine"
 SCHEMA_EDGE_START_COLUMN: Final = "startColumn"
 SCHEMA_EDGE_START_OFFSET: Final = "startOffset"
 SCHEMA_EDGE_END_OFFSET: Final = "endOffset"
+SCHEMA_EDGE_DERIVED: Final = "derived"
+SCHEMA_EDGE_EVENTS: Final = "events"
+SCHEMA_EDGE_EVIDENCE_KIND: Final = "evidenceKind"
+SCHEMA_EDGE_VIA_TABLE: Final = "viaTable"
 SCHEMA_FILE_PATH: Final = "path"
 
 PATH_RELATIONSHIPS: Final[frozenset[str]] = frozenset(
-    {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON"}
+    {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS"}
 )
 TABLE_ACCESS_RELATIONSHIPS: Final[frozenset[str]] = frozenset(
     {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON"}
@@ -200,7 +226,11 @@ RETURN s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
        r.{SCHEMA_EDGE_START_LINE} AS startLine,
        r.{SCHEMA_EDGE_START_COLUMN} AS startColumn,
        r.{SCHEMA_EDGE_START_OFFSET} AS startOffset,
-       r.{SCHEMA_EDGE_END_OFFSET} AS endOffset
+       r.{SCHEMA_EDGE_END_OFFSET} AS endOffset,
+       r.{SCHEMA_EDGE_DERIVED} AS derived,
+       r.{SCHEMA_EDGE_EVENTS} AS events,
+       r.{SCHEMA_EDGE_EVIDENCE_KIND} AS evidenceKind,
+       r.{SCHEMA_EDGE_VIA_TABLE} AS viaTable
 """
 
 # Matches the client's sort keys (relationship, casefolded source qualified

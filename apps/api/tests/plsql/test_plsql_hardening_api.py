@@ -76,7 +76,7 @@ def test_settings_reject_out_of_bounds_configuration(tmp_path: Path) -> None:
     for override in (
         {"plsql_max_rows": 201},
         {"plsql_max_rows": 0},
-        {"plsql_max_hops": 6},
+        {"plsql_max_hops": 51},
         {"plsql_max_hops": 0},
         {"plsql_max_source_bytes": 10_485_761},
         {"plsql_max_source_bytes": 1023},
@@ -91,12 +91,12 @@ def test_settings_accept_cap_edge_values(tmp_path: Path) -> None:
     settings = _settings(
         tmp_path,
         plsql_max_rows=200,
-        plsql_max_hops=5,
+        plsql_max_hops=50,
         plsql_max_source_bytes=10_485_760,
         plsql_query_timeout_seconds=300.0,
     )
     assert settings.plsql_max_rows == 200
-    assert settings.plsql_max_hops == 5
+    assert settings.plsql_max_hops == 50
     assert settings.plsql_max_source_bytes == 10_485_760
     assert settings.plsql_query_timeout_seconds == 300.0
 
@@ -177,7 +177,7 @@ async def test_row_cap_sweep_truncates_each_envelope(
         search = await client.get("/api/v1/plsql/objects")
         assert len(search.json()["items"]) == 3
         assert search.json()["truncated"] is True
-        assert search.json()["count"] == 14
+        assert search.json()["count"] == 15
 
         access = await client.get(
             "/api/v1/plsql/table-access", params={"objectId": employees}

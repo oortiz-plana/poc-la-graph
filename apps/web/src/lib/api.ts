@@ -62,6 +62,7 @@ const runtimeConfigSchema = z.object({
     maxTotalBytes: z.number().int().positive(),
   }),
   plsqlEnabled: z.boolean().default(false),
+  plsqlMaxHops: z.number().int().positive().default(5),
 });
 
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
@@ -668,9 +669,12 @@ export async function getPlsqlHealth(objectId?: string): Promise<PlsqlHealth> {
   const params = new URLSearchParams();
   if (objectId) params.set("objectId", objectId);
   const suffix = params.size ? `?${params}` : "";
-  const response = await safeFetch(`/api/backend/api/v1/plsql/health${suffix}`, {
-    cache: "no-store",
-  });
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/health${suffix}`,
+    {
+      cache: "no-store",
+    },
+  );
   if (!response.ok)
     return plsqlFailure(response, "Could not load analysis health.");
   return plsqlHealthSchema.parse(await response.json());

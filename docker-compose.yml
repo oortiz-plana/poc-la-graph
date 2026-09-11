@@ -101,6 +101,8 @@ services:
       PLSQL_SOURCE_ROOT: ${PLSQL_SOURCE_ROOT:-/app/plsql-fixtures/source}
       PLSQL_QUERY_TIMEOUT_SECONDS: ${PLSQL_QUERY_TIMEOUT_SECONDS:-10.0}
       PLSQL_SOURCE_ENCODING: ${PLSQL_SOURCE_ENCODING:-iso-8859-1}
+      PLSQL_MAX_SOURCE_BYTES: ${PLSQL_MAX_SOURCE_BYTES:-262144}
+      PLSQL_MAX_HOPS: ${PLSQL_MAX_HOPS:-5}
       LLM_ADAPTER: ${LLM_ADAPTER:-mock}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_BASE: ${LLM_API_BASE:-}
@@ -210,6 +212,10 @@ services:
     image: graphify-agent-poc-web:local
     environment:
       PLSQL_ENABLED: ${PLSQL_ENABLED:-false}
+      # Mirrors the api service's own PLSQL_MAX_HOPS: the backend is the
+      # authority that enforces it, this only lets the console display the
+      # real configured ceiling instead of a guess.
+      PLSQL_MAX_HOPS: ${PLSQL_MAX_HOPS:-5}
       API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-graphify}

@@ -48,6 +48,7 @@ from app.integrations.plsql.neo4j_client import (
     _kind_from_labels,
     _owner_of,
     _schema_of,
+    _via_table_reference,
     edge_id,
     object_id,
     qualified_name_from_object_id,
@@ -162,6 +163,69 @@ def test_dependency_from_row_maps_documented_edge_properties() -> None:
         assert client._dependency_from_row(bad_resolution, file_paths={}) is None
     finally:
         client.close()
+
+
+def test_dependency_from_row_maps_trigger_invocation_edge() -> None:
+    client = _client()
+    try:
+        row = {
+            "relationship": "TRIGGERS",
+            "resolution": "INFERRED",
+            "sourceQualifiedName": "HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
+            "sourceName": "CREATE_EMPLOYEE",
+            "sourceLabels": ["DatabaseObject", "Procedure"],
+            "targetQualifiedName": "HR.NOTIFY_HR_AUDIT",
+            "targetName": "NOTIFY_HR_AUDIT",
+            "targetLabels": ["DatabaseObject", "Procedure"],
+            "sourceFileId": "file://sample/hr/trg_employees_audit.sql",
+            "startLine": 4,
+            "startColumn": 1,
+            "startOffset": None,
+            "endOffset": None,
+            "derived": True,
+            "events": "INSERT",
+            "evidenceKind": "TriggerInvocation",
+            "viaTable": "plsql://sample/HR/TABLE/EMPLOYEES",
+        }
+        record = client._dependency_from_row(row, file_paths={})
+        assert record is not None
+        assert record.relationship == "TRIGGERS"
+        assert record.derived is True
+        assert record.events == "INSERT"
+        assert record.evidence_kind == "TriggerInvocation"
+        assert record.via_table_kind == "Table"
+        assert record.via_table_name == "EMPLOYEES"
+        assert record.via_table_qualified_name == "HR.EMPLOYEES"
+        assert record.via_table_id == object_id("sample", "HR.EMPLOYEES")
+
+        # Absent derived-edge columns degrade to None, never an error.
+        plain = dict(row)
+        for key in ("derived", "events", "evidenceKind", "viaTable"):
+            plain[key] = None
+        plain_record = client._dependency_from_row(plain, file_paths={})
+        assert plain_record is not None
+        assert plain_record.derived is None
+        assert plain_record.events is None
+        assert plain_record.evidence_kind is None
+        assert plain_record.via_table_id is None
+        assert plain_record.via_table_kind is None
+    finally:
+        client.close()
+
+
+def test_via_table_reference_parsing() -> None:
+    parsed = _via_table_reference("plsql://sample/HR/TABLE/EMPLOYEES", "sample")
+    assert parsed is not None
+    object_id_, kind, name, qualified_name = parsed
+    assert object_id_ == object_id("sample", "HR.EMPLOYEES")
+    assert kind == "Table"
+    assert name == "EMPLOYEES"
+    assert qualified_name == "HR.EMPLOYEES"
+
+    assert _via_table_reference(None, "sample") is None
+    assert _via_table_reference("not-a-plsql-uri", "sample") is None
+    assert _via_table_reference("plsql://sample/HR/TABLE", "sample") is None
+    assert _via_table_reference("plsql://sample/HR/BOGUS_KIND/X", "sample") is None
 
 
 def test_dependency_from_row_uses_file_map_when_file_id_not_embedded() -> None:
@@ -508,6 +572,7 @@ async def test_find_paths_expands_bounded_frontiers(
         "READS",
         "WRITES",
         "VIEW_DEPENDS_ON",
+        "TRIGGERS",
     }
 
 

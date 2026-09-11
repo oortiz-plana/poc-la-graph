@@ -1,11 +1,21 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this
+repository.
 
-An `AGENTS.md` also exists at the repo root with the same audience and authority as this
-file — read it too. It carries the full non-negotiable invariants, coding conventions, and
-workflow rules; this file summarizes the architecture and commands so you can get moving
-quickly, and cross-references AGENTS.md rather than repeating it.
+Read the root `AGENTS.md` before making changes. It is the authoritative source for the
+repository-wide non-negotiable invariants, coding conventions, and workflow rules. This
+file supplements it with Claude-oriented architecture and command guidance; if the two
+files ever disagree, follow `AGENTS.md`.
+
+## Documentation lookup
+
+Use Context7 for current documentation whenever work depends on a library, framework, SDK,
+API, CLI tool, or cloud service. Resolve the library ID first, then query the selected
+library's documentation with one focused concept per query. Prefer Context7 over general web
+search for library documentation, including familiar dependencies whose APIs may have
+changed. It is not required for code review, repository-local business logic, general
+programming concepts, or dependency-free scripts.
 
 ## Project purpose
 

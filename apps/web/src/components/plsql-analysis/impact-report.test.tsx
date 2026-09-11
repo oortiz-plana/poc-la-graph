@@ -14,6 +14,15 @@ const getPlsqlImpact = vi.hoisted(() => vi.fn());
 const getPlsqlFileSource = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({ getPlsqlImpact, getPlsqlFileSource }));
 
+vi.mock("../auth-provider", () => ({
+  useAuth: () => ({
+    username: "tester",
+    roles: new Set<string>(),
+    logout: vi.fn(),
+    config: { plsqlEnabled: true, plsqlMaxHops: 5 },
+  }),
+}));
+
 // Monaco needs a real browser layout engine, so render the joined source
 // lines as plain text in jsdom instead of loading the real editor.
 vi.mock("./monaco-source-editor", () => ({
@@ -380,12 +389,29 @@ describe("ImpactReport", () => {
     );
   });
 
+  it("offers TRIGGERS as a selectable relationship filter", async () => {
+    getPlsqlImpact.mockResolvedValue(result);
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByText("Blast radius");
+    await user.selectOptions(screen.getByLabelText("Relationship"), "TRIGGERS");
+    await waitFor(() =>
+      expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+        "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+        expect.objectContaining({ relationship: "TRIGGERS" }),
+      ),
+    );
+  });
+
   it("passes depth and checkbox filters to the backend", async () => {
     getPlsqlImpact.mockResolvedValue(result);
     const user = userEvent.setup();
     renderPanel();
     await screen.findByText("Blast radius");
-    await user.selectOptions(screen.getByLabelText("Depth"), "2");
+    const depthField = screen.getByLabelText("Depth");
+    await user.clear(depthField);
+    await user.type(depthField, "2");
+    await user.tab();
     await waitFor(() =>
       expect(getPlsqlImpact).toHaveBeenLastCalledWith(
         "plsql://sample/HR/FUNCTION/DOCU_FIDE",
@@ -404,6 +430,29 @@ describe("ImpactReport", () => {
       expect(getPlsqlImpact).toHaveBeenLastCalledWith(
         "plsql://sample/HR/FUNCTION/DOCU_FIDE",
         expect.objectContaining({ writesOnly: true }),
+      ),
+    );
+  });
+
+  it("lets depth be typed up to the deployment's configured max, clamping anything higher", async () => {
+    getPlsqlImpact.mockResolvedValue(result);
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByText("Blast radius");
+
+    // The fixture's mocked auth config sets plsqlMaxHops to 5.
+    expect(screen.getByText("Max 5 hops")).toBeInTheDocument();
+    const depthField = screen.getByLabelText("Depth");
+    expect(depthField).toHaveAttribute("max", "5");
+
+    await user.clear(depthField);
+    await user.type(depthField, "50");
+    await user.tab();
+    await waitFor(() => expect(depthField).toHaveValue(5));
+    await waitFor(() =>
+      expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+        "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+        expect.objectContaining({ depth: 5 }),
       ),
     );
   });

@@ -15,6 +15,7 @@ import type {
   PlsqlPath,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
+import { useAuth } from "../auth-provider";
 import { AnalysisError, problemCodeOf } from "./analysis-error";
 import {
   DependencyGraph,
@@ -51,7 +52,9 @@ const DEFAULT_FILTERS: Filters = {
   writesOnly: false,
 };
 
-const MAX_DEPTH = 5;
+/** Used only until the runtime config (the real, deployment-configured
+ * ceiling) finishes loading. */
+const FALLBACK_MAX_DEPTH = 5;
 
 const ROUTINE_KINDS = new Set(["Procedure", "Function"]);
 
@@ -115,6 +118,8 @@ export function ImpactReport({
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
 }) {
+  const auth = useAuth();
+  const maxDepth = auth.config.plsqlMaxHops ?? FALLBACK_MAX_DEPTH;
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SectionStatus>("loading");
@@ -188,6 +193,7 @@ export function ImpactReport({
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <ImpactControls
           filters={filters}
+          maxDepth={maxDepth}
           onChange={(next) => setFilters({ ...filters, ...next })}
         />
         <div className="flex flex-wrap items-center gap-3">
@@ -264,9 +270,11 @@ export function ImpactReport({
 
 function ImpactControls({
   filters,
+  maxDepth,
   onChange,
 }: {
   filters: Filters;
+  maxDepth: number;
   onChange: (patch: Partial<Filters>) => void;
 }) {
   const selectClass = "min-h-10 rounded-md border bg-surface px-2 text-sm";
@@ -286,24 +294,12 @@ function ImpactControls({
           <option value="downstream">Downstream</option>
         </select>
       </label>
-      <label className="block text-sm font-medium">
-        Depth
-        <select
-          aria-label="Depth"
-          value={filters.depth}
-          disabled={filters.directOnly}
-          onChange={(event) => onChange({ depth: Number(event.target.value) })}
-          className={`mt-1 block ${selectClass}`}
-        >
-          {Array.from({ length: MAX_DEPTH }, (_, index) => index + 1).map(
-            (depth) => (
-              <option key={depth} value={depth}>
-                {depth}
-              </option>
-            ),
-          )}
-        </select>
-      </label>
+      <DepthField
+        depth={filters.depth}
+        maxDepth={maxDepth}
+        disabled={filters.directOnly}
+        onChange={(depth) => onChange({ depth })}
+      />
       <label className="block text-sm font-medium">
         Relationship
         <select
@@ -318,7 +314,14 @@ function ImpactControls({
           className={`mt-1 block ${selectClass}`}
         >
           {(
-            ["All", "CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON"] as const
+            [
+              "All",
+              "CALLS",
+              "READS",
+              "WRITES",
+              "VIEW_DEPENDS_ON",
+              "TRIGGERS",
+            ] as const
           ).map((relationship) => (
             <option key={relationship} value={relationship}>
               {relationship}
@@ -343,6 +346,68 @@ function ImpactControls({
         Writes only
       </label>
     </div>
+  );
+}
+
+/**
+ * Free-form depth: the deployment configures how many hops are actually
+ * allowed (`PLSQL_MAX_HOPS`, up to 50), so this can't be a fixed dropdown.
+ * Keeps its own draft text while typing and only commits (clamped to
+ * `[1, maxDepth]`) on blur or Enter, so a partial number like "1" while
+ * aiming for "12" doesn't fire a query or get force-corrected mid-keystroke.
+ */
+function DepthField({
+  depth,
+  maxDepth,
+  disabled,
+  onChange,
+}: {
+  depth: number;
+  maxDepth: number;
+  disabled?: boolean;
+  onChange: (depth: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(depth));
+
+  useEffect(() => {
+    setDraft(String(depth));
+  }, [depth]);
+
+  function commit() {
+    const parsed = Number(draft);
+    const clamped = Number.isFinite(parsed)
+      ? Math.min(maxDepth, Math.max(1, Math.round(parsed)))
+      : depth;
+    setDraft(String(clamped));
+    if (clamped !== depth) onChange(clamped);
+  }
+
+  return (
+    <label className="block text-sm font-medium">
+      Depth
+      <input
+        type="number"
+        inputMode="numeric"
+        aria-label="Depth"
+        min={1}
+        max={maxDepth}
+        step={1}
+        disabled={disabled}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+        }}
+        className="mt-1 block min-h-10 w-20 rounded-md border bg-surface px-2 text-sm"
+      />
+      <span className="mt-1 block text-xs font-normal text-text-secondary">
+        Max {maxDepth} hops
+      </span>
+    </label>
   );
 }
 

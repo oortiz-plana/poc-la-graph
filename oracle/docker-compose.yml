@@ -1,0 +1,15 @@
+services:
+  oracle:
+    image: gvenzl/oracle-xe:11.2.0.2-slim
+    environment:
+      ORACLE_PASSWORD: oracle
+      APP_USER: oracle
+      APP_USER_PASSWORD: oracle
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+    restart: always
+
+volumes:
+  oracle-data:

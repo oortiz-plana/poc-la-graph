@@ -122,6 +122,19 @@ def _reference(
 
 
 def _dependency(edge: PlsqlDependencyRecord) -> PlsqlDependency:
+    via_table = (
+        _reference(
+            object_id=edge.via_table_id,
+            kind=edge.via_table_kind,
+            name=edge.via_table_name,
+            qualified_name=edge.via_table_qualified_name,
+        )
+        if edge.via_table_id is not None
+        and edge.via_table_kind is not None
+        and edge.via_table_name is not None
+        and edge.via_table_qualified_name is not None
+        else None
+    )
     return PlsqlDependency(
         id=edge.id,
         relationship=edge.relationship,
@@ -139,6 +152,10 @@ def _dependency(edge: PlsqlDependencyRecord) -> PlsqlDependency:
         ),
         resolution=edge.resolution,
         evidence=_coordinate(edge.evidence),
+        evidenceKind=edge.evidence_kind,
+        derived=edge.derived,
+        events=edge.events,
+        viaTable=via_table,
     )
 
 

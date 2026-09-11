@@ -42,7 +42,7 @@ TABLE_ACCESS_RELATIONSHIPS: frozenset[PlsqlRelationship] = frozenset(
     {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON"}
 )
 PATH_RELATIONSHIPS: frozenset[PlsqlRelationship] = frozenset(
-    {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON"}
+    {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS"}
 )
 UNRESOLVED_RESOLUTIONS: frozenset[PlsqlResolution] = frozenset(
     {"AMBIGUOUS", "UNRESOLVED"}

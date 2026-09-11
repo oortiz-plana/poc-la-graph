@@ -23,6 +23,7 @@
         "WRITES",
         "VIEW_DEPENDS_ON",
         "TRIGGER_ON",
+        "TRIGGERS",
         "INDEXES",
         "SYNONYM_FOR",
         "DECLARES",
@@ -69,7 +70,11 @@
         "source",
         "target",
         "resolution",
-        "evidence"
+        "evidence",
+        "evidenceKind",
+        "derived",
+        "events",
+        "viaTable"
       ],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
@@ -80,6 +85,15 @@
         "evidence": {
           "anyOf": [
             { "$ref": "plsql-object.schema.json#/$defs/sourceCoordinate" },
+            { "type": "null" }
+          ]
+        },
+        "evidenceKind": { "type": ["string", "null"] },
+        "derived": { "type": ["boolean", "null"] },
+        "events": { "type": ["string", "null"] },
+        "viaTable": {
+          "anyOf": [
+            { "$ref": "#/$defs/objectReference" },
             { "type": "null" }
           ]
         }

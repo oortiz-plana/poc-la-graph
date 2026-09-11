@@ -130,9 +130,12 @@ The gateway and contracts consume the graph as persisted today by
   `Type`), `ExecutableUnit` + `Procedure`/`Function` (also `DatabaseObject`),
   and `AnonymousBlock`. Package/routine spec+body pairs share one node.
 - Relationships: `CONTAINS`, `DECLARES`, `CALLS`, `READS`, `WRITES`,
-  `VIEW_DEPENDS_ON`, `TRIGGER_ON`, `INDEXES`, `SYNONYM_FOR` — directed, with
-  edge properties `resolution`, `sourceFileId`, `startOffset`, `endOffset`,
-  `startLine`, `startColumn`, `evidenceKind`, `sourceRole`.
+  `VIEW_DEPENDS_ON`, `TRIGGER_ON`, `TRIGGERS`, `INDEXES`, `SYNONYM_FOR` —
+  directed, with edge properties `resolution`, `sourceFileId`,
+  `startOffset`, `endOffset`, `startLine`, `startColumn`, `evidenceKind`,
+  `sourceRole`. `TRIGGERS` (a derived, trigger-mediated invocation edge,
+  distinct from the `TRIGGER_ON` table→trigger declaration edge) also
+  carries `derived`, `events`, and `viaTable`.
 - Resolution states: `EXACT`, `INFERRED`, `AMBIGUOUS`, `UNRESOLVED`; no
   numeric confidence is stored and the product must not invent one.
 - Identifiers are opaque to clients: `project://…`, `file://…`,
@@ -203,7 +206,9 @@ schemas ↔ `contracts/` JSON Schema): object summary/detail, typed dependency
 with resolution, table-access groups, ordered path, impact report with
 explaining paths, source response, and bounded envelopes carrying
 `truncated`. Every payload item keeps optional `sourceFileId`, `startLine`,
-`startColumn`, `startOffset`, `endOffset`, `evidenceKind` when present.
+`startColumn`, `startOffset`, `endOffset` when present; dependency/edge
+payloads additionally keep optional `evidenceKind`, `derived`, `events`,
+`viaTable`, populated only for derived relationships (currently `TRIGGERS`).
 
 ## 8. Gateway architecture
 
@@ -392,8 +397,10 @@ Allowed but not implemented now, reusing the same gateway/contract/UI seams:
 MCP access parity for agents (after the UI contract stabilizes), incremental
 analysis and content hashes (upstream), source-editor and interactive-graph
 adoption after spikes, Git/PR-aware source repositories, revision comparison,
-column-level lineage, control-flow views, trigger chains, and per-project
-multi-graph support (replacing the single configured corpus).
+column-level lineage, control-flow views, full multi-hop trigger-chain
+analysis (`TRIGGERS` as of 2026-09-06 models one trigger-mediated invocation
+hop, not transitive trigger propagation), and per-project multi-graph
+support (replacing the single configured corpus).
 
 ## 16. Assumptions and open questions
 

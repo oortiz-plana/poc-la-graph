@@ -173,6 +173,26 @@ async def test_impact_rejects_unknown_relationship(
     assert response.status_code == 422
 
 
+async def test_impact_accepts_triggers_relationship(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    object_id = await _object_id(plsql_client, "CREATE_EMPLOYEE")
+    response = await plsql_client.get(
+        "/api/v1/plsql/impact",
+        params={
+            "objectId": object_id,
+            "direction": "downstream",
+            "relationship": "TRIGGERS",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["direct"] == 1
+    assert [item["dependent"]["name"] for item in payload["items"]] == [
+        "NOTIFY_HR_AUDIT"
+    ]
+
+
 async def test_impact_rejects_unknown_direction(
     plsql_client: httpx.AsyncClient,
 ) -> None:

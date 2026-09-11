@@ -44,6 +44,7 @@ describe("getRuntimeConfig", () => {
         maxTotalBytes: 33554432,
       },
       plsqlEnabled: false,
+      plsqlMaxHops: 5,
     });
   });
 

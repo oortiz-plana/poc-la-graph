@@ -385,6 +385,7 @@ export const plsqlRelationshipSchema = z.enum([
   "WRITES",
   "VIEW_DEPENDS_ON",
   "TRIGGER_ON",
+  "TRIGGERS",
   "INDEXES",
   "SYNONYM_FOR",
   "DECLARES",
@@ -412,6 +413,14 @@ export const plsqlDependencySchema = z.object({
   evidence: plsqlSourceCoordinateSchema
     .nullish()
     .transform((value) => value ?? null),
+  // Populated only for derived edges (currently only TRIGGERS); left
+  // optional (rather than the required-but-nullable `evidence` pattern
+  // above) so every existing literal PlsqlDependency fixture in tests keeps
+  // compiling unchanged.
+  evidenceKind: z.string().nullish(),
+  derived: z.boolean().nullish(),
+  events: z.string().nullish(),
+  viaTable: plsqlObjectReferenceSchema.nullish(),
 });
 export const plsqlDependencyResultSchema = z.object({
   items: z.array(plsqlDependencySchema),
@@ -450,6 +459,7 @@ export const impactRelationshipSchema = z.enum([
   "READS",
   "WRITES",
   "VIEW_DEPENDS_ON",
+  "TRIGGERS",
 ]);
 export const plsqlImpactSummarySchema = z.object({
   direct: z.number().int().nonnegative(),
@@ -471,7 +481,10 @@ export const plsqlDependencyCategorySchema = z.enum([
   "other",
 ]);
 export const plsqlDependencySummarySchema = z.object({
-  counts: z.record(plsqlDependencyCategorySchema, z.number().int().nonnegative()),
+  counts: z.record(
+    plsqlDependencyCategorySchema,
+    z.number().int().nonnegative(),
+  ),
   items: z.array(plsqlDependencySchema),
   truncated: z.boolean(),
   total: z.number().int().nonnegative(),

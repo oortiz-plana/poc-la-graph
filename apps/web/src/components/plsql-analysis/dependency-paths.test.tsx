@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SWRConfig } from "swr";
 import type {
   PlsqlObject,
   PlsqlObjectReference,
@@ -121,14 +122,16 @@ describe("DependencyPathsSection selected path", () => {
 
   async function traceAndSelect(user: ReturnType<typeof userEvent.setup>) {
     render(
-      <DependencyPathsSection
-        onInspectObject={vi.fn()}
-        onOpenEvidence={onOpenEvidence}
-        onInspectPath={vi.fn()}
-        onInspectEdge={vi.fn()}
-        onOpenObject={vi.fn()}
-        onAnalyzeObject={vi.fn()}
-      />,
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <DependencyPathsSection
+          onInspectObject={vi.fn()}
+          onOpenEvidence={onOpenEvidence}
+          onInspectPath={vi.fn()}
+          onInspectEdge={vi.fn()}
+          onOpenObject={vi.fn()}
+          onAnalyzeObject={vi.fn()}
+        />
+      </SWRConfig>,
     );
     searchPlsqlObjects.mockResolvedValueOnce({
       items: [trigger],
@@ -152,6 +155,7 @@ describe("DependencyPathsSection selected path", () => {
       items: [twoHopPath],
       truncated: false,
       count: 1,
+      nextCursor: null,
     });
     await user.click(screen.getByRole("button", { name: "Find paths" }));
     await screen.findByText("2 hops");
@@ -215,5 +219,51 @@ describe("DependencyPathsSection selected path", () => {
       "file://sample/triggers/fm_gorpa_upd.sql",
       { startLine: 66, endLine: 66 },
     );
+  });
+
+  it("loads and appends the next dependency-path page", async () => {
+    const user = userEvent.setup();
+    render(
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <DependencyPathsSection
+          initialFrom={{ ...runPayroll, ...trigger }}
+          onInspectObject={vi.fn()}
+          onOpenEvidence={onOpenEvidence}
+        />
+      </SWRConfig>,
+    );
+    searchPlsqlObjects.mockResolvedValueOnce({
+      items: [runPayroll],
+      truncated: false,
+      count: 1,
+    });
+    await user.type(screen.getByLabelText("To object"), "reversa");
+    await user.click(
+      await screen.findByRole("option", { name: /RUN_PAYROLL/ }),
+    );
+    findPlsqlPaths
+      .mockResolvedValueOnce({
+        items: [twoHopPath],
+        truncated: true,
+        count: 2,
+        nextCursor: "paths-page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [{ ...twoHopPath, id: "path://sample/second" }],
+        truncated: false,
+        count: 2,
+        nextCursor: null,
+      });
+
+    await user.click(screen.getByRole("button", { name: "Find paths" }));
+    expect(await screen.findByText("Showing 1 of 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(await screen.findByText("Showing 2 of 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(findPlsqlPaths).toHaveBeenLastCalledWith(trigger.id, runPayroll.id, {
+      limit: 25,
+      cursor: "paths-page-2",
+    });
   });
 });

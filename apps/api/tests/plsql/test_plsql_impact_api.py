@@ -210,8 +210,67 @@ async def test_impact_truncates_at_row_limit(
     assert len(payload["items"]) == 3
     assert payload["truncated"] is True
     assert payload["count"] == 7
+    assert payload["nextCursor"]
     # Truncation keeps the deterministic head (all direct dependents).
     assert all(item["distance"] == 1 for item in payload["items"])
+
+    second = await plsql_client.get(
+        "/api/v1/plsql/impact",
+        params={
+            "objectId": employees,
+            "limit": 3,
+            "cursor": payload["nextCursor"],
+        },
+    )
+    assert second.status_code == 200
+    second_payload = second.json()
+    assert second_payload["count"] == 7
+    assert second_payload["summary"] == payload["summary"]
+    assert not (
+        {item["id"] for item in payload["items"]}
+        & {item["id"] for item in second_payload["items"]}
+    )
+    assert second_payload["nextCursor"]
+
+    final = await plsql_client.get(
+        "/api/v1/plsql/impact",
+        params={
+            "objectId": employees,
+            "limit": 3,
+            "cursor": second_payload["nextCursor"],
+        },
+    )
+    assert final.status_code == 200
+    assert final.json()["count"] == 7
+    assert final.json()["truncated"] is False
+    assert final.json()["nextCursor"] is None
+    full = await plsql_client.get(
+        "/api/v1/plsql/impact", params={"objectId": employees}
+    )
+    assert (
+        payload["items"] + second_payload["items"] + final.json()["items"]
+        == full.json()["items"]
+    )
+
+    mismatched = await plsql_client.get(
+        "/api/v1/plsql/impact",
+        params={
+            "objectId": employees,
+            "limit": 3,
+            "direction": "downstream",
+            "cursor": payload["nextCursor"],
+        },
+    )
+    assert mismatched.status_code == 422
+    assert mismatched.json()["code"] == "invalid_request"
+
+    for override in ({"depth": 1}, {"writesOnly": True}, {"cursor": "!invalid"}):
+        invalid = await plsql_client.get(
+            "/api/v1/plsql/impact",
+            params={"objectId": employees, "cursor": payload["nextCursor"], **override},
+        )
+        assert invalid.status_code == 422
+        assert invalid.json()["code"] == "invalid_request"
 
 
 async def test_impact_unknown_or_disabled(

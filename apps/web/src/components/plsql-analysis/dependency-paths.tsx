@@ -1,7 +1,13 @@
 "use client";
 
 import { Copy, LoaderCircle } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useState,
+  type FormEvent,
+  type ComponentProps,
+} from "react";
+import useSWRInfinite from "swr/infinite";
 import { Button } from "@/components/ui/button";
 import { findPlsqlPaths, type PlsqlProblemCode } from "@/lib/api";
 import type {
@@ -21,13 +27,28 @@ import { DependencyPathTrail } from "./dependency-path-trail";
 import { PlsqlObjectCombobox } from "./object-combobox";
 import { evidenceLineLabel, hopText } from "./plsql-atoms";
 import { SourceBody } from "./source-viewer";
+import {
+  ANALYSIS_PAGE_SIZE,
+  AnalysisPagination,
+  AnalysisPaginationScope,
+} from "./analysis-pagination";
 
 type PathStatus = "idle" | "loading" | "ready" | "error";
 
 /** One compact result row: a whole traced route between the chosen objects. */
 type PathListRow = { id: string; path: PlsqlPath };
 
-export function DependencyPathsSection({
+export function DependencyPathsSection(
+  props: ComponentProps<typeof DependencyPathsContent>,
+) {
+  return (
+    <AnalysisPaginationScope>
+      <DependencyPathsContent {...props} />
+    </AnalysisPaginationScope>
+  );
+}
+
+function DependencyPathsContent({
   initialFrom,
   onInspectObject,
   onOpenEvidence,
@@ -48,34 +69,90 @@ export function DependencyPathsSection({
 }) {
   const [from, setFrom] = useState<PlsqlObject>();
   const [to, setTo] = useState<PlsqlObject>();
-  const [status, setStatus] = useState<PathStatus>("idle");
-  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
-  const [result, setResult] = useState<PlsqlPathResult>();
+  const [submitted, setSubmitted] = useState<{
+    fromId: string;
+    toId: string;
+    request: number;
+  }>();
   const [selectedId, setSelectedId] = useState<string>();
   const headingId = "plsql-dependency-paths-heading";
 
+  const { data, error, size, setSize, isLoading, isValidating, mutate } =
+    useSWRInfinite<PlsqlPathResult>(
+      (index, previousPage) => {
+        if (!submitted) return null;
+        if (index > 0 && !previousPage?.nextCursor) return null;
+        return {
+          resource: "plsql-paths",
+          ...submitted,
+          cursor:
+            index === 0 ? undefined : (previousPage?.nextCursor ?? undefined),
+        };
+      },
+      async ({
+        fromId,
+        toId,
+        cursor,
+      }: {
+        fromId: string;
+        toId: string;
+        cursor?: string;
+      }) => findPlsqlPaths(fromId, toId, { limit: ANALYSIS_PAGE_SIZE, cursor }),
+      {
+        persistSize: false,
+        revalidateFirstPage: false,
+      },
+    );
+
+  const firstPage = data?.[0];
+  const lastPage = data?.[data.length - 1];
+  const items = data
+    ? [
+        ...new Map(
+          data.flatMap((page) => page.items).map((path) => [path.id, path]),
+        ).values(),
+      ]
+    : [];
+  const result = firstPage
+    ? {
+        ...firstPage,
+        items,
+        truncated: Boolean(lastPage?.nextCursor),
+        nextCursor: lastPage?.nextCursor ?? null,
+      }
+    : undefined;
+  const status: PathStatus = !submitted
+    ? "idle"
+    : isLoading
+      ? "loading"
+      : error && !result
+        ? "error"
+        : result
+          ? "ready"
+          : "loading";
+  const errorCode: PlsqlProblemCode | undefined = error
+    ? problemCodeOf(error)
+    : undefined;
+  const isLoadingMore =
+    isValidating && Boolean(data) && size > (data?.length ?? 0);
+
   useEffect(() => {
     setFrom(initialFrom);
-    setResult(undefined);
-    setStatus("idle");
+    setSubmitted(undefined);
     setSelectedId(undefined);
   }, [initialFrom]);
 
   const canTrace = Boolean(from && to && from.id !== to.id);
 
-  async function tracePaths(event?: FormEvent<HTMLFormElement>) {
+  function tracePaths(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     if (!from || !to || from.id === to.id) return;
-    setStatus("loading");
-    setErrorCode(undefined);
-    try {
-      setResult(await findPlsqlPaths(from.id, to.id));
-      setSelectedId(undefined);
-      setStatus("ready");
-    } catch (error) {
-      setErrorCode(problemCodeOf(error));
-      setStatus("error");
-    }
+    setSubmitted((current) => ({
+      fromId: from.id,
+      toId: to.id,
+      request: (current?.request ?? 0) + 1,
+    }));
+    setSelectedId(undefined);
   }
 
   function selectPath(path: PlsqlPath) {
@@ -112,10 +189,7 @@ export function DependencyPathsSection({
       <h2 id={headingId} className="text-xl font-semibold">
         Dependency paths
       </h2>
-      <form
-        onSubmit={(event) => void tracePaths(event)}
-        className="mt-3 max-w-3xl"
-      >
+      <form onSubmit={tracePaths} className="mt-3 max-w-3xl">
         <div className="grid gap-4 sm:grid-cols-2">
           <PlsqlObjectCombobox
             id="plsql-path-from"
@@ -151,14 +225,11 @@ export function DependencyPathsSection({
       )}
       {status === "error" && (
         <div className="mt-3">
-          <AnalysisError code={errorCode} onRetry={() => void tracePaths()} />
+          <AnalysisError code={errorCode} onRetry={() => void mutate()} />
         </div>
       )}
       {status === "ready" && result && (
         <div className="mt-3">
-          {result.truncated && (
-            <p className="mb-2 text-sm text-warning">Results truncated</p>
-          )}
           <DependencyDetailTable
             ariaLabel="Dependency paths between the selected objects"
             columns={columns}
@@ -167,6 +238,15 @@ export function DependencyPathsSection({
             selectedId={selectedId}
             onSelectRow={(row) => selectPath(row.path)}
             emptyMessage="No dependency paths found"
+          />
+          <AnalysisPagination
+            loaded={result.items.length}
+            total={result.count}
+            nextCursor={result.nextCursor}
+            loading={isLoadingMore}
+            error={Boolean(error)}
+            onLoadMore={() => void setSize((current) => current + 1)}
+            onRetry={() => void mutate()}
           />
           {selected && (
             <SelectedPath

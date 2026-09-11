@@ -35,9 +35,7 @@ PlsqlRelationship = Literal[
 
 PlsqlResolution = Literal["EXACT", "INFERRED", "AMBIGUOUS", "UNRESOLVED"]
 
-PlsqlDependencyCategory = Literal[
-    "callers", "callees", "reads", "writes", "other"
-]
+PlsqlDependencyCategory = Literal["callers", "callees", "reads", "writes", "other"]
 
 ImpactDirection = Literal["upstream", "downstream"]
 
@@ -180,6 +178,7 @@ class PlsqlPathResult(ApiModel):
     items: list[PlsqlPath]
     truncated: bool
     count: int = Field(ge=0)
+    next_cursor: str | None = Field(alias="nextCursor")
 
 
 class PlsqlSourceFile(ApiModel):
@@ -245,3 +244,4 @@ class PlsqlImpactResult(ApiModel):
     truncated: bool
     count: int = Field(ge=0)
     summary: PlsqlImpactSummary
+    next_cursor: str | None = Field(alias="nextCursor")

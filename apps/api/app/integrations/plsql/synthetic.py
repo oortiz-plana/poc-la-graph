@@ -11,9 +11,9 @@ from app.integrations.plsql.models import (
     PlsqlDependencyPage,
     PlsqlDependencyRecord,
     PlsqlDependencySummaryRecord,
+    PlsqlFileRecord,
     PlsqlHealthCategoryRecord,
     PlsqlHealthRecord,
-    PlsqlFileRecord,
     PlsqlImpactItemRecord,
     PlsqlImpactPage,
     PlsqlImpactSummaryRecord,
@@ -176,9 +176,7 @@ class SyntheticPlsqlAnalysisClient:
             if object_id is None:
                 return True
             source = self._by_id.get(edge.source_id)
-            return source is not None and self._container_belongs(
-                source, object_id
-            )
+            return source is not None and self._container_belongs(source, object_id)
 
         unresolved = [
             edge
@@ -196,9 +194,7 @@ class SyntheticPlsqlAnalysisClient:
         ) -> tuple[PlsqlHealthCategoryRecord, bool]:
             bounded = max(1, min(limit, self._max_rows))
             return (
-                PlsqlHealthCategoryRecord(
-                    count=len(items), items=items[:bounded]
-                ),
+                PlsqlHealthCategoryRecord(count=len(items), items=items[:bounded]),
                 len(items) > bounded,
             )
 
@@ -225,9 +221,7 @@ class SyntheticPlsqlAnalysisClient:
         """Return per-category counts plus the selected category's page."""
         callers = await self.callers_of(object_id=object_id, limit=self._max_rows)
         callees = await self.callees_of(object_id=object_id, limit=self._max_rows)
-        access = await self.table_access_of(
-            object_id=object_id, limit=self._max_rows
-        )
+        access = await self.table_access_of(object_id=object_id, limit=self._max_rows)
         buckets: dict[str, list[PlsqlDependencyRecord]] = {
             "callers": list(callers.items),
             "callees": list(callees.items),
@@ -268,9 +262,7 @@ class SyntheticPlsqlAnalysisClient:
         """
         record = self._by_id[object_id]
         anchors = set(self._impact_anchors(object_id))
-        access = await self.table_access_of(
-            object_id=object_id, limit=self._max_rows
-        )
+        access = await self.table_access_of(object_id=object_id, limit=self._max_rows)
         impact = await self.impact_of(
             object_id=object_id, max_hops=max_hops, limit=self._max_rows
         )
@@ -406,6 +398,7 @@ class SyntheticPlsqlAnalysisClient:
         to_id: str,
         max_hops: int,
         limit: int,
+        offset: int = 0,
     ) -> PlsqlPathPage:
         """Enumerate bounded dependency paths from ``from_id`` to ``to_id``.
 
@@ -457,12 +450,14 @@ class SyntheticPlsqlAnalysisClient:
         )
 
         bounded_limit = max(1, min(limit, self._max_rows))
+        bounded_offset = max(0, offset)
+        page_end = bounded_offset + bounded_limit
         return PlsqlPathPage(
             items=[
                 _path_record(self._project_id, edge_by_id, trail)
-                for trail in ordered[:bounded_limit]
+                for trail in ordered[bounded_offset:page_end]
             ],
-            truncated=len(ordered) > bounded_limit,
+            truncated=len(ordered) > page_end,
             total=len(ordered),
         )
 
@@ -600,11 +595,7 @@ class SyntheticPlsqlAnalysisClient:
             chain: tuple[PlsqlDependencyRecord, ...],
         ) -> None:
             for edge in adjacency.get(current, ()):
-                peer = (
-                    edge.source_id
-                    if direction == "upstream"
-                    else edge.target_id
-                )
+                peer = edge.source_id if direction == "upstream" else edge.target_id
                 if peer in seen or len(chain) >= bounded_hops:
                     continue
                 next_chain = chain + (edge,)
@@ -662,6 +653,7 @@ class SyntheticPlsqlAnalysisClient:
         limit: int,
         direction: ImpactDirection = "upstream",
         relationships: frozenset[str] | None = None,
+        offset: int = 0,
     ) -> PlsqlImpactPage:
         """Return bounded transitive impact with a blast-radius summary."""
         rels = (
@@ -669,9 +661,7 @@ class SyntheticPlsqlAnalysisClient:
             if relationships is not None
             else PATH_RELATIONSHIPS
         )
-        trails, edge_by_id = self._impact_trails(
-            object_id, max_hops, rels, direction
-        )
+        trails, edge_by_id = self._impact_trails(object_id, max_hops, rels, direction)
         items: list[PlsqlImpactItemRecord] = []
         for dependent_id, forward_trails in trails.items():
             dependent = self._by_id.get(dependent_id)
@@ -704,9 +694,11 @@ class SyntheticPlsqlAnalysisClient:
             )
         )
         bounded_limit = max(1, min(limit, self._max_rows))
+        bounded_offset = max(0, offset)
+        page_end = bounded_offset + bounded_limit
         return PlsqlImpactPage(
-            items=items[:bounded_limit],
-            truncated=len(items) > bounded_limit,
+            items=items[bounded_offset:page_end],
+            truncated=len(items) > page_end,
             total=len(items),
             summary=self._impact_summary(trails, edge_by_id),
         )

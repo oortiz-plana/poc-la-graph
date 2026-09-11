@@ -124,6 +124,7 @@ class AnalysisGraphClient(Protocol):
         to_id: str,
         max_hops: int,
         limit: int,
+        offset: int = 0,
     ) -> PlsqlPathPage:
         """Return bounded dependency paths from one object to another.
 
@@ -150,6 +151,7 @@ class AnalysisGraphClient(Protocol):
         limit: int,
         direction: ImpactDirection = "upstream",
         relationships: frozenset[str] | None = None,
+        offset: int = 0,
     ) -> PlsqlImpactPage:
         """Return bounded transitive impact with a blast-radius summary.
 

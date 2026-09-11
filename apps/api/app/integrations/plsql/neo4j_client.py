@@ -779,11 +779,13 @@ class Neo4jPlsqlAnalysisClient:
         to_id: str,
         max_hops: int,
         limit: int,
+        offset: int = 0,
     ) -> PlsqlPathPage:
         source = await self._require_object(from_id)
         target = await self._require_object(to_id)
         bounded_hops = max(1, min(max_hops, self._max_hops))
         bounded = max(1, min(limit, self._max_rows))
+        bounded_offset = max(0, offset)
         if source.qualified_name == target.qualified_name:
             return PlsqlPathPage(items=[], truncated=False, total=0)
 
@@ -857,9 +859,10 @@ class Neo4jPlsqlAnalysisClient:
             )
             for trail in ordered
         ]
+        page_end = bounded_offset + bounded
         return PlsqlPathPage(
-            items=records[:bounded],
-            truncated=len(records) > bounded,
+            items=records[bounded_offset:page_end],
+            truncated=len(records) > page_end,
             total=len(records),
         )
 
@@ -902,11 +905,13 @@ class Neo4jPlsqlAnalysisClient:
         limit: int,
         direction: ImpactDirection = "upstream",
         relationships: frozenset[str] | None = None,
+        offset: int = 0,
     ) -> PlsqlImpactPage:
         """Return bounded transitive impact with a blast-radius summary."""
         changed = await self._require_object(object_id)
         bounded_hops = max(1, min(max_hops, self._max_hops))
         bounded = max(1, min(limit, self._max_rows))
+        bounded_offset = max(0, offset)
         rels = (
             frozenset(relationships)
             if relationships is not None
@@ -1050,9 +1055,10 @@ class Neo4jPlsqlAnalysisClient:
                 item.dependent.id,
             )
         )
+        page_end = bounded_offset + bounded
         return PlsqlImpactPage(
-            items=items[:bounded],
-            truncated=len(items) > bounded,
+            items=items[bounded_offset:page_end],
+            truncated=len(items) > page_end,
             total=len(items),
             summary=PlsqlImpactSummaryRecord(
                 direct=direct,
@@ -1061,7 +1067,6 @@ class Neo4jPlsqlAnalysisClient:
                 tables_modified=len(tables_modified),
             ),
         )
-
 
     async def health(
         self,
@@ -1100,9 +1105,7 @@ class Neo4jPlsqlAnalysisClient:
         ) -> tuple[PlsqlHealthCategoryRecord, bool]:
             bounded = max(1, min(limit, self._max_rows))
             return (
-                PlsqlHealthCategoryRecord(
-                    count=len(items), items=items[:bounded]
-                ),
+                PlsqlHealthCategoryRecord(count=len(items), items=items[:bounded]),
                 len(items) > bounded,
             )
 
@@ -1130,9 +1133,7 @@ class Neo4jPlsqlAnalysisClient:
         await self._require_object(object_id)
         callers = await self.callers_of(object_id=object_id, limit=self._max_rows)
         callees = await self.callees_of(object_id=object_id, limit=self._max_rows)
-        access = await self.table_access_of(
-            object_id=object_id, limit=self._max_rows
-        )
+        access = await self.table_access_of(object_id=object_id, limit=self._max_rows)
         buckets: dict[str, list[PlsqlDependencyRecord]] = {
             "callers": list(callers.items),
             "callees": list(callees.items),
@@ -1169,9 +1170,7 @@ class Neo4jPlsqlAnalysisClient:
         """Return headline counts and the first direct callers of an object."""
         record = await self._require_object(object_id)
         anchors = await self._impact_anchors(record)
-        access = await self.table_access_of(
-            object_id=object_id, limit=self._max_rows
-        )
+        access = await self.table_access_of(object_id=object_id, limit=self._max_rows)
         impact = await self.impact_of(
             object_id=object_id, max_hops=max_hops, limit=self._max_rows
         )

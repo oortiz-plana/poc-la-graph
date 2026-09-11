@@ -133,6 +133,7 @@ const impactResult: PlsqlImpactResult = {
   ],
   truncated: false,
   count: 2,
+  nextCursor: null,
   summary: { direct: 1, indirect: 1, packages: 2, tablesModified: 0 },
 };
 

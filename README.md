@@ -66,6 +66,17 @@ report — never a graph editor. Design and vocabulary:
 contract: [docs/architecture/contracts.md](docs/architecture/contracts.md);
 status: [docs/plsql-analysis/implementation-plan.md](docs/plsql-analysis/implementation-plan.md).
 
+Impact and Dependency paths load 25 results at a time. **Load more** appends rows
+and expands the Impact graph; the count and blast-radius summary describe the
+full filtered traversal. The endpoints accept `limit` (1–200, additionally capped
+by `PLSQL_MAX_ROWS`) and an opaque `cursor`, and return `nextCursor` (`null` at
+the end). Send the same object/filter query with each cursor. Invalid or
+cross-query cursors return the existing HTTP 422 `invalid_request` response.
+`truncated` indicates another page is available. Hop depth, including the
+deployment-configured “Max 50 hops” label, is independent of page size.
+Each page recomputes the bounded traversal; pagination reduces response size,
+not traversal work, and does not guarantee a snapshot across graph updates.
+
 It ships disabled by default and adds no behavior to the chat product. Enable it
 deterministically on the synthetic stack (`PLSQL_ADAPTER=synthetic`,
 `PLSQL_PROJECT_ID=sample`, `PLSQL_SOURCE_ROOT=/app/plsql-fixtures/source` on the

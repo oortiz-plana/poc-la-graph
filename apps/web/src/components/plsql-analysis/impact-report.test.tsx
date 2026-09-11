@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SWRConfig } from "swr";
 import type {
   PlsqlImpactItem,
   PlsqlImpactResult,
@@ -107,6 +108,7 @@ const result: PlsqlImpactResult = {
   ],
   truncated: false,
   count: 1,
+  nextCursor: null,
   summary: { direct: 1, indirect: 74, packages: 18, tablesModified: 0 },
 };
 
@@ -118,14 +120,16 @@ const onInspectPath = vi.fn();
 
 function renderPanel() {
   return render(
-    <ImpactReport
-      objectId="plsql://sample/HR/FUNCTION/DOCU_FIDE"
-      onOpenEvidence={onOpenEvidence}
-      onOpenObject={onOpenObject}
-      onInspectObject={onInspectObject}
-      onInspectEdge={onInspectEdge}
-      onInspectPath={onInspectPath}
-    />,
+    <SWRConfig value={{ provider: () => new Map() }}>
+      <ImpactReport
+        objectId="plsql://sample/HR/FUNCTION/DOCU_FIDE"
+        onOpenEvidence={onOpenEvidence}
+        onOpenObject={onOpenObject}
+        onInspectObject={onInspectObject}
+        onInspectEdge={onInspectEdge}
+        onInspectPath={onInspectPath}
+      />
+    </SWRConfig>,
   );
 }
 
@@ -170,11 +174,13 @@ describe("ImpactReport", () => {
     expect(getPlsqlImpact).toHaveBeenCalledWith(
       "plsql://sample/HR/FUNCTION/DOCU_FIDE",
       {
+        limit: 25,
         direction: "upstream",
         depth: 5,
         relationship: undefined,
         directOnly: false,
         writesOnly: false,
+        cursor: undefined,
       },
     );
   });
@@ -216,6 +222,102 @@ describe("ImpactReport", () => {
       (row) => within(row).getAllByRole("cell")[0].textContent,
     );
     expect(names).toEqual(["ZETA", "BETA", "FM_GORPA_UPD", "ALPHA"]);
+  });
+
+  it("loads and appends the next impact page", async () => {
+    const secondItem: PlsqlImpactItem = {
+      ...result.items[0],
+      id: "impact://sample/d2",
+      dependent: ref(
+        "plsql://sample/HR/FUNCTION/CALC_RETENTION",
+        "Function",
+        "CALC_RETENTION",
+        "HR.FA_QFACT_CALC.CALC_RETENTION",
+      ),
+    };
+    getPlsqlImpact
+      .mockResolvedValueOnce({
+        ...result,
+        truncated: true,
+        count: 2,
+        nextCursor: "impact-page-2",
+      })
+      .mockResolvedValueOnce({
+        ...result,
+        items: [secondItem],
+        count: 2,
+        nextCursor: null,
+      });
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(await screen.findByText("Showing 1 of 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(await screen.findByText("CALC_RETENTION")).toBeInTheDocument();
+    expect(screen.getByText("Showing 2 of 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+      "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+      expect.objectContaining({ limit: 25, cursor: "impact-page-2" }),
+    );
+  });
+
+  it("retains loaded rows after a failed page and retries without duplicates", async () => {
+    const first = { ...result, count: 2, truncated: true, nextCursor: "next" };
+    const extra = {
+      ...result.items[0],
+      id: "impact://sample/extra",
+      dependent: ref("extra", "Function", "EXTRA", "HR.EXTRA"),
+    };
+    let failNext = true;
+    getPlsqlImpact.mockImplementation(async (_id, options) => {
+      if (!options.cursor) return first;
+      if (failNext) throw { code: "analysis_unavailable" };
+      return { ...result, count: 2, items: [result.items[0], extra] };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Load more" }));
+    const retry = await screen.findByRole("button", {
+      name: "Retry loading more",
+    });
+    expect(screen.getByText("CALC_IVA_MORA")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load more");
+    failNext = false;
+    await user.click(retry);
+    expect(await screen.findByText("Showing 2 of 2")).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole("table", { name: "Affected objects" })
+        .querySelectorAll("tbody tr"),
+    ).toHaveLength(2);
+  });
+
+  it("resets the cursor and ignores a pending page when filters change", async () => {
+    let resolveNext!: (value: PlsqlImpactResult) => void;
+    getPlsqlImpact.mockImplementation(async (_id, options) => {
+      if (options.direction === "downstream")
+        return { ...result, items: [], count: 0 };
+      if (options.cursor)
+        return new Promise<PlsqlImpactResult>((resolve) => {
+          resolveNext = resolve;
+        });
+      return { ...result, count: 2, truncated: true, nextCursor: "next" };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Load more" }));
+    await user.selectOptions(screen.getByLabelText("Direction"), "downstream");
+    expect(await screen.findByText("Showing 0 of 0")).toBeInTheDocument();
+    resolveNext(result);
+    await waitFor(() =>
+      expect(screen.getByText("Showing 0 of 0")).toBeInTheDocument(),
+    );
+    expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+      "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+      expect.objectContaining({ direction: "downstream", cursor: undefined }),
+    );
   });
 
   it("reveals the why-affected detail with a mini path and opens source", async () => {
@@ -457,11 +559,11 @@ describe("ImpactReport", () => {
     );
   });
 
-  it("shows the empty state and truncation flag", async () => {
+  it("shows the empty state", async () => {
     getPlsqlImpact.mockResolvedValue({
       ...result,
       items: [],
-      truncated: true,
+      truncated: false,
       count: 0,
       summary: { direct: 0, indirect: 0, packages: 0, tablesModified: 0 },
     });
@@ -469,7 +571,7 @@ describe("ImpactReport", () => {
     expect(
       await screen.findByText("No impacted dependents"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Results truncated")).toBeInTheDocument();
+    expect(screen.getByText("Showing 0 of 0")).toBeInTheDocument();
   });
 
   it("retries after a failure", async () => {

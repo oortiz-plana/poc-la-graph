@@ -26,6 +26,15 @@ npm run test:synthetic
 
 Set `E2E_BASE_URL` to test another web origin.
 
+`specs/plsql-pagination.spec.ts` covers Impact and Paths loading 25 then 1 result,
+the Impact graph/list transition, and preserving the selected route. It uses
+synthetic HTTP and sign-in fixtures against the real frontend, so it needs only
+a running web server, without an API, graph, or identity provider:
+
+```bash
+E2E_BASE_URL=http://127.0.0.1:3100 npx playwright test specs/plsql-pagination.spec.ts
+```
+
 ## Synthetic dependency recovery
 
 The Graphify stop/restart test changes Compose state and is skipped by default.

@@ -553,6 +553,14 @@ async def test_find_paths_expands_bounded_frontiers(
         page = await client.find_paths(
             from_id=source.id, to_id=target.id, max_hops=2, limit=10
         )
+        first_calls = list(calls)
+        offset_page = await client.find_paths(
+            from_id=source.id,
+            to_id=target.id,
+            max_hops=2,
+            limit=10,
+            offset=1,
+        )
     finally:
         client.close()
 
@@ -564,10 +572,13 @@ async def test_find_paths_expands_bounded_frontiers(
         edge_id("sample", "CALLS", "HR.A", "HR.B"),
         edge_id("sample", "CALLS", "HR.B", "HR.C"),
     ]
-    assert [query for query, _ in calls] == [EDGE_OUTGOING, EDGE_OUTGOING]
-    assert calls[0][1]["sources"] == ["HR.A"]
-    assert calls[1][1]["sources"] == ["HR.B"]
-    assert set(calls[0][1]["relationships"]) == {
+    assert offset_page.total == 1
+    assert offset_page.items == []
+    assert offset_page.truncated is False
+    assert [query for query, _ in first_calls] == [EDGE_OUTGOING, EDGE_OUTGOING]
+    assert first_calls[0][1]["sources"] == ["HR.A"]
+    assert first_calls[1][1]["sources"] == ["HR.B"]
+    assert set(first_calls[0][1]["relationships"]) == {
         "CALLS",
         "READS",
         "WRITES",
@@ -692,6 +703,10 @@ async def test_impact_of_expands_reverse_frontiers(
     client._object_cache[dependent.id] = dependent
     try:
         page = await client.impact_of(object_id=changed.id, max_hops=5, limit=10)
+        first_calls = list(calls)
+        offset_page = await client.impact_of(
+            object_id=changed.id, max_hops=5, limit=10, offset=1
+        )
     finally:
         client.close()
 
@@ -700,9 +715,12 @@ async def test_impact_of_expands_reverse_frontiers(
     assert page.items[0].dependent.qualified_name == "HR.COUNT_EMPLOYEES"
     assert page.items[0].distance == 1
     assert len(page.items[0].paths) == 1
+    assert offset_page.total == 1
+    assert offset_page.items == []
+    assert offset_page.truncated is False
     # The reverse search keeps expanding past the first dependent: round one
     # fetches edges into EMPLOYEES, round two edges into COUNT_EMPLOYEES.
-    incoming_calls = [call for call in calls if call[0] == EDGE_INCOMING]
+    incoming_calls = [call for call in first_calls if call[0] == EDGE_INCOMING]
     assert [call[1]["targets"] for call in incoming_calls] == [
         ["HR.EMPLOYEES"],
         ["HR.COUNT_EMPLOYEES"],

@@ -1,7 +1,14 @@
 "use client";
 
 import { Copy, LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ComponentProps,
+} from "react";
+import useSWRInfinite from "swr/infinite";
 import { getPlsqlImpact, type PlsqlProblemCode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -33,6 +40,11 @@ import {
 import { SourceBody } from "./source-viewer";
 import { StatCard } from "./stat-card";
 import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
+import {
+  ANALYSIS_PAGE_SIZE,
+  AnalysisPagination,
+  AnalysisPaginationScope,
+} from "./analysis-pagination";
 
 type SectionStatus = "loading" | "ready" | "error";
 
@@ -99,7 +111,17 @@ function primaryEvidence(item: PlsqlImpactItem): PlsqlSourceCoordinate | null {
   );
 }
 
-export function ImpactReport({
+export function ImpactReport(
+  props: ComponentProps<typeof ImpactReportContent>,
+) {
+  return (
+    <AnalysisPaginationScope>
+      <ImpactReportContent {...props} />
+    </AnalysisPaginationScope>
+  );
+}
+
+function ImpactReportContent({
   objectId,
   onOpenEvidence,
   onOpenObject,
@@ -121,10 +143,6 @@ export function ImpactReport({
   const auth = useAuth();
   const maxDepth = auth.config.plsqlMaxHops ?? FALLBACK_MAX_DEPTH;
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
-  const [attempt, setAttempt] = useState(0);
-  const [status, setStatus] = useState<SectionStatus>("loading");
-  const [result, setResult] = useState<PlsqlImpactResult>();
-  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedPathIndex, setSelectedPathIndex] = useState(0);
   const [focusNodeId, setFocusNodeId] = useState<string>();
@@ -135,40 +153,83 @@ export function ImpactReport({
   );
   const headingId = "plsql-impact-heading";
 
-  useEffect(() => {
-    let cancelled = false;
-    setStatus("loading");
-    setErrorCode(undefined);
-    getPlsqlImpact(objectId, {
-      direction: filters.direction,
-      depth: filters.directOnly ? undefined : filters.depth,
-      relationship:
-        filters.relationship === "All" ? undefined : filters.relationship,
-      directOnly: filters.directOnly,
-      writesOnly: filters.writesOnly,
-    })
-      .then((value) => {
-        if (cancelled) return;
-        if (!value) {
-          setStatus("error");
-          return;
-        }
-        setResult(value);
-        setSelectedId(undefined);
-        setSelectedPathIndex(0);
-        setFocusNodeId(undefined);
-        setStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setErrorCode(problemCodeOf(error));
-          setStatus("error");
-        }
-      });
-    return () => {
-      cancelled = true;
+  const { data, error, size, setSize, isLoading, isValidating, mutate } =
+    useSWRInfinite<PlsqlImpactResult>(
+      (index, previousPage) => {
+        if (index > 0 && !previousPage?.nextCursor) return null;
+        return {
+          resource: "plsql-impact",
+          objectId,
+          filters,
+          cursor:
+            index === 0 ? undefined : (previousPage?.nextCursor ?? undefined),
+        };
+      },
+      async ({
+        objectId: requestedId,
+        filters: requestedFilters,
+        cursor,
+      }: {
+        objectId: string;
+        filters: Filters;
+        cursor?: string;
+      }) => {
+        const value = await getPlsqlImpact(requestedId, {
+          limit: ANALYSIS_PAGE_SIZE,
+          direction: requestedFilters.direction,
+          depth: requestedFilters.directOnly
+            ? undefined
+            : requestedFilters.depth,
+          relationship:
+            requestedFilters.relationship === "All"
+              ? undefined
+              : requestedFilters.relationship,
+          directOnly: requestedFilters.directOnly,
+          writesOnly: requestedFilters.writesOnly,
+          cursor,
+        });
+        if (!value) throw new Error("The impact report was not found.");
+        return value;
+      },
+      {
+        persistSize: false,
+        revalidateFirstPage: false,
+      },
+    );
+
+  const result = useMemo(() => {
+    const first = data?.[0];
+    if (!first) return undefined;
+    const byId = new Map<string, PlsqlImpactItem>();
+    for (const page of data) {
+      for (const item of page.items) byId.set(item.id, item);
+    }
+    const last = data[data.length - 1];
+    return {
+      ...first,
+      items: [...byId.values()],
+      truncated: Boolean(last?.nextCursor),
+      nextCursor: last?.nextCursor ?? null,
     };
-  }, [objectId, filters, attempt]);
+  }, [data]);
+  const status: SectionStatus = isLoading
+    ? "loading"
+    : error && !result
+      ? "error"
+      : result
+        ? "ready"
+        : "loading";
+  const errorCode: PlsqlProblemCode | undefined = error
+    ? problemCodeOf(error)
+    : undefined;
+  const isLoadingMore =
+    isValidating && Boolean(data) && size > (data?.length ?? 0);
+
+  useEffect(() => {
+    setSelectedId(undefined);
+    setSelectedPathIndex(0);
+    setFocusNodeId(undefined);
+  }, [objectId, filters]);
 
   function toggleSelection(id: string) {
     setSelectedId((current) => (current === id ? undefined : id));
@@ -222,10 +283,7 @@ export function ImpactReport({
       )}
       {status === "error" && (
         <div className="mt-3">
-          <AnalysisError
-            code={errorCode}
-            onRetry={() => setAttempt((current) => current + 1)}
-          />
+          <AnalysisError code={errorCode} onRetry={() => void mutate()} />
         </div>
       )}
       {status === "ready" && result && (
@@ -262,6 +320,15 @@ export function ImpactReport({
               onOpenObject={onOpenObject}
             />
           )}
+          <AnalysisPagination
+            loaded={result.items.length}
+            total={result.count}
+            nextCursor={result.nextCursor}
+            loading={isLoadingMore}
+            error={Boolean(error)}
+            onLoadMore={() => void setSize((current) => current + 1)}
+            onRetry={() => void mutate()}
+          />
         </>
       )}
     </section>
@@ -541,9 +608,6 @@ function ImpactBody({
   const selectedItem = items.find((item) => item.id === selectedId);
   return (
     <div className="mt-4">
-      {result.truncated && (
-        <p className="text-sm text-warning">Results truncated</p>
-      )}
       <h3 className="text-sm font-semibold text-text-secondary">
         Blast radius
       </h3>

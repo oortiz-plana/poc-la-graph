@@ -1319,13 +1319,13 @@ paths:
       - plsql
       summary: Get Impact
       description: |-
-        Return bounded transitive dependents of a changed object.
+        Return bounded transitive impact with filters and a blast-radius summary.
 
-        Dependents reach the changed object over typed dependency relationships
-        (``CALLS | READS | WRITES | VIEW_DEPENDS_ON``) within
-        ``plsql_max_hops``; items are ordered by distance and then lexicographic
-        ids, and every item carries its shortest explaining path(s) with per-hop
-        evidence. No severity is computed or persisted.
+        ``direction`` selects dependents (upstream) or dependencies (downstream);
+        ``relationship``/``writesOnly`` restrict the traversed edge types;
+        ``directOnly`` caps the walk at one hop and ``depth`` bounds hops within
+        ``plsql_max_hops``. The summary reports direct and indirect affected
+        objects, distinct packages, and tables modified on the traversed paths.
       operationId: get_impact_api_v1_plsql_impact_get
       security:
       - HTTPBearer: []
@@ -1342,12 +1342,68 @@ paths:
         in: query
         required: false
         schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: direction
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - upstream
+          - downstream
+          default: upstream
+          title: Direction
+      - name: depth
+        in: query
+        required: false
+        schema:
           anyOf:
           - type: integer
-            maximum: 200
             minimum: 1
           - type: 'null'
-          title: Limit
+          title: Depth
+      - name: relationship
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            enum:
+            - CALLS
+            - READS
+            - WRITES
+            - VIEW_DEPENDS_ON
+            - TRIGGERS
+          - type: 'null'
+          title: Relationship
+      - name: directOnly
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Directonly
+      - name: writesOnly
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Writesonly
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 1024
+          - type: 'null'
+          title: Cursor
       responses:
         '200':
           description: Successful Response
@@ -1501,12 +1557,21 @@ paths:
         in: query
         required: false
         schema:
-          anyOf:
-          - type: integer
-            maximum: 200
-            minimum: 1
-          - type: 'null'
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 25
           title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 1024
+          - type: 'null'
+          title: Cursor
       responses:
         '200':
           description: Successful Response
@@ -3121,6 +3186,13 @@ components:
           type: integer
           minimum: 0.0
           title: Count
+        summary:
+          $ref: '#/components/schemas/PlsqlImpactSummary'
+        nextCursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Nextcursor
       additionalProperties: false
       type: object
       required:
@@ -3128,12 +3200,42 @@ components:
       - items
       - truncated
       - count
+      - summary
+      - nextCursor
       title: PlsqlImpactResult
       description: |-
         Deterministic, bounded impact report for one changed object.
 
         ``object`` identifies the analyzed object; ``items`` are its transitive
         dependents ordered by distance and then lexicographic ids.
+
+    PlsqlImpactSummary:
+      properties:
+        direct:
+          type: integer
+          minimum: 0.0
+          title: Direct
+        indirect:
+          type: integer
+          minimum: 0.0
+          title: Indirect
+        packages:
+          type: integer
+          minimum: 0.0
+          title: Packages
+        tablesModified:
+          type: integer
+          minimum: 0.0
+          title: Tablesmodified
+      additionalProperties: false
+      type: object
+      required:
+      - direct
+      - indirect
+      - packages
+      - tablesModified
+      title: PlsqlImpactSummary
+      description: Blast-radius summary for an impact scope.
 
     PlsqlObject:
       properties:
@@ -3331,12 +3433,18 @@ components:
           type: integer
           minimum: 0.0
           title: Count
+        nextCursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Nextcursor
       additionalProperties: false
       type: object
       required:
       - items
       - truncated
       - count
+      - nextCursor
       title: PlsqlPathResult
       description: Deterministic, bounded envelope of dependency paths.
 

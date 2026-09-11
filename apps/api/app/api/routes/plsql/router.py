@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import json
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.dependencies import get_app_settings
+from app.api.errors import InvalidRequest
 from app.auth import AuthPrincipal, require_viewer
 from app.config.settings import Settings
 from app.integrations.plsql import (
@@ -23,6 +28,8 @@ from app.integrations.plsql.models import (
     PlsqlSourceRecord,
 )
 from app.models import (
+    ImpactDirection,
+    ImpactRelationship,
     ObjectKind,
     PlsqlDependency,
     PlsqlDependencyCategory,
@@ -30,15 +37,13 @@ from app.models import (
     PlsqlDependencySummary,
     PlsqlHealth,
     PlsqlHealthCategory,
-    ImpactDirection,
-    ImpactRelationship,
     PlsqlImpactItem,
     PlsqlImpactResult,
     PlsqlImpactSummary,
     PlsqlObject,
     PlsqlObjectReference,
-    PlsqlOverview,
     PlsqlObjectSearchResult,
+    PlsqlOverview,
     PlsqlPath,
     PlsqlPathResult,
     PlsqlSourceContent,
@@ -48,6 +53,8 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/api/v1/plsql", tags=["plsql"])
+
+DEFAULT_PAGE_SIZE = 25
 
 
 def analysis(request: Request) -> AnalysisGraphClient:
@@ -195,6 +202,47 @@ def _path(record: PlsqlPathRecord) -> PlsqlPath:
 
 def _effective_limit(settings: Settings, limit: int | None) -> int:
     return min(limit or settings.plsql_max_rows, settings.plsql_max_rows)
+
+
+def _effective_page_limit(settings: Settings, limit: int | None) -> int:
+    return min(limit or DEFAULT_PAGE_SIZE, settings.plsql_max_rows)
+
+
+def _pagination_scope(kind: str, **values: object) -> str:
+    payload = json.dumps(
+        {"kind": kind, **values}, sort_keys=True, separators=(",", ":")
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _encode_page_cursor(scope: str, offset: int) -> str:
+    payload = json.dumps(
+        {"v": 1, "scope": scope, "offset": offset}, separators=(",", ":")
+    ).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_page_cursor(cursor: str | None, scope: str) -> int:
+    if cursor is None:
+        return 0
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        value = json.loads(
+            base64.b64decode(cursor + padding, altchars=b"-_", validate=True)
+        )
+        if (
+            not isinstance(value, dict)
+            or type(value.get("v")) is not int
+            or value.get("v") != 1
+            or value.get("scope") != scope
+            or not isinstance(value.get("offset"), int)
+            or isinstance(value.get("offset"), bool)
+            or value["offset"] < 0
+        ):
+            raise ValueError
+        return cast(int, value["offset"])
+    except (ValueError, TypeError, json.JSONDecodeError, binascii.Error) as exc:
+        raise InvalidRequest("Invalid pagination cursor") from exc
 
 
 async def _require_object(
@@ -442,7 +490,8 @@ async def find_paths(
     analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
     from_id: Annotated[str, Query(alias="from", min_length=1, max_length=512)],
     to_id: Annotated[str, Query(alias="to", min_length=1, max_length=512)],
-    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_PAGE_SIZE,
+    cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
 ) -> PlsqlPathResult:
     """Return bounded dependency paths from one object to another.
 
@@ -454,16 +503,25 @@ async def find_paths(
     del principal
     await _require_object(analysis, from_id)
     await _require_object(analysis, to_id)
+    scope = _pagination_scope(
+        "paths", from_id=from_id, to_id=to_id, max_hops=settings.plsql_max_hops
+    )
+    offset = _decode_page_cursor(cursor, scope)
     page = await analysis.find_paths(
         from_id=from_id,
         to_id=to_id,
         max_hops=settings.plsql_max_hops,
-        limit=_effective_limit(settings, limit),
+        limit=_effective_page_limit(settings, limit),
+        offset=offset,
+    )
+    next_cursor = (
+        _encode_page_cursor(scope, offset + len(page.items)) if page.truncated else None
     )
     return PlsqlPathResult(
         items=[_path(record) for record in page.items],
         truncated=page.truncated,
         count=page.total,
+        next_cursor=next_cursor,
     )
 
 
@@ -575,12 +633,13 @@ async def get_impact(
     settings: Annotated[Settings, Depends(get_app_settings)],
     analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
     object_id: ObjectIdentifier,
-    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_PAGE_SIZE,
     direction: Annotated[ImpactDirection, Query()] = "upstream",
     depth: Annotated[int | None, Query(ge=1)] = None,
     relationship: Annotated[ImpactRelationship | None, Query()] = None,
     direct_only: Annotated[bool, Query(alias="directOnly")] = False,
     writes_only: Annotated[bool, Query(alias="writesOnly")] = False,
+    cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
 ) -> PlsqlImpactResult:
     """Return bounded transitive impact with filters and a blast-radius summary.
 
@@ -604,12 +663,24 @@ async def get_impact(
         if direct_only
         else min(depth or settings.plsql_max_hops, settings.plsql_max_hops)
     )
+    scope = _pagination_scope(
+        "impact",
+        object_id=object_id,
+        max_hops=max_hops,
+        direction=direction,
+        relationships=sorted(relationships) if relationships is not None else None,
+    )
+    offset = _decode_page_cursor(cursor, scope)
     page = await analysis.impact_of(
         object_id=object_id,
         max_hops=max_hops,
-        limit=_effective_limit(settings, limit),
+        limit=_effective_page_limit(settings, limit),
         direction=direction,
         relationships=relationships,
+        offset=offset,
+    )
+    next_cursor = (
+        _encode_page_cursor(scope, offset + len(page.items)) if page.truncated else None
     )
     return PlsqlImpactResult(
         object=_reference(
@@ -627,4 +698,5 @@ async def get_impact(
             packages=page.summary.packages,
             tables_modified=page.summary.tables_modified,
         ),
+        next_cursor=next_cursor,
     )

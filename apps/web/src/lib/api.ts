@@ -613,10 +613,11 @@ export async function getPlsqlTableAccess(
 export async function findPlsqlPaths(
   fromId: string,
   toId: string,
-  options?: { limit?: number },
+  options?: { limit?: number; cursor?: string },
 ): Promise<PlsqlPathResult> {
   const params = new URLSearchParams({ from: fromId, to: toId });
   if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.cursor !== undefined) params.set("cursor", options.cursor);
   const response = await safeFetch(
     `/api/backend/api/v1/plsql/paths?${params}`,
     { cache: "no-store" },
@@ -705,6 +706,7 @@ export async function getPlsqlImpact(
     relationship?: ImpactRelationship;
     directOnly?: boolean;
     writesOnly?: boolean;
+    cursor?: string;
   },
 ): Promise<PlsqlImpactResult | null> {
   const params = new URLSearchParams({ objectId });
@@ -716,6 +718,7 @@ export async function getPlsqlImpact(
     params.set("relationship", options.relationship);
   if (options?.directOnly) params.set("directOnly", "true");
   if (options?.writesOnly) params.set("writesOnly", "true");
+  if (options?.cursor !== undefined) params.set("cursor", options.cursor);
   const response = await safeFetch(
     `/api/backend/api/v1/plsql/impact?${params}`,
     { cache: "no-store" },

@@ -208,6 +208,52 @@ async def test_paths_truncate_at_row_limit(
     assert len(payload["items"]) == 1
     assert payload["truncated"] is True
     assert payload["count"] == 3
+    assert payload["nextCursor"]
+
+    second = await plsql_client.get(
+        "/api/v1/plsql/paths",
+        params={**params, "limit": 1, "cursor": payload["nextCursor"]},
+    )
+    assert second.status_code == 200
+    second_payload = second.json()
+    assert second_payload["items"][0]["id"] != payload["items"][0]["id"]
+    assert second_payload["count"] == 3
+    assert second_payload["nextCursor"]
+
+    final = await plsql_client.get(
+        "/api/v1/plsql/paths",
+        params={
+            **params,
+            "limit": 1,
+            "cursor": second_payload["nextCursor"],
+        },
+    )
+    assert final.status_code == 200
+    assert final.json()["truncated"] is False
+    assert final.json()["nextCursor"] is None
+    full = await plsql_client.get("/api/v1/plsql/paths", params=params)
+    assert (
+        payload["items"] + second_payload["items"] + final.json()["items"]
+        == full.json()["items"]
+    )
+
+    mismatched = await plsql_client.get(
+        "/api/v1/plsql/paths",
+        params={
+            "from": employees,
+            "to": payroll,
+            "limit": 1,
+            "cursor": payload["nextCursor"],
+        },
+    )
+    assert mismatched.status_code == 422
+    assert mismatched.json()["code"] == "invalid_request"
+
+    malformed = await plsql_client.get(
+        "/api/v1/plsql/paths", params={**params, "cursor": "!invalid"}
+    )
+    assert malformed.status_code == 422
+    assert malformed.json()["code"] == "invalid_request"
 
     wider = await plsql_client.get("/api/v1/plsql/paths", params={**params, "limit": 2})
     assert wider.status_code == 200

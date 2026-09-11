@@ -136,6 +136,7 @@ function emptyImpactResult(): PlsqlImpactResult {
     items: [],
     truncated: false,
     count: 0,
+    nextCursor: null,
     summary: { direct: 0, indirect: 0, packages: 0, tablesModified: 0 },
   };
 }
@@ -694,11 +695,11 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(screen.getAllByText("line 12").length).toBeGreaterThan(0);
   });
 
-  it("shows the empty impact state and truncation flag", async () => {
+  it("shows the empty impact state and result count", async () => {
     const user = userEvent.setup();
     mocks.getPlsqlImpact.mockResolvedValue({
       ...emptyImpactResult(),
-      truncated: true,
+      truncated: false,
     });
     render(<PlsqlAnalysisWorkspace />);
     await selectFromExplorer(
@@ -710,7 +711,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await screen.findByText("No impacted dependents"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Results truncated")).toBeInTheDocument();
+    expect(screen.getByText("Showing 0 of 0")).toBeInTheDocument();
   });
 
   it(
@@ -737,6 +738,7 @@ describe("PlsqlAnalysisWorkspace", () => {
         items: [path],
         truncated: false,
         count: 1,
+        nextCursor: null,
       } satisfies PlsqlPathResult);
       const payrollSearch = {
         items: [payrollObject],

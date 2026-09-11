@@ -437,6 +437,7 @@ export const plsqlPathResultSchema = z.object({
   items: z.array(plsqlPathSchema),
   truncated: z.boolean(),
   count: z.number().int().nonnegative(),
+  nextCursor: z.string().nullable(),
 });
 export const plsqlSourceFileSchema = z.object({
   fileId: z.string(),
@@ -517,6 +518,7 @@ export const plsqlImpactResultSchema = z.object({
   truncated: z.boolean(),
   count: z.number().int().nonnegative(),
   summary: plsqlImpactSummarySchema,
+  nextCursor: z.string().nullable(),
 });
 
 export type Project = z.infer<typeof projectSchema>;

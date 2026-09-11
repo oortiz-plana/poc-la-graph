@@ -19,18 +19,21 @@ gateway must be fully testable without any external service.
 
 ## Decision
 
-- **Default compose is unchanged.** `PLSQL_ADAPTER` defaults to `disabled`; the
-  console renders an explicit "Analysis is not configured" state and the API
-  reports `disabled` in `/ready`. No new long-running service is added to
-  `docker-compose.yml`.
-- **Real mode is opt-in via environment**, not a new default service: point
+- **Default compose behavior is unchanged.** `PLSQL_ADAPTER` defaults to
+  `disabled`; the console renders an explicit "Analysis is not configured"
+  state and the API reports `disabled` in `/ready`. The default Compose file
+  now includes an optional local `neo4j:5-community` service for developers,
+  but the API does not connect to or depend on it unless the adapter is
+  explicitly enabled and pointed at `bolt://neo4j:7687`.
+- **Real mode is opt-in via environment**: point
   `PLSQL_ADAPTER=neo4j`, `PLSQL_NEO4J_URI`, `PLSQL_NEO4J_USER`,
   `PLSQL_NEO4J_PASSWORD`, `PLSQL_NEO4J_READ_ONLY=true`, `PLSQL_PROJECT_ID`,
   and the source root at an already-synchronized graph (for example the
   `neo4j` container from `plsqlgraph`). Credentials live only in server-side
   environment/Compose secrets — never in `.env.example` with a real value,
-  never in the browser. If a bundled dev graph is wanted later, it goes in an
-  optional `compose/plsql-neo4j.yml` overlay, not the default model.
+  never in the browser. The bundled service is for local development only; a
+  synchronized production analysis graph remains an externally managed
+  dependency.
 - **Deterministic mode is the default development surface**: the synthetic
   adapter is fixture-driven (minimal synthetic PL/SQL + graph fixtures kept in
   the repo; no proprietary sources). Setting `PLSQL_ADAPTER=synthetic` is

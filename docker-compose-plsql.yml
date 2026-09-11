@@ -1,89 +1,6 @@
 name: ${COMPOSE_PROJECT_NAME:-graphify-agent-poc}
 
 services:
-  knowledge-init:
-    image: alpine:3.22
-    command: ["sh", "-c", "mkdir -p /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state /knowledge/projects && chown -R 10001:10001 /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state /knowledge/projects"]
-    volumes:
-      - graphify_knowledge:/knowledge
-      - ./knowledge/input:/knowledge/input:ro
-    cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
-    security_opt: ["no-new-privileges:true"]
-    network_mode: none
-    restart: "no"
-
-  knowledge-ingest:
-    profiles: ["legacy-single-project"]
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-    image: graphify-agent-poc-api:local
-    command: ["python", "-m", "app.knowledge.cli", "startup"]
-    environment:
-      GRAPHIFY_PACKAGE_VERSION: ${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
-      GRAPHIFY_EXTRACT_BACKEND: ${GRAPHIFY_EXTRACT_BACKEND:-openai}
-      GRAPHIFY_EXTRACT_MODEL: ${GRAPHIFY_EXTRACT_MODEL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      KNOWLEDGE_INPUT_DIR: /knowledge/input
-      KNOWLEDGE_STAGING_DIR: /knowledge/staging
-      KNOWLEDGE_GRAPH_DIR: /knowledge/graph
-      KNOWLEDGE_ARCHIVE_DIR: /knowledge/archive
-      KNOWLEDGE_FAILED_DIR: /knowledge/failed
-      KNOWLEDGE_MANIFEST_PATH: /knowledge/state/manifest.json
-      KNOWLEDGE_SOURCE_INDEX_PATH: /knowledge/state/source-index.sqlite
-      KNOWLEDGE_INGEST_ON_STARTUP: ${KNOWLEDGE_INGEST_ON_STARTUP:-true}
-      KNOWLEDGE_FORCE_REBUILD: ${KNOWLEDGE_FORCE_REBUILD:-false}
-      KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES: ${KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES:-2097152}
-      KNOWLEDGE_MAX_DOCUMENT_COUNT: ${KNOWLEDGE_MAX_DOCUMENT_COUNT:-100}
-      KNOWLEDGE_MAX_TOTAL_SOURCE_BYTES: ${KNOWLEDGE_MAX_TOTAL_SOURCE_BYTES:-33554432}
-      KNOWLEDGE_MAX_EXTRACTED_DOCUMENT_BYTES: ${KNOWLEDGE_MAX_EXTRACTED_DOCUMENT_BYTES:-8388608}
-      KNOWLEDGE_DOCUMENT_PROFILES_JSON: ${KNOWLEDGE_DOCUMENT_PROFILES_JSON:-}
-      KNOWLEDGE_GRAPH_VERSIONS_TO_KEEP: ${KNOWLEDGE_GRAPH_VERSIONS_TO_KEEP:-2}
-      KNOWLEDGE_BUILD_TIMEOUT_SECONDS: ${KNOWLEDGE_BUILD_TIMEOUT_SECONDS:-1800}
-    volumes:
-      - graphify_knowledge:/knowledge
-      - ./knowledge/input:/knowledge/input:ro
-    depends_on:
-      knowledge-init:
-        condition: service_completed_successfully
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    restart: "no"
-    networks: [app]
-
-  graphify:
-    build:
-      context: .
-      dockerfile: docker/graphify.Dockerfile
-      args:
-        GRAPHIFY_PACKAGE_VERSION: ${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
-    image: graphify-agent-poc-graphify:${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
-    environment:
-      GRAPHIFY_RUNTIME_MODE: ${GRAPHIFY_RUNTIME_MODE:-real}
-    volumes:
-      - graphify_knowledge:/knowledge:ro
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    expose:
-      - "8001"
-    healthcheck:
-      test: ["CMD", "python", "/opt/graphify/healthcheck.py"]
-      interval: 10s
-      timeout: 8s
-      retries: 18
-      start_period: 20s
-    depends_on:
-      knowledge-init:
-        condition: service_completed_successfully
-    restart: unless-stopped
-    networks: [app]
-
   api:
     build:
       context: .
@@ -192,8 +109,6 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:
-      graphify:
-        condition: service_healthy
       keycloak:
         condition: service_started
     healthcheck:
@@ -237,38 +152,6 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
-    init: true
-    restart: unless-stopped
-    networks: [app]
-
-  knowledge-worker:
-    image: graphify-agent-poc-api:local
-    command: ["python", "-m", "app.projects.worker"]
-    environment:
-      CONVERSATION_DATABASE_URL: ${CONVERSATION_DATABASE_URL:-sqlite+aiosqlite:////knowledge/state/conversations.db}
-      PROJECT_STORAGE_ROOT: /knowledge/projects
-      GRAPHIFY_RUNTIME_MODE: ${GRAPHIFY_RUNTIME_MODE:-real}
-      GRAPHIFY_PACKAGE_VERSION: ${GRAPHIFY_PACKAGE_VERSION:-0.9.18}
-      GRAPHIFY_EXTRACT_BACKEND: ${GRAPHIFY_EXTRACT_BACKEND:-openai}
-      GRAPHIFY_EXTRACT_MODEL: ${GRAPHIFY_EXTRACT_MODEL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES: ${KNOWLEDGE_MAX_DOCUMENT_SIZE_BYTES:-2097152}
-      KNOWLEDGE_MAX_DOCUMENT_COUNT: ${KNOWLEDGE_MAX_DOCUMENT_COUNT:-100}
-      KNOWLEDGE_MAX_TOTAL_SOURCE_BYTES: ${KNOWLEDGE_MAX_TOTAL_SOURCE_BYTES:-33554432}
-      KNOWLEDGE_MAX_EXTRACTED_DOCUMENT_BYTES: ${KNOWLEDGE_MAX_EXTRACTED_DOCUMENT_BYTES:-8388608}
-      KNOWLEDGE_DOCUMENT_PROFILES_JSON: ${KNOWLEDGE_DOCUMENT_PROFILES_JSON:-}
-      KNOWLEDGE_BUILD_TIMEOUT_SECONDS: ${KNOWLEDGE_BUILD_TIMEOUT_SECONDS:-1800}
-      KNOWLEDGE_WORKER_POLL_SECONDS: ${KNOWLEDGE_WORKER_POLL_SECONDS:-1}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - graphify_knowledge:/knowledge
-    depends_on:
-      api:
-        condition: service_healthy
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
     init: true
     restart: unless-stopped
     networks: [app]

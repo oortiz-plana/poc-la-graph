@@ -277,10 +277,12 @@ function ImpactControls({
   maxDepth: number;
   onChange: (patch: Partial<Filters>) => void;
 }) {
-  const selectClass = "min-h-10 rounded-md border bg-surface px-2 text-sm";
+  const fieldClass = "flex min-w-32 flex-col text-sm font-medium leading-5";
+  const selectClass =
+    "mt-1 block min-h-10 w-full rounded-md border bg-surface px-2 text-sm";
   return (
-    <div className="mt-3 flex flex-wrap items-end gap-3">
-      <label className="block text-sm font-medium">
+    <div className="mt-3 flex flex-wrap items-start gap-x-3 gap-y-2">
+      <label className={fieldClass}>
         Direction
         <select
           aria-label="Direction"
@@ -288,7 +290,7 @@ function ImpactControls({
           onChange={(event) =>
             onChange({ direction: event.target.value as ImpactDirection })
           }
-          className={`mt-1 block ${selectClass}`}
+          className={selectClass}
         >
           <option value="upstream">Upstream</option>
           <option value="downstream">Downstream</option>
@@ -300,7 +302,7 @@ function ImpactControls({
         disabled={filters.directOnly}
         onChange={(depth) => onChange({ depth })}
       />
-      <label className="block text-sm font-medium">
+      <label className={`${fieldClass} min-w-44`}>
         Relationship
         <select
           aria-label="Relationship"
@@ -311,7 +313,7 @@ function ImpactControls({
               relationship: event.target.value as Filters["relationship"],
             })
           }
-          className={`mt-1 block ${selectClass}`}
+          className={selectClass}
         >
           {(
             [
@@ -329,7 +331,7 @@ function ImpactControls({
           ))}
         </select>
       </label>
-      <label className="flex min-h-10 items-center gap-2 text-sm">
+      <label className="mt-6 flex h-10 items-center gap-2 text-sm">
         <input
           type="checkbox"
           checked={filters.directOnly}
@@ -337,7 +339,7 @@ function ImpactControls({
         />
         Direct only
       </label>
-      <label className="flex min-h-10 items-center gap-2 text-sm">
+      <label className="mt-6 flex h-10 items-center gap-2 text-sm">
         <input
           type="checkbox"
           checked={filters.writesOnly}
@@ -383,7 +385,7 @@ function DepthField({
   }
 
   return (
-    <label className="block text-sm font-medium">
+    <label className="flex min-w-20 flex-col text-sm font-medium leading-5">
       Depth
       <input
         type="number"
@@ -402,7 +404,7 @@ function DepthField({
             commit();
           }
         }}
-        className="mt-1 block min-h-10 w-20 rounded-md border bg-surface px-2 text-sm"
+        className="mt-1 block min-h-10 w-full rounded-md border bg-surface px-2 text-sm"
       />
       <span className="mt-1 block text-xs font-normal text-text-secondary">
         Max {maxDepth} hops

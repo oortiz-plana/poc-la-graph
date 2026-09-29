@@ -31,7 +31,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-from collections.abc import Mapping, Sequence
+import logging
+import time
+from collections import OrderedDict
+from collections.abc import Iterator, Mapping, Sequence
+from itertools import islice
 from typing import Any, Final, cast
 
 import neo4j
@@ -51,10 +55,13 @@ from app.integrations.plsql.catalog import (
     EDGE_OUTGOING,
     EDGE_TABLE_ACCESS,
     EDGE_UNRESOLVED,
+    INDEX_STATE,
     KIND_TOKENS,
     OBJECT_BY_QUALIFIED_NAME,
     OBJECT_DECLARATION,
+    OBJECTS_BY_QUALIFIED_NAMES,
     PATH_RELATIONSHIPS,
+    REQUIRED_QUALIFIED_NAME_INDEX,
     RESOLUTIONS,
     SCHEMA_EDGE_END_OFFSET,
     SCHEMA_EDGE_SOURCE_FILE_ID,
@@ -109,8 +116,20 @@ from app.models.plsql import (
     PlsqlResolution,
 )
 
+logger = logging.getLogger("graphify_agent.api")
+
 CONNECTIVITY_QUERY: Final = "RETURN 1 AS ok"
 
+# Qualified names per batched object lookup; keeps the parameter list bounded.
+_OBJECT_LOOKUP_CHUNK: Final = 500
+# "Why is this affected?" shows shortest routes only; a dense graph can hold
+# thousands per dependent, so keep a deterministic handful.
+_MAX_IMPACT_ROUTES_PER_DEPENDENT: Final = 5
+# Traversals are recomputed for every page of a report, so a finished result
+# is kept briefly and shared by in-flight duplicates. The graph is a read-only
+# load, which makes a short TTL safe; ``0`` disables the cache.
+_IMPACT_CACHE_TTL_SECONDS: Final = 60.0
+_IMPACT_CACHE_MAX_ENTRIES: Final = 16
 _TABLE_OR_VIEW: Final[frozenset[str]] = frozenset({"Table", "View"})
 _KIND_LABEL_PRIORITY: Final[tuple[ObjectKind, ...]] = (
     "Procedure",
@@ -255,6 +274,11 @@ def _int_or_none(value: object) -> int | None:
         return None
 
 
+_ImpactItems = list[PlsqlImpactItemRecord]
+_ImpactKey = tuple[str, int, ImpactDirection, frozenset[str]]
+_ImpactCacheEntry = tuple[float, _ImpactItems, PlsqlImpactSummaryRecord]
+
+
 class Neo4jPlsqlAnalysisClient:
     """Bolt-backed implementation of the read-only analysis protocol."""
 
@@ -273,6 +297,8 @@ class Neo4jPlsqlAnalysisClient:
         source_root: str | None = None,
         max_source_bytes: int = 262_144,
         source_encoding: str = "iso-8859-1",
+        impact_cache_ttl_seconds: float = _IMPACT_CACHE_TTL_SECONDS,
+        impact_cache_max_entries: int = _IMPACT_CACHE_MAX_ENTRIES,
     ) -> None:
         if not uri:
             raise PlsqlConfigurationError(
@@ -300,7 +326,14 @@ class Neo4jPlsqlAnalysisClient:
                 "The Neo4j driver rejected the analysis configuration."
             ) from exc
         self._file_map_cache: dict[str, str] | None = None
+        self._index_checked = False
         self._object_cache: dict[str, PlsqlObjectRecord | None] = {}
+        self._impact_cache_ttl = max(0.0, impact_cache_ttl_seconds)
+        self._impact_cache_max = max(1, impact_cache_max_entries)
+        self._impact_cache: OrderedDict[_ImpactKey, _ImpactCacheEntry] = OrderedDict()
+        self._impact_inflight: dict[
+            _ImpactKey, asyncio.Task[tuple[_ImpactItems, PlsqlImpactSummaryRecord]]
+        ] = {}
 
     def close(self) -> None:
         """Close the Bolt driver (called on application shutdown)."""
@@ -363,7 +396,36 @@ class Neo4jPlsqlAnalysisClient:
 
     async def check_connectivity(self) -> str:
         await self._execute(CONNECTIVITY_QUERY)
+        await self._warn_if_index_missing()
         return "connected"
+
+    async def _warn_if_index_missing(self) -> None:
+        """Log once when the qualifiedName index is absent or not online.
+
+        Every hop and object lookup matches on ``qualifiedName``; without the
+        index each one scans all objects. A restored or reloaded graph can
+        lose it, so surface that instead of leaving only slow pages behind.
+        """
+        if self._index_checked:
+            return
+        try:
+            rows = await self._execute(
+                INDEX_STATE, indexName=REQUIRED_QUALIFIED_NAME_INDEX
+            )
+        except PlsqlError:
+            logger.warning(
+                "plsql_index_check_failed",
+                extra={"index": REQUIRED_QUALIFIED_NAME_INDEX},
+                exc_info=True,
+            )
+            return
+        self._index_checked = True
+        state = str(rows[0].get("state")) if rows else None
+        if state != "ONLINE":
+            logger.warning(
+                "plsql_index_missing",
+                extra={"index": REQUIRED_QUALIFIED_NAME_INDEX, "state": state},
+            )
 
     # --- graph projections -------------------------------------------------
 
@@ -581,6 +643,47 @@ class Neo4jPlsqlAnalysisClient:
                 )
         self._object_cache[object_id] = record
         return record
+
+    async def _objects_by_qualified_name(
+        self, qualified_names: Sequence[str]
+    ) -> dict[str, PlsqlObjectRecord | None]:
+        """Resolve many objects with one query per chunk instead of one each.
+
+        Shares ``_object_cache`` with :meth:`get_object`, so names already
+        resolved cost nothing and every name looked up here is cached
+        afterwards (unknown names are cached as ``None``).
+        """
+        resolved: dict[str, PlsqlObjectRecord | None] = {}
+        missing: list[str] = []
+        for qualified_name in dict.fromkeys(qualified_names):
+            cache_key = object_id(self._project_id, qualified_name)
+            if cache_key in self._object_cache:
+                resolved[qualified_name] = self._object_cache[cache_key]
+            else:
+                missing.append(qualified_name)
+        if not missing:
+            return resolved
+
+        file_paths = await self._file_map()
+        for start in range(0, len(missing), _OBJECT_LOOKUP_CHUNK):
+            chunk = missing[start : start + _OBJECT_LOOKUP_CHUNK]
+            rows = await self._execute(
+                OBJECTS_BY_QUALIFIED_NAMES,
+                projectId=self._project_id,
+                qualifiedNames=chunk,
+            )
+            found: dict[str, PlsqlObjectRecord] = {}
+            for row in rows:
+                record = self._object_from_node(
+                    row.get("n"), row.get("nodeLabels") or (), file_paths
+                )
+                if record is not None:
+                    found.setdefault(record.qualified_name, record)
+            for qualified_name in chunk:
+                record = found.get(qualified_name)
+                self._object_cache[object_id(self._project_id, qualified_name)] = record
+                resolved[qualified_name] = record
+        return resolved
 
     async def _require_object(self, object_id: str) -> PlsqlObjectRecord:
         record = await self.get_object(object_id)
@@ -930,21 +1033,82 @@ class Neo4jPlsqlAnalysisClient:
             if relationships is not None
             else PATH_RELATIONSHIPS
         )
+        items, summary = await self._impact_traversal(
+            changed, bounded_hops, direction, rels
+        )
+        page_end = bounded_offset + bounded
+        return PlsqlImpactPage(
+            items=items[bounded_offset:page_end],
+            truncated=len(items) > page_end,
+            total=len(items),
+            summary=summary,
+        )
+
+    async def _impact_traversal(
+        self,
+        changed: PlsqlObjectRecord,
+        bounded_hops: int,
+        direction: ImpactDirection,
+        rels: frozenset[str],
+    ) -> tuple[_ImpactItems, PlsqlImpactSummaryRecord]:
+        """Return the full ordered impact result, computed once per key.
+
+        Later pages of the same report (and identical concurrent requests)
+        reuse the finished traversal instead of walking the graph again.
+        """
+        if self._impact_cache_ttl <= 0:
+            return await self._compute_impact(changed, bounded_hops, direction, rels)
+        key: _ImpactKey = (changed.id, bounded_hops, direction, rels)
+        cached = self._impact_cache.get(key)
+        if cached is not None and cached[0] > time.monotonic():
+            self._impact_cache.move_to_end(key)
+            return cached[1], cached[2]
+        self._impact_cache.pop(key, None)
+
+        task = self._impact_inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                self._compute_impact(changed, bounded_hops, direction, rels)
+            )
+            self._impact_inflight[key] = task
+            task.add_done_callback(lambda _: self._impact_inflight.pop(key, None))
+        items, summary = await asyncio.shield(task)
+        expires_at = time.monotonic() + self._impact_cache_ttl
+        self._impact_cache[key] = (expires_at, items, summary)
+        self._impact_cache.move_to_end(key)
+        while len(self._impact_cache) > self._impact_cache_max:
+            self._impact_cache.popitem(last=False)
+        return items, summary
+
+    async def _compute_impact(
+        self,
+        changed: PlsqlObjectRecord,
+        bounded_hops: int,
+        direction: ImpactDirection,
+        rels: frozenset[str],
+    ) -> tuple[_ImpactItems, PlsqlImpactSummaryRecord]:
         anchors = await self._impact_anchors(changed)
         file_paths = await self._file_map()
 
         # Reverse (upstream) or forward (downstream) frontier expansion: each
         # round fetches only the typed edges attached to the frontier.
+        # Breadth-first over objects, never over routes: each object is
+        # expanded once, at its shortest distance, and only remembers the
+        # edges that reach it at that distance. Routes are rebuilt from those
+        # parent edges afterwards and capped per dependent, so a dense graph
+        # costs one edge fetch per object instead of one per route.
         edge_by_id: dict[str, PlsqlDependencyRecord] = {}
-        trails_by_dependent: dict[str, set[tuple[str, ...]]] = {}
-        frontier: list[
-            tuple[str, tuple[PlsqlDependencyRecord, ...], frozenset[str]]
-        ] = [(anchor, (), frozenset({anchor})) for anchor in anchors]
+        anchor_set = frozenset(anchors)
+        distance: dict[str, int] = {}
+        parents: dict[str, list[PlsqlDependencyRecord]] = {}
+        expanded: set[str] = set()
+        frontier: list[str] = sorted(anchor_set)
 
-        for _ in range(bounded_hops):
-            keys = sorted({current for current, _, _ in frontier})
+        for depth in range(1, bounded_hops + 1):
+            keys = [name for name in frontier if name not in expanded]
             if not keys:
                 break
+            expanded.update(keys)
             remaining = self._max_traversal_edges - len(edge_by_id)
             if remaining <= 0:
                 raise PlsqlLimitExceeded(
@@ -986,44 +1150,63 @@ class Neo4jPlsqlAnalysisClient:
             for out_edges in adjacency.values():
                 out_edges.sort(key=lambda edge: edge.id)
 
-            next_frontier: list[
-                tuple[str, tuple[PlsqlDependencyRecord, ...], frozenset[str]]
-            ] = []
-            for current, backward, seen in frontier:
+            next_frontier: list[str] = []
+            for current in keys:
                 for edge in adjacency.get(current, ()):
                     peer = (
                         edge.source_qualified_name
                         if direction == "upstream"
                         else edge.target_qualified_name
                     )
-                    if peer in seen:
+                    if peer == current:
                         continue
-                    chain = backward + (edge,)
-                    if direction == "upstream":
-                        forward = tuple(reversed(chain))
-                        trails_by_dependent.setdefault(peer, set()).add(
-                            tuple(step.id for step in forward)
-                        )
-                    else:
-                        trails_by_dependent.setdefault(peer, set()).add(
-                            tuple(step.id for step in chain)
-                        )
-                    next_frontier.append((peer, chain, seen | {peer}))
+                    reached_at = distance.get(peer)
+                    if reached_at is None:
+                        distance[peer] = depth
+                        parents[peer] = [edge]
+                        next_frontier.append(peer)
+                    elif reached_at == depth:
+                        parents[peer].append(edge)
             frontier = next_frontier
+
+        def routes_from(peer: str) -> Iterator[tuple[str, ...]]:
+            """Yield shortest routes in flow order, lazily, as edge-id tuples."""
+            for edge in parents.get(peer, ()):
+                current = (
+                    edge.target_qualified_name
+                    if direction == "upstream"
+                    else edge.source_qualified_name
+                )
+                onward: Iterator[tuple[str, ...]] = (
+                    iter([()]) if current in anchor_set else routes_from(current)
+                )
+                for rest in onward:
+                    yield (
+                        (edge.id, *rest)
+                        if direction == "upstream"
+                        else (*rest, edge.id)
+                    )
+
+        trails_by_dependent: dict[str, list[tuple[str, ...]]] = {
+            peer: list(islice(routes_from(peer), _MAX_IMPACT_ROUTES_PER_DEPENDENT))
+            for peer in distance
+            if peer != changed.qualified_name
+        }
 
         items: list[PlsqlImpactItemRecord] = []
         direct = 0
         packages: set[tuple[str, str]] = set()
         tables_modified: set[str] = set()
+        dependents_by_name = await self._objects_by_qualified_name(
+            [name for name in trails_by_dependent if name != changed.qualified_name]
+        )
         for dependent_qn, forward_trails in trails_by_dependent.items():
             if dependent_qn == changed.qualified_name:
                 continue
-            dependent = await self.get_object(
-                make_object_id(self._project_id, dependent_qn)
-            )
+            dependent = dependents_by_name.get(dependent_qn)
             if dependent is None:
                 continue
-            shortest = min(len(trail) for trail in forward_trails)
+            shortest = distance[dependent_qn]
             if shortest == 1:
                 direct += 1
             if dependent.owner:
@@ -1039,7 +1222,7 @@ class Neo4jPlsqlAnalysisClient:
                     ):
                         tables_modified.add(edge.target_id)
             shortest_trails = sorted(
-                (trail for trail in forward_trails if len(trail) == shortest),
+                forward_trails,
                 key=lambda trail: (
                     tuple(edge_by_id[eid].target_qualified_name for eid in trail),
                     trail,
@@ -1068,17 +1251,11 @@ class Neo4jPlsqlAnalysisClient:
                 item.dependent.id,
             )
         )
-        page_end = bounded_offset + bounded
-        return PlsqlImpactPage(
-            items=items[bounded_offset:page_end],
-            truncated=len(items) > page_end,
-            total=len(items),
-            summary=PlsqlImpactSummaryRecord(
-                direct=direct,
-                indirect=max(0, len(items) - direct),
-                packages=len(packages),
-                tables_modified=len(tables_modified),
-            ),
+        return items, PlsqlImpactSummaryRecord(
+            direct=direct,
+            indirect=max(0, len(items) - direct),
+            packages=len(packages),
+            tables_modified=len(tables_modified),
         )
 
     async def health(

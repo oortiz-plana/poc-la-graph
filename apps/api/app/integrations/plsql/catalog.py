@@ -178,7 +178,19 @@ MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
   AND n.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
 RETURN n, labels(n) AS nodeLabels
+ORDER BY CASE WHEN n:Synonym THEN 1 ELSE 0 END
 LIMIT 1
+"""
+
+# Batched twin of ``OBJECT_BY_QUALIFIED_NAME`` for callers that resolve many
+# objects at once (impact dependents). Real objects sort ahead of synonyms so
+# the first row per qualified name is the same node the single lookup returns.
+OBJECTS_BY_QUALIFIED_NAMES: Final = f"""
+MATCH (n:{OBJECT_LABEL})
+WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
+  AND n.{SCHEMA_NODE_QUALIFIED_NAME} IN $qualifiedNames
+RETURN n, labels(n) AS nodeLabels
+ORDER BY CASE WHEN n:Synonym THEN 1 ELSE 0 END
 """
 
 # An object's declaration coordinates live on the ``DECLARES`` edge from its
@@ -387,6 +399,16 @@ WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
 RETURN s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
        t.{SCHEMA_NODE_QUALIFIED_NAME} AS targetQualifiedName
 LIMIT $limit
+"""
+
+# The index every qualifiedName lookup depends on; created by
+# `docker/neo4j/schema/001-indexes.cypher` (and by the graph loader).
+REQUIRED_QUALIFIED_NAME_INDEX: Final = "plsql_database_object_qualified_name"
+
+INDEX_STATE: Final = """
+SHOW INDEXES YIELD name, state
+WHERE name = $indexName
+RETURN state
 """
 
 SOURCE_FILES: Final = f"""

@@ -13,6 +13,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -21,6 +23,7 @@ from pydantic import ValidationError
 from app.api.dependencies import build_analysis_client
 from app.config.settings import Settings
 from app.integrations.plsql import PlsqlConfigurationError
+from app.integrations.plsql import neo4j_client as neo4j_client_module
 from app.integrations.plsql.catalog import (
     COUNT_EDGE_CALLERS,
     COUNT_EDGE_TABLE_ACCESS,
@@ -33,6 +36,7 @@ from app.integrations.plsql.catalog import (
     EDGE_TABLE_ACCESS,
     EDGE_UNRESOLVED,
     OBJECT_DECLARATION,
+    OBJECTS_BY_QUALIFIED_NAMES,
     SOURCE_FILES,
 )
 from app.integrations.plsql.errors import PlsqlLimitExceeded
@@ -731,6 +735,217 @@ async def test_impact_of_expands_reverse_frontiers(
     ]
 
 
+async def test_impact_of_resolves_all_dependents_in_one_batched_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    changed = _object_record("HR.EMPLOYEES", kind="Table", name="EMPLOYEES")
+    names = [f"HR.FN_{index:02d}" for index in range(30)]
+    edges = [
+        _edge_row(
+            relationship="READS",
+            sourceQualifiedName=name,
+            sourceName=name.split(".")[1],
+            sourceLabels=["DatabaseObject", "Function"],
+            targetQualifiedName="HR.EMPLOYEES",
+            targetName="EMPLOYEES",
+            targetLabels=["DatabaseObject", "Table"],
+        )
+        for name in names
+    ]
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        calls.append((query, params))
+        if query == EDGE_INCOMING and params["targets"] == ["HR.EMPLOYEES"]:
+            return edges
+        if query == OBJECTS_BY_QUALIFIED_NAMES:
+            return [
+                {
+                    "n": {"qualifiedName": name, "name": name.split(".")[1]},
+                    "nodeLabels": ["DatabaseObject", "Function"],
+                }
+                for name in params["qualifiedNames"]  # type: ignore[attr-defined]
+            ]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache[changed.id] = changed
+    try:
+        page = await client.impact_of(object_id=changed.id, max_hops=1, limit=50)
+        await client.impact_of(object_id=changed.id, max_hops=1, limit=50)
+    finally:
+        client.close()
+
+    assert page.total == 30
+    assert [item.dependent.qualified_name for item in page.items] == names
+    batched = [call for call in calls if call[0] == OBJECTS_BY_QUALIFIED_NAMES]
+    # One lookup for all thirty dependents; the repeat request hits the cache.
+    assert len(batched) == 1
+    assert sorted(batched[0][1]["qualifiedNames"]) == names  # type: ignore[arg-type]
+
+
+def _impact_fixture() -> tuple[
+    PlsqlObjectRecord, list[PlsqlObjectRecord], list[dict[str, object]]
+]:
+    changed = _object_record("HR.EMPLOYEES", kind="Table", name="EMPLOYEES")
+    dependents = [
+        _object_record(f"HR.FN_{index:02d}", kind="Function") for index in range(5)
+    ]
+    edges = [
+        _edge_row(
+            relationship="READS",
+            sourceQualifiedName=dependent.qualified_name,
+            sourceName=dependent.name,
+            sourceLabels=["DatabaseObject", "Function"],
+            targetQualifiedName="HR.EMPLOYEES",
+            targetName="EMPLOYEES",
+            targetLabels=["DatabaseObject", "Table"],
+        )
+        for dependent in dependents
+    ]
+    return changed, dependents, edges
+
+
+async def test_impact_pages_reuse_one_traversal_until_the_cache_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    changed, dependents, edges = _impact_fixture()
+    incoming = 0
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        nonlocal incoming
+        if query == EDGE_INCOMING:
+            incoming += 1
+            return edges if params["targets"] == ["HR.EMPLOYEES"] else []
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache[changed.id] = changed
+    for dependent in dependents:
+        client._object_cache[dependent.id] = dependent
+    clock = [1000.0]
+    # Stub only this module's clock; patching `time.monotonic` itself would
+    # also move the event loop's clock.
+    monkeypatch.setattr(
+        neo4j_client_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
+    )
+    try:
+        first = await client.impact_of(object_id=changed.id, max_hops=1, limit=2)
+        traversal_queries = incoming
+        second = await client.impact_of(
+            object_id=changed.id, max_hops=1, limit=2, offset=2
+        )
+        third = await client.impact_of(
+            object_id=changed.id, max_hops=1, limit=2, offset=4
+        )
+        # A different depth is a different traversal.
+        await client.impact_of(object_id=changed.id, max_hops=2, limit=2)
+        deeper_queries = incoming
+        clock[0] += 61.0
+        await client.impact_of(object_id=changed.id, max_hops=1, limit=2)
+    finally:
+        client.close()
+
+    assert [len(page.items) for page in (first, second, third)] == [2, 2, 1]
+    assert first.summary == second.summary == third.summary
+    assert first.items[0].dependent.qualified_name == "HR.FN_00"
+    assert second.items[0].dependent.qualified_name == "HR.FN_02"
+    assert deeper_queries > traversal_queries
+    assert incoming - deeper_queries == traversal_queries
+
+
+async def test_impact_cache_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    changed, dependents, edges = _impact_fixture()
+    incoming = 0
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        nonlocal incoming
+        if query != EDGE_INCOMING:
+            return []
+        incoming += 1
+        return edges if params["targets"] == ["HR.EMPLOYEES"] else []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._impact_cache_ttl = 0.0
+    client._object_cache[changed.id] = changed
+    for dependent in dependents:
+        client._object_cache[dependent.id] = dependent
+    try:
+        await client.impact_of(object_id=changed.id, max_hops=1, limit=2)
+        after_first = incoming
+        await client.impact_of(object_id=changed.id, max_hops=1, limit=2, offset=2)
+    finally:
+        client.close()
+
+    assert incoming == after_first * 2
+
+
+async def test_impact_of_caps_routes_and_never_refetches_an_object_in_a_dense_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layers, width = 4, 6
+    changed = _object_record("HR.T", kind="Table", name="T")
+
+    def name(layer: int, index: int) -> str:
+        return "HR.T" if layer == 0 else f"HR.L{layer}_{index}"
+
+    incoming: dict[str, list[dict[str, object]]] = {}
+    for layer in range(1, layers + 1):
+        for index in range(width):
+            for target_index in range(width if layer > 1 else 1):
+                target = name(layer - 1, target_index)
+                incoming.setdefault(target, []).append(
+                    _edge_row(
+                        relationship="CALLS" if layer > 1 else "READS",
+                        sourceQualifiedName=name(layer, index),
+                        sourceName=name(layer, index).split(".")[1],
+                        sourceLabels=["DatabaseObject", "Function"],
+                        targetQualifiedName=target,
+                        targetName=target.split(".")[1],
+                        targetLabels=["DatabaseObject", "Function"],
+                    )
+                )
+    fetched: list[str] = []
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        if query == EDGE_INCOMING:
+            targets = params["targets"]
+            fetched.extend(targets)  # type: ignore[arg-type]
+            return [row for target in targets for row in incoming.get(target, [])]  # type: ignore[attr-defined]
+        if query == OBJECTS_BY_QUALIFIED_NAMES:
+            return [
+                {
+                    "n": {"qualifiedName": qn, "name": qn.split(".")[1]},
+                    "nodeLabels": ["DatabaseObject", "Function"],
+                }
+                for qn in params["qualifiedNames"]  # type: ignore[attr-defined]
+            ]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache[changed.id] = changed
+    try:
+        page = await client.impact_of(object_id=changed.id, max_hops=layers, limit=200)
+    finally:
+        client.close()
+
+    # 24 dependents, one distance per layer, however many routes exist.
+    assert page.total == layers * width
+    assert {item.dependent.qualified_name: item.distance for item in page.items} == {
+        name(layer, index): layer
+        for layer in range(1, layers + 1)
+        for index in range(width)
+    }
+    # Every object is expanded once (the last layer is never expanded), so the
+    # graph is not re-read once per route.
+    assert len(fetched) == len(set(fetched)) == 1 + (layers - 1) * width
+    deepest = [item for item in page.items if item.distance == layers]
+    for item in deepest:
+        assert 1 <= len(item.paths) <= 5
+        assert all(path.hop_count == layers for path in item.paths)
+        assert len({path.id for path in item.paths}) == len(item.paths)
+
+
 async def test_impact_of_anchors_package_members_from_prefix_query(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -931,3 +1146,45 @@ async def test_foreign_key_queries_mapping_and_traversal(
     for query, params in calls:
         if query in (EDGE_TABLE_ACCESS, COUNT_EDGE_TABLE_ACCESS):
             assert "FOREIGN_KEY" in params["relationships"]
+
+
+def test_qualified_name_lookup_prefers_the_real_object_over_its_synonym() -> None:
+    from app.integrations.plsql.catalog import OBJECT_BY_QUALIFIED_NAME
+
+    assert "ORDER BY CASE WHEN n:Synonym THEN 1 ELSE 0 END" in (
+        OBJECT_BY_QUALIFIED_NAME
+    )
+
+
+async def test_connectivity_check_warns_once_when_the_index_is_missing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    queries: list[str] = []
+
+    async def execute(query: str, **params: object) -> list[dict[str, Any]]:
+        queries.append(query)
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+
+    with caplog.at_level("WARNING", logger="graphify_agent.api"):
+        assert await client.check_connectivity() == "connected"
+        assert await client.check_connectivity() == "connected"
+
+    warnings = [r for r in caplog.records if r.message == "plsql_index_missing"]
+    assert len(warnings) == 1
+    assert sum("SHOW INDEXES" in query for query in queries) == 1
+
+
+async def test_connectivity_check_is_quiet_when_the_index_is_online(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def execute(query: str, **params: object) -> list[dict[str, Any]]:
+        return [{"state": "ONLINE"}] if "SHOW INDEXES" in query else []
+
+    client = _stubbed_client(monkeypatch, execute)
+
+    with caplog.at_level("WARNING", logger="graphify_agent.api"):
+        await client.check_connectivity()
+
+    assert not [r for r in caplog.records if r.message == "plsql_index_missing"]

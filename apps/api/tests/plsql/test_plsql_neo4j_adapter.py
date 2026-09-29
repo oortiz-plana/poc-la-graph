@@ -112,6 +112,7 @@ def test_qualified_name_helpers() -> None:
     assert _kind_from_labels(("DatabaseObject", "Table")) == "Table"
     assert _kind_from_labels(("DatabaseObject", "ExecutableUnit")) is None
     assert _kind_from_labels(("Procedure", "DatabaseObject")) == "Procedure"
+    assert _kind_from_labels(("DatabaseObject", "Synonym", "Type")) == "Type"
 
 
 # --- catalog row mapping ----------------------------------------------------

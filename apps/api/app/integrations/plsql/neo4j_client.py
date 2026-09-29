@@ -51,7 +51,6 @@ from app.integrations.plsql.catalog import (
     EDGE_OUTGOING,
     EDGE_TABLE_ACCESS,
     EDGE_UNRESOLVED,
-    KIND_LABELS,
     KIND_TOKENS,
     OBJECT_BY_QUALIFIED_NAME,
     OBJECT_DECLARATION,
@@ -113,6 +112,19 @@ from app.models.plsql import (
 CONNECTIVITY_QUERY: Final = "RETURN 1 AS ok"
 
 _TABLE_OR_VIEW: Final[frozenset[str]] = frozenset({"Table", "View"})
+_KIND_LABEL_PRIORITY: Final[tuple[ObjectKind, ...]] = (
+    "Procedure",
+    "Function",
+    "Package",
+    "Trigger",
+    "Table",
+    "View",
+    "Sequence",
+    "Index",
+    "Type",
+    "AnonymousBlock",
+    "Synonym",
+)
 # `PATH_RELATIONSHIPS` already includes `TRIGGERS` (catalog.py); this set
 # just adds `TRIGGER_ON` on top, so a new `PATH_RELATIONSHIPS` member is
 # picked up here automatically and never needs a direct edit.
@@ -189,9 +201,10 @@ def _owner_of(qualified_name: str) -> str | None:
 
 
 def _kind_from_labels(labels: Sequence[str]) -> ObjectKind | None:
-    for label in labels:
-        if label in KIND_LABELS:
-            return cast(ObjectKind, label)
+    label_set = set(labels)
+    for label in _KIND_LABEL_PRIORITY:
+        if label in label_set:
+            return label
     return None
 
 

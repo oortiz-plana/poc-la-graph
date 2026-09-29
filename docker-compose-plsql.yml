@@ -173,7 +173,7 @@ services:
     networks: [app]
 
   neo4j:
-    image: neo4j:5-community
+    image: neo4j:latest
     container_name: neo4j
     restart: unless-stopped
     ports:
@@ -186,6 +186,28 @@ services:
       - ./neo4j/logs:/logs
       - ./neo4j/import:/var/lib/neo4j/import
       - ./neo4j/plugins:/plugins
+    networks: [app]
+
+  # One-shot job that applies docker/neo4j/schema/*.cypher (idempotent
+  # indexes the gateway needs). Re-run it after restoring or reloading the
+  # graph: `docker compose -f docker-compose-plsql.yml run --rm neo4j-schema`.
+  neo4j-schema:
+    image: neo4j:5-community
+    restart: "no"
+    depends_on: [neo4j]
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/neo4j12345}
+    volumes:
+      - ./docker/neo4j/schema:/schema:ro
+    entrypoint:
+      - sh
+      - -c
+      - |
+        user="$${NEO4J_AUTH%%/*}"; pass="$${NEO4J_AUTH#*/}"
+        until cypher-shell -a bolt://neo4j:7687 -u "$$user" -p "$$pass" "RETURN 1" >/dev/null 2>&1; do sleep 2; done
+        for file in /schema/*.cypher; do
+          cypher-shell -a bolt://neo4j:7687 -u "$$user" -p "$$pass" -f "$$file"
+        done
     networks: [app]
 
 volumes:

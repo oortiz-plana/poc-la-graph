@@ -19,6 +19,15 @@ vi.mock("@/lib/api", () => ({
   getPlsqlFileSource,
 }));
 
+vi.mock("../auth-provider", () => ({
+  useAuth: () => ({
+    username: "tester",
+    roles: new Set<string>(),
+    logout: vi.fn(),
+    config: { plsqlEnabled: true, plsqlMaxHops: 8 },
+  }),
+}));
+
 // Monaco needs a real browser layout engine, so render the joined source
 // lines as plain text in jsdom instead of loading the real editor.
 vi.mock("./monaco-source-editor", () => ({
@@ -526,5 +535,66 @@ describe("OverviewPanel", () => {
     expect(
       await screen.findByRole("table", { name: /Direct callers/ }),
     ).toBeInTheDocument();
+  });
+  it("loads further impact pages for the dependents cards on request", async () => {
+    const user = userEvent.setup();
+    const secondIndirect = {
+      ...impactResult.items[1],
+      id: "impact://sample/indirect-2",
+    };
+    getPlsqlImpact.mockImplementation(
+      async (_id: string, options?: { cursor?: string }) =>
+        options?.cursor
+          ? { ...impactResult, items: [secondIndirect], nextCursor: null }
+          : {
+              ...impactResult,
+              nextCursor: "impact-page-2",
+              truncated: true,
+              summary: { ...impactResult.summary, indirect: 2 },
+            },
+    );
+    getPlsqlDependencies.mockResolvedValue(
+      dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
+    );
+    renderPanel();
+
+    await user.click(
+      await screen.findByRole("button", { name: /Indirect callers/ }),
+    );
+    expect(await screen.findByText("Showing 1 of 2")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(await screen.findByText("Showing 2 of 2")).toBeInTheDocument();
+    expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+      getSalary.id,
+      expect.objectContaining({ cursor: "impact-page-2", limit: 25 }),
+    );
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  it("reloads the dependents with the depth the user enters", async () => {
+    const user = userEvent.setup();
+    getPlsqlImpact.mockResolvedValue(impactResult);
+    getPlsqlDependencies.mockResolvedValue(
+      dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
+    );
+    renderPanel();
+
+    const depth = await screen.findByRole("spinbutton", { name: "Depth" });
+    expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+      getSalary.id,
+      expect.objectContaining({ depth: 5 }),
+    );
+
+    await user.clear(depth);
+    await user.type(depth, "12{Enter}");
+
+    await waitFor(() =>
+      expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+        getSalary.id,
+        expect.objectContaining({ depth: 8 }),
+      ),
+    );
   });
 });

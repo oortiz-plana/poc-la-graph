@@ -1,7 +1,8 @@
 "use client";
 
 import { ArrowRight, Copy, LoaderCircle, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import useSWRInfinite from "swr/infinite";
 import { Button } from "@/components/ui/button";
 import {
   getPlsqlDependencies,
@@ -9,16 +10,24 @@ import {
   type PlsqlProblemCode,
 } from "@/lib/api";
 import type {
+  ImpactRelationship,
   PlsqlDependency,
   PlsqlDependencyCategory,
   PlsqlDependencySummary,
+  PlsqlImpactItem,
   PlsqlImpactResult,
   PlsqlObject,
   PlsqlObjectReference,
   PlsqlPath,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
+import { useAuth } from "../auth-provider";
 import { AnalysisError, problemCodeOf } from "./analysis-error";
+import {
+  ANALYSIS_PAGE_SIZE,
+  AnalysisPagination,
+  AnalysisPaginationScope,
+} from "./analysis-pagination";
 import {
   DependencyDetailTable,
   type DetailTableColumn,
@@ -29,7 +38,12 @@ import {
   type PathLike,
 } from "./dependency-path-trail";
 import { ImpactMetricCard } from "./impact-metric-card";
-import { sortImpactItems } from "./impact-report";
+import {
+  DEFAULT_IMPACT_DEPTH,
+  DepthField,
+  FALLBACK_MAX_DEPTH,
+  sortImpactItems,
+} from "./impact-report";
 import {
   firstDependencyCategory,
   overviewMetricsForKind,
@@ -57,7 +71,17 @@ type OverviewDetailRow = {
   fullPath: PlsqlPath;
 };
 
-export function OverviewPanel({
+export function OverviewPanel(
+  props: ComponentProps<typeof OverviewPanelContent>,
+) {
+  return (
+    <AnalysisPaginationScope>
+      <OverviewPanelContent {...props} />
+    </AnalysisPaginationScope>
+  );
+}
+
+function OverviewPanelContent({
   object,
   onOpenEvidence,
   onOpenObject,
@@ -87,18 +111,91 @@ export function OverviewPanel({
 
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
   const [selectedRowId, setSelectedRowId] = useState<string>();
-  const [impact, setImpact] = useState<PlsqlImpactResult>();
   const [pages, setPages] = useState<
     Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>
   >({});
-  const [status, setStatus] = useState<SectionStatus>("loading");
-  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
+  const [dependencyStatus, setDependencyStatus] =
+    useState<SectionStatus>("loading");
+  const [dependencyErrorCode, setDependencyErrorCode] =
+    useState<PlsqlProblemCode>();
   const [attempt, setAttempt] = useState(0);
+  const [depth, setDepth] = useState(DEFAULT_IMPACT_DEPTH);
+  const maxDepth = useAuth().config.plsqlMaxHops ?? FALLBACK_MAX_DEPTH;
+  const impactRelationship =
+    overviewMetricsForKind(objectKind).impactRelationship;
 
-  // Baseline load: the impact summary (direct + indirect, any relationship
-  // this kind cares about) and one dependency category, which returns every
-  // category's counts in one response. Together these cover every metric's
-  // card number and the default-selected metric's rows for every kind.
+  const impactPages = useSWRInfinite<PlsqlImpactResult>(
+    (index, previousPage) => {
+      if (index > 0 && !previousPage?.nextCursor) return null;
+      return {
+        resource: "plsql-overview-impact",
+        objectId,
+        relationship: impactRelationship,
+        depth,
+        attempt,
+        cursor:
+          index === 0 ? undefined : (previousPage?.nextCursor ?? undefined),
+      };
+    },
+    async ({
+      objectId: requestedId,
+      relationship,
+      depth: requestedDepth,
+      cursor,
+    }: {
+      objectId: string;
+      relationship?: ImpactRelationship;
+      depth: number;
+      cursor?: string;
+    }) => {
+      const value = await getPlsqlImpact(requestedId, {
+        limit: ANALYSIS_PAGE_SIZE,
+        direction: "upstream",
+        depth: requestedDepth,
+        relationship,
+        cursor,
+      });
+      if (!value) throw new Error("Object not found");
+      return value;
+    },
+    { persistSize: false, revalidateFirstPage: false },
+  );
+  const { data: impactData, size, setSize, mutate } = impactPages;
+
+  const impact = useMemo(() => {
+    const first = impactData?.[0];
+    if (!first) return undefined;
+    const byId = new Map<string, PlsqlImpactItem>();
+    for (const page of impactData) {
+      for (const item of page.items) byId.set(item.id, item);
+    }
+    const last = impactData[impactData.length - 1];
+    return {
+      ...first,
+      items: [...byId.values()],
+      truncated: Boolean(last?.nextCursor),
+      nextCursor: last?.nextCursor ?? null,
+    };
+  }, [impactData]);
+
+  const impactLoadingMore =
+    impactPages.isValidating &&
+    Boolean(impactData) &&
+    size > (impactData?.length ?? 0);
+  const status: SectionStatus =
+    dependencyStatus === "error" || (impactPages.error && !impact)
+      ? "error"
+      : dependencyStatus === "ready" && impact
+        ? "ready"
+        : "loading";
+  const errorCode = impactPages.error
+    ? problemCodeOf(impactPages.error)
+    : dependencyErrorCode;
+
+  // Baseline load: one dependency category, which returns every category's
+  // counts in one response. The impact summary loads through the paginated
+  // hook above; together they cover every metric's card number and the
+  // default-selected metric's rows for every kind.
   useEffect(() => {
     let cancelled = false;
     const config = overviewMetricsForKind(objectKind);
@@ -107,28 +204,19 @@ export function OverviewPanel({
     setSelectedMetricKey(config.metrics[0].key);
     setSelectedRowId(undefined);
     setPages({});
-    setImpact(undefined);
-    setStatus("loading");
-    setErrorCode(undefined);
+    setDependencyStatus("loading");
+    setDependencyErrorCode(undefined);
 
-    Promise.all([
-      getPlsqlImpact(objectId, {
-        direction: "upstream",
-        relationship: config.impactRelationship,
-      }),
-      category ? getPlsqlDependencies(objectId, category) : undefined,
-    ])
-      .then(([impactValue, depsValue]) => {
+    (category ? getPlsqlDependencies(objectId, category) : Promise.resolve())
+      .then((depsValue) => {
         if (cancelled) return;
-        if (!impactValue) throw new Error("Object not found");
-        setImpact(impactValue);
         if (category && depsValue) setPages({ [category]: depsValue });
-        setStatus("ready");
+        setDependencyStatus("ready");
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setErrorCode(problemCodeOf(error));
-          setStatus("error");
+          setDependencyErrorCode(problemCodeOf(error));
+          setDependencyStatus("error");
         }
       });
     return () => {
@@ -159,6 +247,9 @@ export function OverviewPanel({
       <h2 id={headingId} className="text-xl font-semibold">
         Potential impact
       </h2>
+      <div className="mt-2 max-w-32">
+        <DepthField depth={depth} maxDepth={maxDepth} onChange={setDepth} />
+      </div>
       {status === "loading" && (
         <p
           role="status"
@@ -179,6 +270,10 @@ export function OverviewPanel({
           object={object}
           impact={impact}
           pages={pages}
+          impactError={Boolean(impactPages.error)}
+          impactLoadingMore={impactLoadingMore}
+          onLoadMoreImpact={() => void setSize((current) => current + 1)}
+          onRetryImpact={() => void mutate()}
           selectedMetricKey={selectedMetricKey}
           selectedRowId={selectedRowId}
           onSelectMetric={selectMetric}
@@ -201,6 +296,10 @@ function OverviewBody({
   object,
   impact,
   pages,
+  impactError,
+  impactLoadingMore,
+  onLoadMoreImpact,
+  onRetryImpact,
   selectedMetricKey,
   selectedRowId,
   onSelectMetric,
@@ -217,6 +316,10 @@ function OverviewBody({
   object: PlsqlObject;
   impact?: PlsqlImpactResult;
   pages: Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>;
+  impactError: boolean;
+  impactLoadingMore: boolean;
+  onLoadMoreImpact: () => void;
+  onRetryImpact: () => void;
   selectedMetricKey: string;
   selectedRowId?: string;
   onSelectMetric: (metric: OverviewMetricDef) => void;
@@ -289,7 +392,7 @@ function OverviewBody({
           </p>
         ) : (
           <>
-            {truncated && (
+            {truncated && metric.source.kind !== "impact" && (
               <p className="mt-2 text-xs text-warning">Results truncated</p>
             )}
             <div className="mt-2">
@@ -303,6 +406,21 @@ function OverviewBody({
                 emptyMessage={metric.emptyMessage}
               />
             </div>
+            {metric.source.kind === "impact" && impact && (
+              <AnalysisPagination
+                loaded={rows.length}
+                total={metricValue(metric, impact, pages, counts)}
+                nextCursor={
+                  rows.length < metricValue(metric, impact, pages, counts)
+                    ? impact.nextCursor
+                    : null
+                }
+                loading={impactLoadingMore}
+                error={impactError}
+                onLoadMore={onLoadMoreImpact}
+                onRetry={onRetryImpact}
+              />
+            )}
           </>
         )}
         {selectedRow && (

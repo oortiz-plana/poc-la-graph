@@ -56,9 +56,12 @@ type Filters = {
   writesOnly: boolean;
 };
 
+/** Default hop depth; unbounded walks exceed the backend traversal cap on large tables. */
+export const DEFAULT_IMPACT_DEPTH = 5;
+
 const DEFAULT_FILTERS: Filters = {
   direction: "upstream",
-  depth: 5,
+  depth: DEFAULT_IMPACT_DEPTH,
   relationship: "All",
   directOnly: false,
   writesOnly: false,
@@ -66,7 +69,7 @@ const DEFAULT_FILTERS: Filters = {
 
 /** Used only until the runtime config (the real, deployment-configured
  * ceiling) finishes loading. */
-const FALLBACK_MAX_DEPTH = 5;
+export const FALLBACK_MAX_DEPTH = 5;
 
 const ROUTINE_KINDS = new Set(["Procedure", "Function"]);
 
@@ -426,7 +429,7 @@ function ImpactControls({
  * `[1, maxDepth]`) on blur or Enter, so a partial number like "1" while
  * aiming for "12" doesn't fire a query or get force-corrected mid-keystroke.
  */
-function DepthField({
+export function DepthField({
   depth,
   maxDepth,
   disabled,

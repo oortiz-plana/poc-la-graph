@@ -470,7 +470,7 @@ async def list_table_access(
     object_id: ObjectIdentifier,
     limit: Annotated[int | None, Query(ge=1, le=200)] = None,
 ) -> PlsqlDependencyResult:
-    """Return READS/WRITES/TRIGGER_ON/VIEW_DEPENDS_ON edges of an object."""
+    """Return table-access edges, including structural FOREIGN_KEY dependencies."""
     del principal
     await _require_object(analysis, object_id)
     page = await analysis.table_access_of(
@@ -496,9 +496,9 @@ async def find_paths(
     """Return bounded dependency paths from one object to another.
 
     Paths traverse typed dependency relationships (``CALLS | READS | WRITES |
-    VIEW_DEPENDS_ON``) within ``plsql_max_hops``, ordered by hop count then
-    lexicographic node ids, with duplicates collapsed and truncation reported
-    when the row cap is hit.
+    VIEW_DEPENDS_ON | TRIGGERS | FOREIGN_KEY``) within ``plsql_max_hops``,
+    ordered by hop count then lexicographic node ids, with duplicates collapsed
+    and truncation reported when the row cap is hit.
     """
     del principal
     await _require_object(analysis, from_id)

@@ -184,7 +184,7 @@ async def test_row_cap_sweep_truncates_each_envelope(
         )
         assert len(access.json()["items"]) == 3
         assert access.json()["truncated"] is True
-        assert access.json()["count"] == 6
+        assert access.json()["count"] == 7
 
         unresolved = await client.get("/api/v1/plsql/unresolved")
         assert len(unresolved.json()["items"]) == 2

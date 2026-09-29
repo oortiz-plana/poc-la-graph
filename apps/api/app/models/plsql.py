@@ -25,6 +25,7 @@ PlsqlRelationship = Literal[
     "READS",
     "WRITES",
     "VIEW_DEPENDS_ON",
+    "FOREIGN_KEY",
     "TRIGGER_ON",
     "TRIGGERS",
     "INDEXES",
@@ -39,7 +40,9 @@ PlsqlDependencyCategory = Literal["callers", "callees", "reads", "writes", "othe
 
 ImpactDirection = Literal["upstream", "downstream"]
 
-ImpactRelationship = Literal["CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS"]
+ImpactRelationship = Literal[
+    "CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "FOREIGN_KEY", "TRIGGERS"
+]
 
 
 class ApiModel(BaseModel):

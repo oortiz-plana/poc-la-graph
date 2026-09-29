@@ -22,6 +22,7 @@
         "READS",
         "WRITES",
         "VIEW_DEPENDS_ON",
+        "FOREIGN_KEY",
         "TRIGGER_ON",
         "TRIGGERS",
         "INDEXES",

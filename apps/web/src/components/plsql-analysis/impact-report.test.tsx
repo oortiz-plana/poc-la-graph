@@ -491,19 +491,25 @@ describe("ImpactReport", () => {
     );
   });
 
-  it("offers TRIGGERS as a selectable relationship filter", async () => {
-    getPlsqlImpact.mockResolvedValue(result);
-    const user = userEvent.setup();
-    renderPanel();
-    await screen.findByText("Blast radius");
-    await user.selectOptions(screen.getByLabelText("Relationship"), "TRIGGERS");
-    await waitFor(() =>
-      expect(getPlsqlImpact).toHaveBeenLastCalledWith(
-        "plsql://sample/HR/FUNCTION/DOCU_FIDE",
-        expect.objectContaining({ relationship: "TRIGGERS" }),
-      ),
-    );
-  });
+  it.each(["TRIGGERS", "FOREIGN_KEY"])(
+    "offers %s as a selectable relationship filter",
+    async (relationship) => {
+      getPlsqlImpact.mockResolvedValue(result);
+      const user = userEvent.setup();
+      renderPanel();
+      await screen.findByText("Blast radius");
+      await user.selectOptions(
+        screen.getByLabelText("Relationship"),
+        relationship,
+      );
+      await waitFor(() =>
+        expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+          "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+          expect.objectContaining({ relationship }),
+        ),
+      );
+    },
+  );
 
   it("passes depth and checkbox filters to the backend", async () => {
     getPlsqlImpact.mockResolvedValue(result);

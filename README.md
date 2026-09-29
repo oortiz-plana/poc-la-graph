@@ -66,6 +66,15 @@ report — never a graph editor. Design and vocabulary:
 contract: [docs/architecture/contracts.md](docs/architecture/contracts.md);
 status: [docs/plsql-analysis/implementation-plan.md](docs/plsql-analysis/implementation-plan.md).
 
+**Foreign keys** use the stored direction **referencing table → referenced
+table**. Dependencies shows incoming and outgoing `FOREIGN_KEY` edges under
+**Other**. Paths and default Impact traversals include them; upstream Impact
+from a referenced table reaches referencing tables, while downstream follows
+the arrow. Impact also supports an explicit `FOREIGN_KEY` filter. Foreign keys
+do not imply writes or cascading deletes and are excluded by **Writes only**.
+Deploy matching API and browser versions together and restart queries after
+deployment (see [ADR 0016](docs/adr/0016-plsql-foreign-key-analysis.md)).
+
 Impact and Dependency paths load 25 results at a time. **Load more** appends rows
 and expands the Impact graph; the count and blast-radius summary describe the
 full filtered traversal. The endpoints accept `limit` (1–200, additionally capped

@@ -39,10 +39,10 @@ from app.models.plsql import (
 )
 
 TABLE_ACCESS_RELATIONSHIPS: frozenset[PlsqlRelationship] = frozenset(
-    {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON"}
+    {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON", "FOREIGN_KEY"}
 )
 PATH_RELATIONSHIPS: frozenset[PlsqlRelationship] = frozenset(
-    {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS"}
+    {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS", "FOREIGN_KEY"}
 )
 UNRESOLVED_RESOLUTIONS: frozenset[PlsqlResolution] = frozenset(
     {"AMBIGUOUS", "UNRESOLVED"}

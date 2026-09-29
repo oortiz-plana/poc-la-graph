@@ -228,6 +228,15 @@ def build_edges(
     corpus = corpus if corpus is not None else build_corpus(project_id)
     by_qualified = {record.qualified_name.casefold(): record for record in corpus}
     edges: list[_EdgeSpec] = [
+        # Stored direction: referencing table -> referenced table.
+        _EdgeSpec(
+            "HR.EMPLOYEES",
+            "HR.DEPARTMENTS",
+            "FOREIGN_KEY",
+            "EXACT",
+            "hr/employees.sql",
+            5,
+        ),
         _EdgeSpec(
             "HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
             "HR.EMPLOYEES",

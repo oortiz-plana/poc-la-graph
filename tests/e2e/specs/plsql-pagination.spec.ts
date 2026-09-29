@@ -207,3 +207,115 @@ test("paginates dependency paths and preserves the selected route", async ({
     report.getByText("Selected path", { exact: true }),
   ).toBeVisible();
 });
+
+for (const width of [320, 640]) {
+  test(`foreign-key label and evidence remain keyboard accessible at ${width}px`, async ({
+    page,
+  }) => {
+    // 640 CSS px also exercises the reflow of a 1280px viewport at 200% zoom.
+    const referenced = {
+      ...object,
+      id: "table-departments",
+      name: "DEPARTMENTS",
+      qualifiedName: "HR.DEPARTMENTS",
+    };
+    const evidence = {
+      sourceFileId: "employee-file",
+      path: "hr/employees.sql",
+      startLine: 5,
+    };
+    const edge = {
+      id: "fk",
+      source: object,
+      target: referenced,
+      relationship: "FOREIGN_KEY",
+      resolution: "EXACT",
+      evidence,
+    };
+    await page.route("**/api/backend/api/v1/plsql/impact?**", async (route) => {
+      await route.fulfill({
+        json: {
+          object,
+          items: [
+            {
+              id: "fk-impact",
+              dependent: referenced,
+              distance: 1,
+              paths: [
+                {
+                  id: "fk-path",
+                  hopCount: 1,
+                  nodes: [object, referenced],
+                  relationships: [edge],
+                },
+              ],
+            },
+          ],
+          summary: { direct: 1, indirect: 0, packages: 0, tablesModified: 0 },
+          count: 1,
+          truncated: false,
+          nextCursor: null,
+        },
+      });
+    });
+    await page.route("**/api/backend/api/v1/plsql/files?**", (route) =>
+      route.fulfill({
+        json: {
+          file: { fileId: "employee-file", path: "hr/employees.sql" },
+          lines: [
+            "create table employees (",
+            "employee_id number,",
+            "department_id number,",
+            "constraint employees_fk",
+            "foreign key (department_id) references departments (department_id)",
+            ");",
+          ],
+          highlight: { startLine: 5, endLine: 5 },
+        },
+      }),
+    );
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByRole("tab", { name: "Impact", exact: true }).click();
+    const report = page.getByRole("region", { name: "Impact analysis" });
+    await report.getByLabel("Direction").selectOption("downstream");
+    const request = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        url.pathname.endsWith("/impact") &&
+        url.searchParams.get("relationship") === "FOREIGN_KEY"
+      );
+    });
+    await report.getByLabel("Relationship").selectOption("FOREIGN_KEY");
+    await request;
+    const row = report.locator("tbody tr").first();
+    await row.focus();
+    await page.keyboard.press("Enter");
+    const chip = report.getByRole("button", {
+      name: "FOREIGN_KEY",
+      exact: true,
+    });
+    await chip.scrollIntoViewIfNeeded();
+    await expect(chip).toBeVisible();
+    const bounds = await chip.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    const evidenceLink = report.getByRole("button", {
+      name: "Open full source",
+      exact: true,
+    });
+    await evidenceLink.scrollIntoViewIfNeeded();
+    await expect(evidenceLink).toBeVisible();
+    await chip.focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Inspector", exact: true }).click();
+    const inspector = page.getByRole("dialog");
+    await expect(
+      inspector.getByText("FOREIGN_KEY", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      inspector.getByText("hr/employees.sql:5", { exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(inspector).not.toBeVisible();
+  });
+}

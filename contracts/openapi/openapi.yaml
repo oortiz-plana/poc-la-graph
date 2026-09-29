@@ -1377,6 +1377,7 @@ paths:
             - READS
             - WRITES
             - VIEW_DEPENDS_ON
+            - FOREIGN_KEY
             - TRIGGERS
           - type: 'null'
           title: Relationship
@@ -1530,9 +1531,9 @@ paths:
         Return bounded dependency paths from one object to another.
 
         Paths traverse typed dependency relationships (``CALLS | READS | WRITES |
-        VIEW_DEPENDS_ON``) within ``plsql_max_hops``, ordered by hop count then
-        lexicographic node ids, with duplicates collapsed and truncation reported
-        when the row cap is hit.
+        VIEW_DEPENDS_ON | TRIGGERS | FOREIGN_KEY``) within ``plsql_max_hops``,
+        ordered by hop count then lexicographic node ids, with duplicates collapsed
+        and truncation reported when the row cap is hit.
       operationId: find_paths_api_v1_plsql_paths_get
       security:
       - HTTPBearer: []
@@ -1664,7 +1665,7 @@ paths:
       tags:
       - plsql
       summary: List Table Access
-      description: Return READS/WRITES/TRIGGER_ON/VIEW_DEPENDS_ON edges of an object.
+      description: Return table-access edges, including structural FOREIGN_KEY dependencies.
       operationId: list_table_access_api_v1_plsql_table_access_get
       security:
       - HTTPBearer: []
@@ -3061,6 +3062,7 @@ components:
           - READS
           - WRITES
           - VIEW_DEPENDS_ON
+          - FOREIGN_KEY
           - TRIGGER_ON
           - TRIGGERS
           - INDEXES

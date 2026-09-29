@@ -384,6 +384,7 @@ export const plsqlRelationshipSchema = z.enum([
   "READS",
   "WRITES",
   "VIEW_DEPENDS_ON",
+  "FOREIGN_KEY",
   "TRIGGER_ON",
   "TRIGGERS",
   "INDEXES",
@@ -460,6 +461,7 @@ export const impactRelationshipSchema = z.enum([
   "READS",
   "WRITES",
   "VIEW_DEPENDS_ON",
+  "FOREIGN_KEY",
   "TRIGGERS",
 ]);
 export const plsqlImpactSummarySchema = z.object({

@@ -158,6 +158,34 @@ describe("DependenciesPanel graph mode", () => {
     expect(screen.getByText(/Expand a category/)).toBeInTheDocument();
   });
 
+  it("renders foreign keys under Other in the list and graph", async () => {
+    const summary = callerSummary();
+    summary.counts = { callers: 0, callees: 0, reads: 0, writes: 0, other: 1 };
+    summary.items[0].relationship = "FOREIGN_KEY";
+    summary.items[0].source.kind = "Table";
+    summary.items[0].target.kind = "Table";
+    getPlsqlDependencies.mockResolvedValue(summary);
+    const user = userEvent.setup();
+    renderPanel({ initialCategory: "other" });
+    expect(await screen.findByText("FOREIGN_KEY")).toBeInTheDocument();
+    expect(getPlsqlDependencies).toHaveBeenCalledWith(object.id, "other");
+    await user.click(screen.getByRole("button", { name: "Graph" }));
+    await user.click(screen.getByRole("button", { name: /Other 1/ }));
+    await waitFor(() =>
+      expect(addedElements(cyMock)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            data: expect.objectContaining({
+              label: "FOREIGN_KEY",
+              source: summary.items[0].source.id,
+              target: summary.items[0].target.id,
+            }),
+          }),
+        ]),
+      ),
+    );
+  });
+
   it("expands a category explicitly and draws its edges", async () => {
     getPlsqlDependencies.mockResolvedValue(callerSummary());
     const user = userEvent.setup();

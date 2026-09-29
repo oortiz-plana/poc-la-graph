@@ -128,11 +128,12 @@ async def test_table_access_for_table_lists_actors_and_triggers(
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["count"] == 6
+    assert payload["count"] == 7
     by_source = {
         edge["source"]["qualifiedName"]: edge["relationship"]
         for edge in payload["items"]
     }
+    assert by_source["HR.EMPLOYEES"] == "FOREIGN_KEY"
     assert by_source["HR.TRG_EMPLOYEES_AUDIT"] == "TRIGGER_ON"
     assert by_source["HR.EMPLOYEE_DETAILS"] == "VIEW_DEPENDS_ON"
     assert by_source["HR.PKG_EMPLOYEE.CREATE_EMPLOYEE"] == "WRITES"
@@ -141,6 +142,7 @@ async def test_table_access_for_table_lists_actors_and_triggers(
         "WRITES",
         "TRIGGER_ON",
         "VIEW_DEPENDS_ON",
+        "FOREIGN_KEY",
     }
 
 
@@ -156,7 +158,7 @@ async def test_dependency_limit_truncates(
     payload = response.json()
     assert len(payload["items"]) == 2
     assert payload["truncated"] is True
-    assert payload["count"] == 6
+    assert payload["count"] == 7
 
 
 async def test_unknown_object_is_404(

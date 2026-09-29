@@ -107,8 +107,8 @@ Adapted to this repository:
 | Object search / detail | `search_objects`, `get_object` | Label-filtered lookup on `name`/`qualifiedName`; deterministic ordering | `PLSQL_MAX_ROWS` ≤ 200, truncation flag |
 | Callers of a routine | `callers_of` | `CALLS` into the target by `qualifiedName` (upstream `CALLERS_OF_ROUTINE`) | rows capped |
 | Callees of a routine | `callees_of` | Inverse reviewed path — `CALLS` out of the routine (added to the local catalog; not in upstream catalog) | rows capped |
-| Table access by object/package | `table_access_of` | `READS`/`WRITES` of contained units (upstream `TABLE_ACCESS_BY_PACKAGE`) | rows capped |
-| Transitive impact | `impact_of` | `READS`, `WRITES`, `VIEW_DEPENDS_ON`, or `CALLS` up to 5 hops into the changed object (upstream `REVERSE_IMPACT`) | `PLSQL_MAX_HOPS` = 5 |
+| Table access by object/package | `table_access_of` | `READS`/`WRITES` and structural dependencies including incoming/outgoing `FOREIGN_KEY` | rows capped |
+| Transitive impact | `impact_of` | `READS`, `WRITES`, `VIEW_DEPENDS_ON`, `CALLS`, `TRIGGERS`, and `FOREIGN_KEY` in the selected direction | `PLSQL_MAX_HOPS` = 5 |
 | Dependency paths | `find_paths` | Bounded variable-length paths over the same typed relationships, `from`/`to` by id | hop and row caps, ordered output |
 | Unresolved/ambiguous | `unresolved_references` | `resolution IN (AMBIGUOUS, UNRESOLVED)` edges (upstream query) | rows capped |
 | Relationship evidence | `relationship_evidence` | Read edge properties (`sourceFileId`, offsets, lines, `evidenceKind`) | single record |
@@ -130,7 +130,7 @@ The gateway and contracts consume the graph as persisted today by
   `Type`), `ExecutableUnit` + `Procedure`/`Function` (also `DatabaseObject`),
   and `AnonymousBlock`. Package/routine spec+body pairs share one node.
 - Relationships: `CONTAINS`, `DECLARES`, `CALLS`, `READS`, `WRITES`,
-  `VIEW_DEPENDS_ON`, `TRIGGER_ON`, `TRIGGERS`, `INDEXES`, `SYNONYM_FOR` —
+  `VIEW_DEPENDS_ON`, `FOREIGN_KEY`, `TRIGGER_ON`, `TRIGGERS`, `INDEXES`, `SYNONYM_FOR` —
   directed, with edge properties `resolution`, `sourceFileId`,
   `startOffset`, `endOffset`, `startLine`, `startColumn`, `evidenceKind`,
   `sourceRole`. `TRIGGERS` (a derived, trigger-mediated invocation edge,
@@ -188,6 +188,14 @@ GET  /api/v1/plsql/paths              ?from=…&to=…    bounded dependency pat
 GET  /api/v1/plsql/relationships/evidence ?relationshipId=…   evidence coordinates
 GET  /api/v1/plsql/unresolved                          ambiguous/unresolved edges
 ```
+
+`FOREIGN_KEY` follows referencing table → referenced table. Dependencies includes
+incoming and outgoing foreign keys under **Other**. Default Paths and Impact
+traverse foreign keys, and Impact permits explicit `FOREIGN_KEY` filtering.
+Upstream reaches referencing tables from the referenced table; downstream follows
+the stored direction. Writes-only traversal excludes them, and they do not imply
+cascading deletes or count as modified tables. See [ADR 0016](../adr/0016-plsql-foreign-key-analysis.md)
+for the coordinated API/browser rollout and traversal compatibility decision.
 
 `category` accepts `callers | callees | reads | writes | other`; `direction`
 accepts `upstream | downstream`; `relationship` restricts traversal to one

@@ -479,6 +479,7 @@ async def test_table_access_of_filters_by_member_prefix_and_table_kinds(
         "WRITES",
         "TRIGGER_ON",
         "VIEW_DEPENDS_ON",
+        "FOREIGN_KEY",
     }
     assert calls[0][1]["tableKinds"] == ["Table", "View"]
 
@@ -512,6 +513,7 @@ async def test_unresolved_references_filters_by_resolution(
         "WRITES",
         "TRIGGER_ON",
         "VIEW_DEPENDS_ON",
+        "FOREIGN_KEY",
     }
 
 
@@ -583,6 +585,7 @@ async def test_find_paths_expands_bounded_frontiers(
         "READS",
         "WRITES",
         "VIEW_DEPENDS_ON",
+        "FOREIGN_KEY",
         "TRIGGERS",
     }
 
@@ -842,3 +845,88 @@ async def test_object_source_returns_none_without_declaration_edge(
         assert await client.object_source(object_id=obj.id) is None
     finally:
         client.close()
+
+
+@pytest.mark.parametrize("with_evidence", [True, False])
+async def test_foreign_key_queries_mapping_and_traversal(
+    monkeypatch: pytest.MonkeyPatch,
+    with_evidence: bool,
+) -> None:
+    source = _object_record("HR.EMPLOYEES", kind="Table")
+    target = _object_record("HR.DEPARTMENTS", kind="Table")
+    row = _edge_row(
+        relationship="FOREIGN_KEY",
+        sourceQualifiedName=source.qualified_name,
+        sourceName=source.name,
+        sourceLabels=["DatabaseObject", "Table"],
+        targetQualifiedName=target.qualified_name,
+        targetName=target.name,
+        targetLabels=["DatabaseObject", "Table"],
+        sourceFileId="file://sample/hr/employees.sql" if with_evidence else None,
+        startLine=5,
+        startColumn=1,
+        startOffset=None,
+        endOffset=None,
+    )
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        calls.append((query, params))
+        if query == COUNT_EDGE_TABLE_ACCESS:
+            return [{"total": 1}]
+        if query == EDGE_TABLE_ACCESS:
+            return [row]
+        if "FOREIGN_KEY" not in params.get("relationships", []):
+            return []
+        if query == EDGE_OUTGOING and params["sources"] == [source.qualified_name]:
+            return [row]
+        if query == EDGE_INCOMING and params["targets"] == [target.qualified_name]:
+            return [row]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache.update({source.id: source, target.id: target})
+    try:
+        for anchor in (source, target):
+            page = await client.table_access_of(object_id=anchor.id, limit=10)
+            edge = page.items[0]
+            assert edge.relationship == "FOREIGN_KEY"
+            assert (edge.source_id, edge.target_id) == (source.id, target.id)
+            if with_evidence:
+                assert edge.evidence is not None
+                assert edge.evidence.path == "hr/employees.sql"
+                assert edge.evidence.start_line == 5
+            else:
+                assert edge.evidence is None
+        paths = await client.find_paths(
+            from_id=source.id, to_id=target.id, max_hops=5, limit=10
+        )
+        assert paths.total == 1
+        assert paths.items[0].steps[0].relationship == "FOREIGN_KEY"
+        for direction, anchor, peer in (
+            ("upstream", target, source),
+            ("downstream", source, target),
+        ):
+            for relationships in (None, frozenset({"FOREIGN_KEY"})):
+                impact = await client.impact_of(
+                    object_id=anchor.id,
+                    direction=direction,
+                    relationships=relationships,
+                    max_hops=5,
+                    limit=10,
+                )
+                assert impact.total == 1
+                assert impact.items[0].dependent.id == peer.id
+                assert impact.summary.tables_modified == 0
+        writes = await client.impact_of(
+            object_id=target.id,
+            relationships=frozenset({"WRITES"}),
+            max_hops=5,
+            limit=10,
+        )
+        assert writes.items == []
+    finally:
+        client.close()
+    for query, params in calls:
+        if query in (EDGE_TABLE_ACCESS, COUNT_EDGE_TABLE_ACCESS):
+            assert "FOREIGN_KEY" in params["relationships"]

@@ -91,10 +91,10 @@ SCHEMA_EDGE_VIA_TABLE: Final = "viaTable"
 SCHEMA_FILE_PATH: Final = "path"
 
 PATH_RELATIONSHIPS: Final[frozenset[str]] = frozenset(
-    {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS"}
+    {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS", "FOREIGN_KEY"}
 )
 TABLE_ACCESS_RELATIONSHIPS: Final[frozenset[str]] = frozenset(
-    {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON"}
+    {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON", "FOREIGN_KEY"}
 )
 UNRESOLVED_RESOLUTIONS: Final[frozenset[str]] = frozenset({"AMBIGUOUS", "UNRESOLVED"})
 

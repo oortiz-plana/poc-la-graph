@@ -389,6 +389,7 @@ function ImpactControls({
               "READS",
               "WRITES",
               "VIEW_DEPENDS_ON",
+              "FOREIGN_KEY",
               "TRIGGERS",
             ] as const
           ).map((relationship) => (

@@ -1,6 +1,9 @@
 create table employees (
   -- synthetic filler line (no proprietary content)
   employee_id  number        not null,
+  department_id number,
+  constraint employees_department_fk foreign key (department_id) references departments (department_id)
+);
 
 -- synthetic payroll fixture padding 001: no proprietary content
 -- synthetic payroll fixture padding 002: no proprietary content

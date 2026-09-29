@@ -1,2 +1,4 @@
   -- synthetic filler line (no proprietary content)
-  department_id number       not null,
+create table departments (
+  department_id number primary key
+);

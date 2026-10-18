@@ -1,0 +1,400 @@
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.0.0">
+  <diagram id="repo-architecture" name="Architecture">
+    <mxGraphModel dx="1800" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1800" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;b style='font-size:20px'&gt;Graphify Knowledge Agent POC — architecture of the repo (poc-la-graph)&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px'&gt;Evidence-grounded chat over documents (Graphify graph first, Haystack passages second) + read-only PL/SQL analysis console · Docker Compose runtime&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=12;spacing=4;" vertex="1" parent="1">
+          <mxGeometry x="20" y="8" width="1500" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="gA" value="Client &amp; identity" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#FFF2CC;strokeColor=#D6B656;swimlaneFillColor=#FFFDF5;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="60" width="210" height="440" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="&lt;b&gt;Browser user&lt;/b&gt;&lt;br&gt;roles viewer · editor · admin&lt;br&gt;chat UI, project workspace, governance, PL/SQL console" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D6B656;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gA">
+          <mxGeometry x="20" y="50" width="170" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="kc" value="&lt;b&gt;Keycloak 26.7&lt;/b&gt; :8080&lt;br&gt;realm &lt;i&gt;graphify&lt;/i&gt; · OIDC Auth Code + PKCE S256&lt;br&gt;roles · tenant_id · groups claim&lt;br&gt;JWKS (API validates JWT) · Admin API (directory)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D6B656;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gA">
+          <mxGeometry x="20" y="305" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="gB" value="Web · Next.js 15 / React 19 · apps/web · :3000" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#DAE8FC;strokeColor=#6C8EBF;swimlaneFillColor=#F7FAFF;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="290" y="60" width="500" height="640" as="geometry" />
+        </mxCell>
+        <mxCell id="b_pages" value="&lt;b&gt;App Router pages&lt;/b&gt; (src/app)&lt;br&gt;/ · /projects · /projects/{id} (Overview · Files · Access · Builds · Settings)&lt;br&gt;/governance (tenant admin) · /plsql (analysis console, flag-gated by PLSQL_ENABLED)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6C8EBF;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gB">
+          <mxGeometry x="20" y="50" width="460" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="b_components" value="&lt;b&gt;UI components&lt;/b&gt; (src/components)&lt;br&gt;application-shell · project-workspace · chat-workspace · cited-answer · evidence-drawer · project-context-panel (Files / Sources / Graph) · plsql-analysis/* · ui/ (Radix + shadcn + Tailwind)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6C8EBF;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gB">
+          <mxGeometry x="20" y="190" width="460" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="b_auth" value="&lt;b&gt;auth-provider&lt;/b&gt;&lt;br&gt;Keycloak Auth Code + PKCE S256&lt;br&gt;tokens kept in memory only" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6C8EBF;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gB">
+          <mxGeometry x="20" y="310" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="b_lib" value="&lt;b&gt;lib&lt;/b&gt;&lt;br&gt;contracts.ts (Zod) validates every backend payload · api.ts typed client · Vercel AI SDK" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6C8EBF;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gB">
+          <mxGeometry x="260" y="310" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="b_bff" value="&lt;b&gt;BFF route handlers&lt;/b&gt; (src/app/api)&lt;br&gt;backend/* → authenticated proxy to FastAPI (Bearer)&lt;br&gt;chat → backend SSE translated to the Vercel AI SDK data stream&lt;br&gt;config → runtime public config&lt;br&gt;&lt;i&gt;The browser never talks to FastAPI, Graphify or the LLM directly&lt;/i&gt;" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6C8EBF;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gB">
+          <mxGeometry x="20" y="440" width="460" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="gC" value="API · FastAPI · Python 3.12 · apps/api · :8000" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#D5E8D4;strokeColor=#82B366;swimlaneFillColor=#F8FCF7;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="930" y="60" width="720" height="1210" as="geometry" />
+        </mxCell>
+        <mxCell id="c_boundary" value="&lt;b&gt;Public boundary&lt;/b&gt; · app/api&lt;br&gt;routes/projects · routes/knowledge (admin only) · routes/plsql · conversations + chat SSE · /health · /ready&lt;br&gt;JWT/JWKS validation · tenancy fixed|claim · project roles (Viewer/Contributor/Manager/Owner) · normalized errors · request correlation&lt;br&gt;integrations/directory: Keycloak Admin API user &amp;amp; group search" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gC">
+          <mxGeometry x="50" y="50" width="650" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="gAgent" value="Query plane · bounded LangGraph workflow (app/agent)" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#D5E8D4;strokeColor=#82B366;swimlaneFillColor=#F8FCF7;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="gC">
+          <mxGeometry x="50" y="190" width="650" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="s1" value="&lt;b&gt;1&lt;/b&gt; Resolve follow-up (sanitized history)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gAgent">
+          <mxGeometry x="15" y="40" width="95" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="&lt;b&gt;2&lt;/b&gt; Graph retrieval (Graphify first)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gAgent">
+          <mxGeometry x="120" y="40" width="95" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="&lt;b&gt;3&lt;/b&gt; Source scoping (Haystack BM25 in allowlist)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gAgent">
+          <mxGeometry x="225" y="40" width="95" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="&lt;b&gt;4&lt;/b&gt; Answer (strict JSON schema)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gAgent">
+          <mxGeometry x="330" y="40" width="95" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="&lt;b&gt;5&lt;/b&gt; Citation validation (allowlist IDs)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gAgent">
+          <mxGeometry x="435" y="40" width="95" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="s6" value="&lt;b&gt;6&lt;/b&gt; message.completed | message.failed (SSE)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gAgent">
+          <mxGeometry x="540" y="40" width="95" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="e_s1" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gAgent" source="s1" target="s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_s2" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gAgent" source="s2" target="s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_s3" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gAgent" source="s3" target="s4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_s4" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gAgent" source="s4" target="s5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_s5" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gAgent" source="s5" target="s6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="agent_note" value="Hard bounds: tool calls · traversal depth · nodes/edges · evidence bytes · model iterations · duration. Insufficient evidence ⇒ explicit response, never inferred." style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=10;spacing=4;" vertex="1" parent="gAgent">
+          <mxGeometry x="15" y="122" width="620" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="gPorts" value="Integrations · ports &amp;amp; adapters (app/integrations)" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#D5E8D4;strokeColor=#82B366;swimlaneFillColor=#F8FCF7;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="gC">
+          <mxGeometry x="50" y="380" width="650" height="235" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_graphify" value="&lt;b&gt;graphify&lt;/b&gt; — GraphKnowledgeClient over the official MCP runtime · only 4 allowlisted ops: query_graph · get_node · get_neighbors · shortest_path · the only code that understands native payloads" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gPorts">
+          <mxGeometry x="15" y="40" width="620" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_llm" value="&lt;b&gt;llm&lt;/b&gt; — provider-neutral LanguageModel port · LiteLLM adapter (litellm | mock) · operation-specific strict JSON Schemas · normalized public errors" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gPorts">
+          <mxGeometry x="15" y="105" width="620" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_haystack" value="&lt;b&gt;haystack&lt;/b&gt; — scoped SourceRetriever · ephemeral Haystack store · BM25 over SQLite FTS5 passages · bounded parent reconstruction · can only narrow Graphify's scope" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gPorts">
+          <mxGeometry x="15" y="170" width="620" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="e_c1_agent" value="chat" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="c_boundary" target="gAgent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_agent_ports" value="ports" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="gAgent" target="gPorts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c_store" value="&lt;b&gt;Persistence&lt;/b&gt; · app/store + app/models&lt;br&gt;Conversation repository protocol · async SQLAlchemy · SQLite (default) or PostgreSQL (compose/postgres.yml) · Alembic migrations · subject-private histories · retention cleanup" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gC">
+          <mxGeometry x="50" y="655" width="650" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="gCtrl" value="Control plane · knowledge ingestion (app/projects + app/knowledge)" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#D5E8D4;strokeColor=#82B366;swimlaneFillColor=#F8FCF7;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="gC">
+          <mxGeometry x="50" y="755" width="650" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="ctrl_worker" value="&lt;b&gt;knowledge-worker&lt;/b&gt; (own container)&lt;br&gt;python -m app.projects.worker · durable, single-concurrency · claims queued builds" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gCtrl">
+          <mxGeometry x="15" y="40" width="190" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ctrl_repo" value="&lt;b&gt;projects&lt;/b&gt;&lt;br&gt;repository · upload sessions · build queue · content-addressed storage · seal immutable snapshot" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gCtrl">
+          <mxGeometry x="15" y="135" width="190" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="p1" value="&lt;b&gt;Discover &amp;amp; validate&lt;/b&gt;&lt;br&gt;symlinks · ZIP · signatures · limits" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gCtrl">
+          <mxGeometry x="225" y="40" width="130" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" value="&lt;b&gt;Convert&lt;/b&gt;&lt;br&gt;md/txt/html/pdf/docx → normalized text" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gCtrl">
+          <mxGeometry x="365" y="40" width="130" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" value="&lt;b&gt;Chunk&lt;/b&gt;&lt;br&gt;page · heading · article · o200k_base" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gCtrl">
+          <mxGeometry x="505" y="40" width="130" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p4" value="&lt;b&gt;Graphify build&lt;/b&gt;&lt;br&gt;native graph + LLM semantic extraction" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gCtrl">
+          <mxGeometry x="505" y="135" width="130" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p5" value="&lt;b&gt;FTS5 index&lt;/b&gt;&lt;br&gt;SQLite passages, deterministic ids" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gCtrl">
+          <mxGeometry x="365" y="135" width="130" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p6" value="&lt;b&gt;Publish &amp;amp; activate&lt;/b&gt;&lt;br&gt;validate both · atomic · rollback" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=9;" vertex="1" parent="gCtrl">
+          <mxGeometry x="225" y="135" width="130" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="e_p12" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gCtrl" source="p1" target="p2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_p23" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gCtrl" source="p2" target="p3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_p34" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="gCtrl" source="p3" target="p4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_p45" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gCtrl" source="p4" target="p5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_p56" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gCtrl" source="p5" target="p6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w_p1" value="runs" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="gCtrl" source="ctrl_worker" target="p1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w_repo" value="claims" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;startArrow=block;startFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="gCtrl" source="ctrl_worker" target="ctrl_repo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ctrl_note" value="Failed builds are atomic: the active version is never replaced. Legacy single-project path: knowledge/input + make knowledge-* (profile legacy-single-project)." style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=10;spacing=4;" vertex="1" parent="gCtrl">
+          <mxGeometry x="225" y="233" width="410" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="c_plsql" value="&lt;b&gt;PL/SQL analysis gateway&lt;/b&gt; (additive · disabled by default · ADR 0011–0015)&lt;br&gt;routes/plsql + integrations/plsql: object search · callers/callees · table access · paths · unresolved refs · impact · read-only source viewer (no MCP)&lt;br&gt;PLSQL_ADAPTER = disabled | synthetic (fixtures.py) | neo4j (official driver, read-only sessions, allowlisted catalog.py)&lt;br&gt;Opaque IDs ⇒ identifier endpoints use query parameters; paginated impact/paths (limit + cursor)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="gC">
+          <mxGeometry x="50" y="1075" width="650" height="125" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_plsql" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#888888;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;dashed=1;dashPattern=6 4;exitX=0;exitY=0.6667;exitDx=0;exitDy=0;entryX=0;entryY=0.496;entryDx=0;entryDy=0;" edge="1" parent="1" source="c_boundary" target="c_plsql">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="942" y="190" />
+              <mxPoint x="942" y="1197" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lane_ctrl" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#888888;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;dashed=1;dashPattern=6 4;exitX=0;exitY=0.7917;exitDx=0;exitDy=0;entryX=0;entryY=0.2833;entryDx=0;entryDy=0;" edge="1" parent="1" source="c_boundary" target="gCtrl">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="954" y="205" />
+              <mxPoint x="954" y="900" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lane_store" value="" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#888888;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;dashed=1;dashPattern=6 4;exitX=0;exitY=0.9167;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="c_boundary" target="c_store">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="966" y="220" />
+              <mxPoint x="966" y="755" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="gLegend" value="Legend" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#EEEEEE;strokeColor=#666666;swimlaneFillColor=#FAFAFA;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="520" width="210" height="330" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_chip0" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="gLegend">
+          <mxGeometry x="20" y="55" width="26" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_txt0" value="Web (Next.js)" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gLegend">
+          <mxGeometry x="52" y="50" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_chip1" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="gLegend">
+          <mxGeometry x="20" y="85" width="26" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_txt1" value="API (FastAPI)" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gLegend">
+          <mxGeometry x="52" y="80" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_chip2" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;" vertex="1" parent="gLegend">
+          <mxGeometry x="20" y="115" width="26" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_txt2" value="Durable state / volumes" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gLegend">
+          <mxGeometry x="52" y="110" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_chip3" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;" vertex="1" parent="gLegend">
+          <mxGeometry x="20" y="145" width="26" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_txt3" value="External runtime / service" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gLegend">
+          <mxGeometry x="52" y="140" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_chip4" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;" vertex="1" parent="gLegend">
+          <mxGeometry x="20" y="175" width="26" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_txt4" value="Identity" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gLegend">
+          <mxGeometry x="52" y="170" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_chip5" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEEEEE;strokeColor=#666666;" vertex="1" parent="gLegend">
+          <mxGeometry x="20" y="205" width="26" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_txt5" value="Repo tooling" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gLegend">
+          <mxGeometry x="52" y="200" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_solid" value="Runtime call / data flow" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gLegend">
+          <mxGeometry x="52" y="240" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_dash" value="Routing inside the API · external or optional" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=10;spacing=4;" vertex="1" parent="gLegend">
+          <mxGeometry x="52" y="270" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_line0" value="" edge="1" parent="1" style="edgeStyle=none;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="38" y="770" as="sourcePoint" />
+            <mxPoint x="66" y="770" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lg_line1" value="" edge="1" parent="1" style="edgeStyle=none;html=1;endArrow=block;endFill=1;strokeColor=#888888;dashed=1;dashPattern=6 4;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="38" y="800" as="sourcePoint" />
+            <mxPoint x="66" y="800" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="gInv" value="Key invariants (from AGENTS.md / ADRs)" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#EEEEEE;strokeColor=#666666;swimlaneFillColor=#FAFAFA;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="290" y="720" width="500" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="inv_text" value="&lt;ul style='margin:0;padding-left:16px'&gt;&lt;li&gt;&lt;b&gt;Graph-first grounding:&lt;/b&gt; Graphify defines the allowed documents/articles; Haystack may only narrow that scope, never broaden it.&lt;/li&gt;&lt;li&gt;Relationship claims need graph evidence; textual/legal claims need exact source passages (document · article · paragraph · line).&lt;/li&gt;&lt;li&gt;Model citation IDs must match the request allowlist; insufficient evidence ⇒ explicit insufficient-evidence answer.&lt;/li&gt;&lt;li&gt;Conversation history is untrusted context; fresh evidence on every answer.&lt;/li&gt;&lt;li&gt;Browser never receives provider/Graphify credentials, raw MCP payloads, prompts or hidden reasoning.&lt;/li&gt;&lt;li&gt;Every SSE request ends in exactly one &lt;i&gt;message.completed&lt;/i&gt; or &lt;i&gt;message.failed&lt;/i&gt;.&lt;/li&gt;&lt;li&gt;Ingestion = control plane (writer worker); chat = query plane (request-bound, version-pinned, read-only).&lt;/li&gt;&lt;li&gt;Immutable snapshots + atomic activation; a failed build never replaces the active graph/index.&lt;/li&gt;&lt;li&gt;Contract changes update backend models, contracts/, Zod types, tests and docs together (ADR for breaking changes).&lt;/li&gt;&lt;/ul&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gInv">
+          <mxGeometry x="15" y="35" width="470" height="335" as="geometry" />
+        </mxCell>
+        <mxCell id="gComp" value="Docker Compose runtime (docker-compose.yml)" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#EEEEEE;strokeColor=#666666;swimlaneFillColor=#FAFAFA;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1810" y="60" width="430" height="380" as="geometry" />
+        </mxCell>
+        <mxCell id="comp_text" value="&lt;b&gt;Startup order&lt;/b&gt;&lt;br&gt;knowledge-init (one-shot, creates /knowledge dirs) → graphify + keycloak → api → knowledge-worker + web&lt;br&gt;&lt;br&gt;&lt;b&gt;Ports&lt;/b&gt;&lt;br&gt;web :3000 · api :8000 · keycloak :8080 · graphify :8001 (internal) · neo4j :7474 / :7687&lt;br&gt;&lt;br&gt;&lt;b&gt;Overlays / profiles&lt;/b&gt;&lt;br&gt;• docker-compose.synthetic.yml — graphify-mock + mock LLM + PL/SQL fixtures (make e2e)&lt;br&gt;• compose/postgres.yml — PostgreSQL conversation backend&lt;br&gt;• docker-compose-plsql.yml — PL/SQL-focused stack&lt;br&gt;• profile legacy-single-project — knowledge-ingest + knowledge/input&lt;br&gt;&lt;br&gt;&lt;b&gt;Hardening&lt;/b&gt;: cap_drop ALL · no-new-privileges · read-only Graphify root · /knowledge mounted ro in graphify" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=11;spacing=4;" vertex="1" parent="gComp">
+          <mxGeometry x="15" y="35" width="400" height="335" as="geometry" />
+        </mxCell>
+        <mxCell id="r_graphify" value="&lt;b&gt;Graphify 0.9.18 MCP runtime&lt;/b&gt; (container graphify · :8001 /mcp)&lt;br&gt;official open-source runtime · authoritative entity/relationship graph&lt;br&gt;read-only /knowledge mount · synthetic overlay swaps in graphify-mock" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673A6;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1810" y="470" width="430" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="r_llm" value="&lt;b&gt;LLM provider&lt;/b&gt; (server-side keys only)&lt;br&gt;OpenAI-compatible endpoint via LiteLLM · answer + follow-up generation&lt;br&gt;also used by the worker for Graphify semantic extraction (OPENAI_API_KEY)&lt;br&gt;LLM_ADAPTER=mock → deterministic answers" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673A6;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1810" y="600" width="430" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="gState" value="Durable state (named volume graphify_knowledge)" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#FFE6CC;strokeColor=#D79B00;swimlaneFillColor=#FFFBF5;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1810" y="720" width="430" height="440" as="geometry" />
+        </mxCell>
+        <mxCell id="r_fts" value="&lt;b&gt;FTS5 source index&lt;/b&gt; (source-index.sqlite)&lt;br&gt;leaf + parent passages · article/page metadata · rows per graph version" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=7;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D79B00;fontSize=10;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=6;spacingTop=6;" vertex="1" parent="gState">
+          <mxGeometry x="20" y="45" width="390" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="r_sql" value="&lt;b&gt;SQL database&lt;/b&gt; — SQLite /knowledge/state/conversations.db (default) or PostgreSQL · conversations · projects · builds · members" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=7;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D79B00;fontSize=10;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=6;spacingTop=6;" vertex="1" parent="gState">
+          <mxGeometry x="20" y="125" width="390" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="r_blob" value="&lt;b&gt;Source blobs&lt;/b&gt; /knowledge/projects&lt;br&gt;content-addressed original bytes + sha256 per upload snapshot" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=7;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D79B00;fontSize=10;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=6;spacingTop=6;" vertex="1" parent="gState">
+          <mxGeometry x="20" y="205" width="390" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="r_ver" value="&lt;b&gt;Immutable project versions&lt;/b&gt;&lt;br&gt;native Graphify graph.json (preserved) · manifest · active pointer · keeps N versions · rollback" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=7;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D79B00;fontSize=10;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=6;spacingTop=6;" vertex="1" parent="gState">
+          <mxGeometry x="20" y="285" width="390" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="state_note" value="Also: keycloak_data volume · neo4j/data · host knowledge/input mounted read-only (legacy)." style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=10;spacing=4;" vertex="1" parent="gState">
+          <mxGeometry x="20" y="385" width="390" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="gPl" value="PL/SQL analysis stack (opt-in)" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#E1D5E7;strokeColor=#9673A6;swimlaneFillColor=#FBF8FC;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1810" y="1190" width="430" height="360" as="geometry" />
+        </mxCell>
+        <mxCell id="r_neo" value="&lt;b&gt;Neo4j 5 community&lt;/b&gt;&lt;br&gt;:7474 · :7687 bolt&lt;br&gt;PL/SQL dependency graph (API: read-only)" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=7;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673A6;fontSize=10;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=6;spacingTop=6;" vertex="1" parent="gPl">
+          <mxGeometry x="20" y="50" width="170" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="r_plgraph" value="&lt;b&gt;plsqlgraph&lt;/b&gt; (sibling repo — not in this repo)&lt;br&gt;Xtext/Ecore parser → semantic analyzer → dependency extractor → graph builder → syncs Neo4j" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673A6;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;dashed=1;fontSize=10;" vertex="1" parent="gPl">
+          <mxGeometry x="230" y="50" width="180" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="r_corpus" value="&lt;b&gt;PL/SQL source corpus&lt;/b&gt;&lt;br&gt;apps/api/tests/fixtures/plsql (synthetic) or a real analyzed corpus · mounted ro at /app/plsql-fixtures" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673A6;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gPl">
+          <mxGeometry x="20" y="160" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="r_oracle" value="&lt;b&gt;Oracle XE (dev)&lt;/b&gt;&lt;br&gt;oracle/docker-compose.yml :1521&lt;br&gt;Oracle Forms sample EMPL_fmb.xml + XSD" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=7;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673A6;fontSize=10;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=6;spacingTop=6;" vertex="1" parent="gPl">
+          <mxGeometry x="230" y="265" width="180" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="e_plg_neo" value="sync" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;dashed=1;dashPattern=6 4;exitX=0;exitY=0.33;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="r_plgraph" target="r_neo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_plg_src" value="parses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;dashed=1;dashPattern=6 4;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="r_plgraph" target="r_corpus">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_browser_pages" value="HTTPS" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="browser" target="b_pages">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_auth_kc" value="OIDC PKCE" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;startArrow=block;startFill=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="b_auth" target="kc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bff_api" value="Bearer JWT · JSON · SSE" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="b_bff" target="c_boundary">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="860" y="575" />
+              <mxPoint x="860" y="170" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_graphify" value="MCP" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ad_graphify" target="r_graphify">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1770" y="507.5" />
+              <mxPoint x="1770" y="525" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_llm" value="LLM API" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ad_llm" target="r_llm">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1750" y="572.5" />
+              <mxPoint x="1750" y="650" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_haystack" value="FTS5" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ad_haystack" target="r_fts">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1730" y="637.5" />
+              <mxPoint x="1730" y="800" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_store" value="SQL" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="c_store" target="r_sql">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1710" y="755" />
+              <mxPoint x="1710" y="880" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_ctrl" value="writes" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.2833;exitDx=0;exitDy=0;entryX=0;entryY=0.6364;entryDx=0;entryDy=0;" edge="1" parent="1" source="gCtrl" target="gState">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1690" y="900" />
+              <mxPoint x="1690" y="1000" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_plsql_neo" value="Bolt ro" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.52;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="c_plsql" target="r_neo">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1750" y="1200" />
+              <mxPoint x="1750" y="1285" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_plsql_src" value="source ro" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.76;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="c_plsql" target="r_corpus">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1730" y="1230" />
+              <mxPoint x="1730" y="1400" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_graphify_ver" value="ro mount" style="edgeStyle=none;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#333333;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;dashed=1;dashPattern=6 4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="r_graphify" target="r_ver">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="2270" y="525" />
+              <mxPoint x="2270" y="1045" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="gTools" value="Repository, contracts &amp;amp; tooling" style="swimlane;html=1;whiteSpace=wrap;startSize=30;fontStyle=1;fontSize=13;fillColor=#EEEEEE;strokeColor=#666666;swimlaneFillColor=#FAFAFA;rounded=1;arcSize=3;collapsible=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="20" y="1590" width="2220" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" value="&lt;b&gt;contracts/&lt;/b&gt;&lt;br&gt;frozen OpenAPI · SSE events · answer/evidence · MCP adapter · knowledge manifest &amp;amp; active pointer · PL/SQL JSON schemas — shared by api, web and e2e" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gTools">
+          <mxGeometry x="15" y="45" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="&lt;b&gt;docs/&lt;/b&gt;&lt;br&gt;architecture/ · adr/ 0001–0015 (+ decision log) · knowledge-ingestion · plsql-analysis/ · UI guidelines · Graphify compatibility" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gTools">
+          <mxGeometry x="330" y="45" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="&lt;b&gt;tests/e2e&lt;/b&gt; (Playwright)&lt;br&gt;chat.spec · plsql-analysis.spec · resilience (recovery) · real Spanish suite (E2E_REAL_GRAPHIFY=1)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gTools">
+          <mxGeometry x="645" y="45" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" value="&lt;b&gt;docker/&lt;/b&gt; + compose files&lt;br&gt;api · web · graphify · graphify-mock Dockerfiles (test/lint stages) · docker-compose{,.synthetic,-plsql}.yml · compose/postgres.yml" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gTools">
+          <mxGeometry x="960" y="45" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="t5" value="&lt;b&gt;Makefile + scripts/&lt;/b&gt;&lt;br&gt;make dev · test · lint · e2e · smoke · knowledge-* · smoke-test.sh · smoke-spanish.sh · real Graphify contract tests" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gTools">
+          <mxGeometry x="1275" y="45" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="t6" value="&lt;b&gt;graphify/ · keycloak/ · knowledge/&lt;/b&gt;&lt;br&gt;sample project + mock MCP server · realm import (graphify-realm.json, no users) · knowledge/input operator sources" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gTools">
+          <mxGeometry x="1590" y="45" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="t7" value="&lt;b&gt;oracle/ · arch/&lt;/b&gt;&lt;br&gt;Oracle XE compose + Oracle Forms sample (EMPL_fmb.xml, XSD) · PL/SQL analysis architecture notes (plsqlgraph pipeline)" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=6;spacingTop=4;fontSize=10;" vertex="1" parent="gTools">
+          <mxGeometry x="1905" y="45" width="300" height="110" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

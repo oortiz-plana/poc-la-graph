@@ -22,7 +22,6 @@ describe("ObjectHeader", () => {
     render(
       <ObjectHeader
         object={object}
-        onSelectTab={vi.fn()}
         headingRef={createRef<HTMLHeadingElement>()}
       />,
     );
@@ -37,12 +36,21 @@ describe("ObjectHeader", () => {
     expect(items[0]).not.toHaveAttribute("aria-current");
   });
 
-  it("keeps header actions and tabs at a 44px touch size on small screens", () => {
+  it("has no shortcut buttons that duplicate the tabs", () => {
+    render(
+      <ObjectHeader
+        object={object}
+        headingRef={createRef<HTMLHeadingElement>()}
+      />,
+    );
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("keeps the tabs at a 44px touch size on small screens", () => {
     render(
       <>
         <ObjectHeader
           object={object}
-          onSelectTab={vi.fn()}
           headingRef={createRef<HTMLHeadingElement>()}
         />
         <ObjectTabs value="overview" onChange={vi.fn()}>
@@ -50,11 +58,6 @@ describe("ObjectHeader", () => {
         </ObjectTabs>
       </>,
     );
-    for (const name of ["Open source", "Analyze impact", "Find path"]) {
-      expect(screen.getByRole("button", { name }).className).toContain(
-        "max-md:min-h-11",
-      );
-    }
     for (const tab of screen.getAllByRole("tab")) {
       expect(tab.className).toContain("max-md:min-h-11");
     }

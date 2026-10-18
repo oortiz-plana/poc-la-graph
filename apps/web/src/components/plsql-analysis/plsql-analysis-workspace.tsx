@@ -253,15 +253,6 @@ export function PlsqlAnalysisWorkspace() {
     showTab("source");
   }
 
-  /** Header shortcut: always opens the selected object's own source. */
-  function selectTab(next: PlsqlTab) {
-    if (next === "source" && selected) {
-      setSourceRequest(objectSourceRequest(selected.id));
-    }
-    setDependenciesCategory(undefined);
-    showTab(next);
-  }
-
   return (
     <ApplicationShell defaultSidebarOpen={false}>
       {!auth.config.plsqlEnabled ? (
@@ -295,7 +286,6 @@ export function PlsqlAnalysisWorkspace() {
               <div className="mx-auto max-w-[75rem] p-4 sm:p-6">
                 <ObjectHeader
                   object={selected}
-                  onSelectTab={selectTab}
                   headingRef={headingRef}
                   actions={
                     <>
@@ -386,9 +376,21 @@ export function PlsqlAnalysisWorkspace() {
                         onClose={() => setSourceRequest(undefined)}
                       />
                     ) : (
-                      <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-                        Open an object or follow a source location to view it.
-                      </p>
+                      <div className="mt-3 rounded-lg border border-dashed p-4 text-sm text-text-secondary">
+                        <p>
+                          Open an object or follow a source location to view it.
+                        </p>
+                        <Button
+                          className="mt-3"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setSourceRequest(objectSourceRequest(selected.id))
+                          }
+                        >
+                          Show source of {selected.name}
+                        </Button>
+                      </div>
                     )}
                   </TabsContent>
                 </ObjectTabs>

@@ -302,8 +302,10 @@ apps/web/src/components/plsql-analysis/
   arrow keys, Home and End move between rows and Left/Right collapse or
   expand a package. The qualified name is a breadcrumb (`nav` + `ol`) that
   marks the object itself with `aria-current="location"`. Selecting an
-  object moves focus to its heading. The Source tab opens the selected
-  object's source on its own, like the header's "Open source" action.
+  object moves focus to its heading. Each view has a single entry point, its
+  tab (there are no header shortcuts that duplicate them): the Source tab
+  opens the selected object's source on its own, and offers "Show source of
+  …" again after the viewer was closed.
 - **Analysis Health** counts diagnostics for the same scope the dialog opens
   on (the selected object, or the repository when none is selected); the
   dialog's checkbox widens it to the whole repository.

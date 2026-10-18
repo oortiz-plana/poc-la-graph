@@ -259,15 +259,21 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(screen.getByLabelText("Qualified name")).toHaveTextContent(
       "HR/PKG_EMP/GET_SALARY",
     );
-    expect(
-      screen.getByRole("button", { name: "Open source" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Analyze impact" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Find path" }),
-    ).toBeInTheDocument();
+    // Each view has exactly one entry point: its tab.
+    for (const label of ["Open source", "Analyze impact", "Find path"]) {
+      expect(
+        screen.queryByRole("button", { name: label }),
+      ).not.toBeInTheDocument();
+    }
+    for (const label of [
+      "Overview",
+      "Dependencies",
+      "Impact",
+      "Paths",
+      "Source",
+    ]) {
+      expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+    }
     expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -889,7 +895,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens the object source viewer from the header action", async () => {
+  it("opens the object source viewer from the Source tab", async () => {
     const user = userEvent.setup();
     const content: PlsqlSourceContent = {
       file: { fileId: "file://sample/hr/pkg_emp.pkb", path: "hr/pkg_emp.pkb" },
@@ -903,7 +909,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       { items: [functionObject], truncated: false, count: 1 },
       /GET_SALARY/,
     );
-    await user.click(screen.getByRole("button", { name: "Open source" }));
+    await user.click(screen.getByRole("tab", { name: "Source" }));
 
     expect(screen.getByRole("tab", { name: "Source" })).toHaveAttribute(
       "aria-selected",
@@ -993,7 +999,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       { items: [functionObject], truncated: false, count: 1 },
       /GET_SALARY/,
     );
-    await user.click(screen.getByRole("button", { name: "Open source" }));
+    await user.click(screen.getByRole("tab", { name: "Source" }));
     expect(
       await screen.findByRole("heading", { name: "Source" }),
     ).toBeInTheDocument();
@@ -1267,5 +1273,31 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       screen.queryByRole("dialog", { name: "Object Explorer" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("lets the Source tab reopen the object's source after it was closed", async () => {
+    const user = userEvent.setup();
+    mocks.getPlsqlObjectSource.mockResolvedValue({
+      file: { fileId: "file://sample/hr/pkg_emp.pkb", path: "hr/pkg_emp.pkb" },
+      lines: ["FUNCTION GET_SALARY"],
+      highlight: { startLine: 1, endLine: 1 },
+    });
+    render(<PlsqlAnalysisWorkspace />);
+    await selectFromExplorer(
+      user,
+      { items: [functionObject], truncated: false, count: 1 },
+      /GET_SALARY/,
+    );
+    await user.click(screen.getByRole("tab", { name: "Source" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Close source" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Show source of GET_SALARY" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Source" }),
+    ).toBeInTheDocument();
+    expect(mocks.getPlsqlObjectSource).toHaveBeenCalledTimes(2);
   });
 });

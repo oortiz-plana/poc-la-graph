@@ -1,8 +1,6 @@
 "use client";
 
-import { Braces, Network, Route } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { PlsqlObject } from "@/lib/contracts";
 import { ObjectKindBadge } from "./plsql-atoms";
@@ -19,12 +17,10 @@ export type PlsqlTab = (typeof OBJECT_TABS)[number]["value"];
 
 export function ObjectHeader({
   object,
-  onSelectTab,
   headingRef,
   actions,
 }: {
   object: PlsqlObject;
-  onSelectTab: (tab: PlsqlTab) => void;
   headingRef: RefObject<HTMLHeadingElement | null>;
   actions?: ReactNode;
 }) {
@@ -58,27 +54,6 @@ export function ObjectHeader({
         <ObjectKindBadge kind={object.kind} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {actions}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onSelectTab("source")}
-          >
-            <Braces aria-hidden /> Open source
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onSelectTab("impact")}
-          >
-            <Network aria-hidden /> Analyze impact
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onSelectTab("paths")}
-          >
-            <Route aria-hidden /> Find path
-          </Button>
         </div>
       </div>
     </header>

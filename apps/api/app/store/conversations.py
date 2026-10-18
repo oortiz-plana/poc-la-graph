@@ -137,14 +137,18 @@ class InMemoryConversationStore:
         )
 
     async def get_scope(
-        self, conversation_id: str, created_by: str = "development-user"
+        self,
+        conversation_id: str,
+        created_by: str = "development-user",
+        *,
+        include_archived: bool = False,
     ) -> ConversationScope:
         async with self._lock:
             item = self._items.get(conversation_id)
             if (
                 item is None
                 or self._owners.get(conversation_id) != created_by
-                or item.archived_at is not None
+                or (item.archived_at is not None and not include_archived)
             ):
                 raise ConversationNotFound(conversation_id)
             return ConversationScope(

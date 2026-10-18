@@ -304,7 +304,9 @@ async def restore_conversation(
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Conversation:
-    await _authorize_conversation(conversation_id, principal, store, request)
+    await _authorize_conversation(
+        conversation_id, principal, store, request, include_archived=True
+    )
     return await store.restore(conversation_id, principal.subject)
 
 
@@ -319,7 +321,9 @@ async def purge_conversation(
     store: Annotated[ConversationStore, Depends(get_store)],
     principal: Annotated[AuthPrincipal, Depends(require_viewer)],
 ) -> Response:
-    await _authorize_conversation(conversation_id, principal, store, request)
+    await _authorize_conversation(
+        conversation_id, principal, store, request, include_archived=True
+    )
     await store.purge(conversation_id, principal.subject)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -435,8 +439,12 @@ async def _authorize_conversation(
     principal: AuthPrincipal,
     store: ConversationStore,
     request: Request,
+    *,
+    include_archived: bool = False,
 ) -> None:
-    scope = await store.get_scope(conversation_id, principal.subject)
+    scope = await store.get_scope(
+        conversation_id, principal.subject, include_archived=include_archived
+    )
     await _authorize_project_request(scope.project_id, principal, request)
 
 

@@ -69,7 +69,11 @@ class ConversationStore(Protocol):
     ) -> ConversationList: ...
 
     async def get_scope(
-        self, conversation_id: str, created_by: str = "development-user"
+        self,
+        conversation_id: str,
+        created_by: str = "development-user",
+        *,
+        include_archived: bool = False,
     ) -> ConversationScope: ...
 
     async def rename(

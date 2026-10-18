@@ -158,6 +158,31 @@ async def test_conversation_list_name_and_archive_lifecycle(
     ).status_code == 204
 
 
+async def test_archived_conversation_can_only_be_restored_or_purged(
+    api_client: httpx.AsyncClient,
+) -> None:
+    conversation = (await api_client.post("/api/v1/conversations")).json()
+    path = f"/api/v1/conversations/{conversation['id']}"
+    assert (await api_client.delete(path)).status_code == 204
+
+    # Archived conversations stay hidden from every active-only operation...
+    assert (await api_client.get(path)).status_code == 404
+    assert (await api_client.patch(path, json={"name": "x"})).status_code == 404
+    assert (
+        await api_client.post(f"{path}/messages", json={"message": "hi"})
+    ).status_code == 404
+
+    # ...while restore and purge must still reach them.
+    restored = await api_client.post(f"{path}/restore")
+    assert restored.status_code == 200
+    assert restored.json()["archivedAt"] is None
+    assert (await api_client.get(path)).status_code == 200
+
+    # Restoring or purging an active conversation is rejected.
+    assert (await api_client.post(f"{path}/restore")).status_code == 404
+    assert (await api_client.delete(f"{path}/purge")).status_code == 409
+
+
 async def test_real_mode_without_an_active_graph_is_not_ready() -> None:
     app = create_app(
         Settings(

@@ -231,10 +231,19 @@ class SQLAlchemyConversationStore:
         )
 
     async def get_scope(
-        self, conversation_id: str, created_by: str = "development-user"
+        self,
+        conversation_id: str,
+        created_by: str = "development-user",
+        *,
+        include_archived: bool = False,
     ) -> ConversationScope:
         async with self._sessions() as session:
-            row = await _get_row(session, conversation_id, created_by)
+            row = await _get_row(
+                session,
+                conversation_id,
+                created_by,
+                active_only=not include_archived,
+            )
             return ConversationScope(row.project_id, row.graph_version)
 
     async def rename(

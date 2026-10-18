@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlsqlObject } from "@/lib/contracts";
@@ -225,5 +225,64 @@ describe("ObjectExplorer", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("keeps the Synonyms filter disabled because search never returns synonyms", async () => {
+    const user = newUser();
+    render(<ObjectExplorer onSelect={vi.fn()} />);
+    searchPlsqlObjects.mockResolvedValue({
+      items: [],
+      truncated: false,
+      count: 0,
+    });
+    await user.click(screen.getByRole("button", { name: "More" }));
+    const synonyms = screen.getByRole("menuitem", { name: /Synonyms/ });
+    expect(synonyms).toHaveAttribute("aria-disabled", "true");
+    expect(synonyms).toHaveTextContent("not searchable");
+    await user.click(synonyms);
+    expect(searchPlsqlObjects).not.toHaveBeenCalledWith("", {
+      kinds: ["Synonym"],
+      limit: 100,
+    });
+  });
+
+  it("keeps a single Tab stop in the results and moves with the arrow keys", async () => {
+    const user = newUser();
+    render(<ObjectExplorer onSelect={vi.fn()} />);
+    await settleSearch(user, [base, docuFide, employeeTable]);
+    const results = screen.getByRole("list", { name: "Object search results" });
+    const stops = () =>
+      within(results)
+        .getAllByRole("button")
+        .filter((button) => button.tabIndex === 0);
+    expect(stops()).toHaveLength(1);
+
+    const buttons = within(results).getAllByRole("button");
+    const packageButton = within(results).getByRole("button", {
+      name: "FA_QFACT_CALC",
+    });
+    packageButton.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(
+      buttons[buttons.indexOf(packageButton) + 1],
+    );
+    expect(stops()).toEqual([document.activeElement]);
+
+    await user.keyboard("{End}");
+    expect(document.activeElement).toBe(buttons.at(-1));
+    await user.keyboard("{Home}");
+    expect(document.activeElement).toBe(buttons[0]);
+    await user.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(buttons[0]);
+  });
+
+  it("makes the selected object the Tab stop when nothing has focus yet", async () => {
+    const user = newUser();
+    render(<ObjectExplorer selectedId={employeeTable.id} onSelect={vi.fn()} />);
+    await settleSearch(user, [base, docuFide, employeeTable]);
+    const results = screen.getByRole("list", { name: "Object search results" });
+    const selected = within(results).getByRole("button", { name: /EMPLOYEE/ });
+    expect(selected).toHaveAttribute("aria-current", "true");
+    expect(selected.tabIndex).toBe(0);
   });
 });

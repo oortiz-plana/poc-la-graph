@@ -75,6 +75,12 @@ do not imply writes or cascading deletes and are excluded by **Writes only**.
 Deploy matching API and browser versions together and restart queries after
 deployment (see [ADR 0016](docs/adr/0016-plsql-foreign-key-analysis.md)).
 
+The console keeps the selected object and tab in the URL
+(`/plsql?object=…&tab=impact`), so links can be shared, reloads restore the
+view, and the browser's Back/Forward buttons walk the objects visited. See the
+UI architecture section of the console document for layout breakpoints and
+keyboard behavior.
+
 Impact and Dependency paths load 25 results at a time. **Load more** appends rows
 and expands the Impact graph; the count and blast-radius summary describe the
 full filtered traversal. The endpoints accept `limit` (1–200, additionally capped

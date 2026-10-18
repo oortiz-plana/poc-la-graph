@@ -134,6 +134,14 @@ export function evidenceLocation(
 }
 
 /**
+ * Style of an inline evidence link ("line 11", "hr/pkg.pkb:40"). The invisible
+ * pseudo-element enlarges the touch target to roughly 44px without changing
+ * how dense the surrounding table rows look.
+ */
+export const EVIDENCE_LINK_CLASS =
+  "relative break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary after:absolute after:-inset-x-2 after:-inset-y-3.5 after:content-['']";
+
+/**
  * Compact "line N" label for a table cell or inline detail, where the full
  * path is already shown elsewhere (a tooltip, or the source evidence header)
  * and repeating it in every row would just add noise.

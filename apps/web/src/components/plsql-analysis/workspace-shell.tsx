@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, PanelLeft, PanelRight } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -35,36 +35,61 @@ import { cn } from "@/lib/utils";
  * state rather than the otherwise-unused `openMobile` one), disables the
  * global cmd/ctrl+B shortcut, and uses its own cookie name — three
  * independent SidebarProviders on one page would otherwise fight over both.
- * Below md, both panes open as a drawer (a plain Sheet) from the main
- * toolbar; the Explorer drawer's content stays mounted once created (hidden
- * via CSS, not unmounted) so its search text, filters, and expanded packages
- * survive closing it. The Inspector holds no state of its own; the object,
+ * The Explorer docks from lg and the Inspector from xl; below those widths a
+ * pane opens as a drawer (a plain Sheet) from the main toolbar, so the
+ * analysis area is never squeezed into a few dozen pixels. The Explorer
+ * drawer's content stays mounted once created (hidden via CSS, not unmounted)
+ * so its search text, filters, and expanded packages survive closing it. The Inspector holds no state of its own; the object,
  * dependency, and path selections that drive it live in the caller
  * regardless of whether this pane is open.
  */
+export type WorkspaceShellControls = {
+  /** Focuses the docked Explorer search, or opens the Explorer drawer when it is not docked. */
+  openExplorer: () => void;
+};
+
 export function WorkspaceShell({
   explorer,
   inspector,
   hasInspection,
   children,
 }: {
-  explorer: ReactNode;
+  /** Receives `closeDrawer` when rendered inside the narrow-screen drawer. */
+  explorer: (controls: { closeDrawer?: () => void }) => ReactNode;
   inspector: ReactNode;
   /** Whether there's currently something to show in the Inspector (an
    * object, dependency, or path selected). The Inspector never reserves
    * space, and never offers a toggle, when this is false. */
   hasInspection: boolean;
-  children: ReactNode;
+  children: ReactNode | ((controls: WorkspaceShellControls) => ReactNode);
 }) {
   const [explorerDrawerOpen, setExplorerDrawerOpen] = useState(false);
   const [explorerDrawerMounted, setExplorerDrawerMounted] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
+  const objectsButtonRef = useRef<HTMLButtonElement>(null);
+  const dockedExplorerRef = useRef<HTMLElement>(null);
 
   function openExplorerDrawer() {
     // Mounted once, on first open, then kept mounted (see the Sheet below) so
     // reopening it never loses the search/filter state a user already built up.
     setExplorerDrawerMounted(true);
     setExplorerDrawerOpen(true);
+  }
+
+  function closeExplorerDrawer(restoreFocus: boolean) {
+    setExplorerDrawerOpen(false);
+    // The drawer stays mounted (hidden), so Radix cannot hand focus back on
+    // its own; without this the focus would fall to <body>.
+    if (restoreFocus)
+      window.setTimeout(() => objectsButtonRef.current?.focus(), 0);
+  }
+
+  function openExplorer() {
+    const search = dockedExplorerRef.current?.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    if (search && search.offsetParent !== null) search.focus();
+    else openExplorerDrawer();
   }
 
   return (
@@ -79,19 +104,25 @@ export function WorkspaceShell({
           side="left"
           label="Object Explorer"
           width="clamp(14rem,20vw,20rem)"
+          dockFrom="lg"
+          paneRef={dockedExplorerRef}
+          skipTo="plsql-workspace"
         >
-          {explorer}
+          {explorer({})}
         </DockedPane>
       </SidebarProvider>
-      <main
+      <section
+        id="plsql-workspace"
+        tabIndex={-1}
         aria-label="Analysis workspace"
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto focus:outline-none"
       >
         <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-surface/95 px-3 py-2 backdrop-blur">
           <Button
+            ref={objectsButtonRef}
             variant="outline"
             size="sm"
-            className="md:hidden"
+            className="lg:hidden"
             onClick={openExplorerDrawer}
           >
             <PanelLeft aria-hidden /> Objects
@@ -101,15 +132,15 @@ export function WorkspaceShell({
             <Button
               variant="outline"
               size="sm"
-              className="md:hidden"
+              className="xl:hidden"
               onClick={() => setInspectorDrawerOpen(true)}
             >
               <PanelRight aria-hidden /> Inspector
             </Button>
           )}
         </div>
-        {children}
-      </main>
+        {typeof children === "function" ? children({ openExplorer }) : children}
+      </section>
       {hasInspection && (
         <SidebarProvider
           className="contents"
@@ -121,26 +152,36 @@ export function WorkspaceShell({
             side="right"
             label="Inspector"
             width="clamp(16rem,22vw,22rem)"
+            dockFrom="xl"
           >
             {inspector}
           </DockedPane>
         </SidebarProvider>
       )}
       {explorerDrawerMounted && (
-        <Sheet open={explorerDrawerOpen} onOpenChange={setExplorerDrawerOpen}>
+        <Sheet
+          open={explorerDrawerOpen}
+          onOpenChange={(open) =>
+            open ? setExplorerDrawerOpen(true) : closeExplorerDrawer(true)
+          }
+        >
           <SheetContent
             forceMount
             side="left"
             className={cn(
-              "w-[min(22rem,calc(100vw-2rem))] p-0",
+              "flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-0 p-0",
               !explorerDrawerOpen && "hidden",
             )}
           >
-            <SheetHeader className="sr-only">
-              <SheetTitle>Object Explorer</SheetTitle>
-              <SheetDescription>PL/SQL object navigation</SheetDescription>
+            <SheetHeader className="min-h-[4.875rem] shrink-0 justify-center space-y-0 border-b px-4 pr-16">
+              <SheetTitle className="text-base">Object Explorer</SheetTitle>
+              <SheetDescription className="sr-only">
+                PL/SQL object navigation
+              </SheetDescription>
             </SheetHeader>
-            {explorer}
+            <div className="min-h-0 flex-1">
+              {explorer({ closeDrawer: () => closeExplorerDrawer(false) })}
+            </div>
           </SheetContent>
         </Sheet>
       )}
@@ -148,15 +189,15 @@ export function WorkspaceShell({
         <Sheet open onOpenChange={setInspectorDrawerOpen}>
           <SheetContent
             side="right"
-            className="w-[min(22rem,calc(100vw-2rem))] p-0"
+            className="flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-0 p-0"
           >
-            <SheetHeader className="sr-only">
-              <SheetTitle>Inspector</SheetTitle>
-              <SheetDescription>
+            <SheetHeader className="min-h-[4.875rem] shrink-0 justify-center space-y-0 border-b px-4 pr-16">
+              <SheetTitle className="text-base">Inspector</SheetTitle>
+              <SheetDescription className="sr-only">
                 Selected object and dependency details
               </SheetDescription>
             </SheetHeader>
-            {inspector}
+            <div className="min-h-0 flex-1 overflow-y-auto">{inspector}</div>
           </SheetContent>
         </Sheet>
       )}
@@ -172,15 +213,28 @@ export function WorkspaceShell({
  * to the viewport — doesn't fit here) instead of that component's own
  * markup.
  */
+const DOCK_CLASSES = {
+  lg: { pane: "lg:block", toggle: "lg:flex" },
+  xl: { pane: "xl:block", toggle: "xl:flex" },
+} as const;
+
 function DockedPane({
   side,
   label,
   width,
+  dockFrom,
+  paneRef,
+  skipTo,
   children,
 }: {
   side: "left" | "right";
   label: string;
   width: string;
+  /** Breakpoint from which the pane is docked; narrower screens use a drawer. */
+  dockFrom: keyof typeof DOCK_CLASSES;
+  paneRef?: RefObject<HTMLElement | null>;
+  /** Id of an element a keyboard user can jump to past this pane's controls. */
+  skipTo?: string;
   children: ReactNode;
 }) {
   const { state, toggleSidebar } = useSidebar();
@@ -190,15 +244,24 @@ function DockedPane({
   const pane = (
     <aside
       key="pane"
+      ref={paneRef}
       aria-label={label}
       data-state={state}
       style={collapsed ? undefined : { width }}
       className={cn(
-        "min-h-0 shrink-0 overflow-hidden bg-surface",
+        "relative min-h-0 shrink-0 overflow-hidden bg-surface",
         side === "left" ? "border-r" : "border-l",
-        collapsed ? "hidden" : "hidden md:block",
+        collapsed ? "hidden" : cn("hidden", DOCK_CLASSES[dockFrom].pane),
       )}
     >
+      {skipTo && (
+        <a
+          href={`#${skipTo}`}
+          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-20 focus:rounded-md focus:border focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:ring-2 focus:ring-primary"
+        >
+          Skip to analysis workspace
+        </a>
+      )}
       <SidebarContent className="h-full overflow-y-auto">
         {children}
       </SidebarContent>
@@ -216,7 +279,8 @@ function DockedPane({
       aria-pressed={!collapsed}
       onClick={toggleSidebar}
       className={cn(
-        "hidden w-3 shrink-0 items-center justify-center bg-surface text-text-muted hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:flex",
+        "hidden w-3 shrink-0 items-center justify-center bg-surface text-text-muted hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        DOCK_CLASSES[dockFrom].toggle,
         side === "left" ? "border-r" : "border-l",
       )}
     >

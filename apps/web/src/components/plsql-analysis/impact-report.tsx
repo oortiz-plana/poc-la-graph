@@ -36,6 +36,7 @@ import {
   evidenceLocation,
   hopText,
   ObjectKindBadge,
+  EVIDENCE_LINK_CLASS,
 } from "./plsql-atoms";
 import { SourceBody } from "./source-viewer";
 import { StatCard } from "./stat-card";
@@ -771,7 +772,7 @@ function AffectedObjectRow({
               event.stopPropagation();
               onToggle(item.id);
             }}
-            className="break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            className={EVIDENCE_LINK_CLASS}
           >
             {evidenceLabel}
           </button>

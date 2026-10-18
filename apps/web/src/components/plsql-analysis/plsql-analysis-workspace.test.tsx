@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +15,7 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   searchPlsqlObjects: vi.fn(),
+  getPlsqlObject: vi.fn(),
   getPlsqlDependencies: vi.fn(),
   findPlsqlPaths: vi.fn(),
   getPlsqlObjectSource: vi.fn(),
@@ -187,6 +188,8 @@ async function pickPathObject(
 describe("PlsqlAnalysisWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, "", "/plsql");
+    document.title = "PL/SQL analysis · Graphify Knowledge Agent";
     authState.config = { plsqlEnabled: true };
     mocks.getPlsqlDependencies.mockResolvedValue({
       counts: { callers: 0, callees: 0, reads: 0, writes: 0, other: 0 },
@@ -481,7 +484,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     // navigate away and reset the panel back to its default category.
     // Selecting the row above already put the same node in the Inspector as
     // its own link, so scope to the main pane to click the trail's copy.
-    const main = screen.getByRole("main", { name: "Analysis workspace" });
+    const main = screen.getByRole("region", { name: "Analysis workspace" });
     await user.click(
       within(main).getByRole("button", { name: "HR.PKG_PAYROLL.RUN_PAYROLL" }),
     );
@@ -774,7 +777,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       // navigating away, so the traced route stays open and intact. Scoped
       // to the main pane: the Inspector already shows the same node (from
       // expanding the row above) as its own link with the same name.
-      const main = screen.getByRole("main", { name: "Analysis workspace" });
+      const main = screen.getByRole("region", { name: "Analysis workspace" });
       await user.click(
         within(main).getByRole("button", {
           name: "HR.PKG_PAYROLL.RUN_PAYROLL",
@@ -1066,5 +1069,203 @@ describe("PlsqlAnalysisWorkspace", () => {
         "callers",
       ),
     );
+  });
+
+  it("opens the object source when the Source tab itself is chosen", async () => {
+    const user = userEvent.setup();
+    mocks.getPlsqlObjectSource.mockResolvedValue({
+      file: { fileId: "file://sample/hr/pkg_emp.pkb", path: "hr/pkg_emp.pkb" },
+      lines: ["FUNCTION GET_SALARY"],
+      highlight: { startLine: 1, endLine: 1 },
+    });
+    render(<PlsqlAnalysisWorkspace />);
+    await selectFromExplorer(
+      user,
+      { items: [functionObject], truncated: false, count: 1 },
+      /GET_SALARY/,
+    );
+    await user.click(screen.getByRole("tab", { name: "Source" }));
+    expect(
+      screen.queryByText(
+        "Open an object or follow a source location to view it.",
+      ),
+    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.getPlsqlObjectSource).toHaveBeenCalledWith(
+        functionObject.id,
+      ),
+    );
+  });
+
+  describe("URL and browser history", () => {
+    it("keeps the selected object and tab in the URL", async () => {
+      const user = userEvent.setup();
+      render(<PlsqlAnalysisWorkspace />);
+      await selectFromExplorer(
+        user,
+        { items: [functionObject], truncated: false, count: 1 },
+        /GET_SALARY/,
+      );
+      const params = () => new URLSearchParams(window.location.search);
+      expect(params().get("object")).toBe(functionObject.id);
+      expect(params().has("tab")).toBe(false);
+
+      await user.click(screen.getByRole("tab", { name: "Impact" }));
+      expect(params().get("tab")).toBe("impact");
+      await user.click(screen.getByRole("tab", { name: "Overview" }));
+      expect(params().has("tab")).toBe(false);
+    });
+
+    it("names the browser tab after the selected object", async () => {
+      const user = userEvent.setup();
+      render(<PlsqlAnalysisWorkspace />);
+      await selectFromExplorer(
+        user,
+        { items: [functionObject], truncated: false, count: 1 },
+        /GET_SALARY/,
+      );
+      expect(document.title).toBe(
+        "GET_SALARY · PL/SQL analysis · Graphify Knowledge Agent",
+      );
+    });
+
+    it("restores the object and tab from a shared link", async () => {
+      window.history.replaceState(
+        null,
+        "",
+        `/plsql?object=${encodeURIComponent(functionObject.id)}&tab=impact`,
+      );
+      mocks.getPlsqlObject.mockResolvedValue(functionObject);
+      render(<PlsqlAnalysisWorkspace />);
+      expect(
+        await screen.findByRole("heading", { name: "GET_SALARY" }),
+      ).toBeInTheDocument();
+      expect(mocks.getPlsqlObject).toHaveBeenCalledWith(functionObject.id);
+      expect(screen.getByRole("tab", { name: "Impact" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    it("explains a shared link to an object that no longer exists", async () => {
+      const user = userEvent.setup();
+      window.history.replaceState(
+        null,
+        "",
+        `/plsql?object=${encodeURIComponent("plsql://sample/HR/GONE")}`,
+      );
+      mocks.getPlsqlObject.mockResolvedValue(null);
+      render(<PlsqlAnalysisWorkspace />);
+      expect(
+        await screen.findByText(
+          "The linked object was not found in the analyzed corpus.",
+        ),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Clear selection" }));
+      expect(window.location.search).toBe("");
+      expect(screen.getByText("No object selected")).toBeInTheDocument();
+    });
+
+    it("offers a retry when the linked object cannot be loaded", async () => {
+      const user = userEvent.setup();
+      window.history.replaceState(
+        null,
+        "",
+        `/plsql?object=${encodeURIComponent(functionObject.id)}`,
+      );
+      mocks.getPlsqlObject.mockRejectedValueOnce(
+        problemError("analysis_unavailable"),
+      );
+      mocks.getPlsqlObject.mockResolvedValueOnce(functionObject);
+      render(<PlsqlAnalysisWorkspace />);
+      await user.click(
+        await screen.findByRole("button", { name: "Retry analysis query" }),
+      );
+      expect(
+        await screen.findByRole("heading", { name: "GET_SALARY" }),
+      ).toBeInTheDocument();
+    });
+
+    it("follows the browser's Back and Forward buttons between objects", async () => {
+      const user = userEvent.setup();
+      mocks.searchPlsqlObjects.mockResolvedValue({
+        items: [functionObject, payrollObject],
+        truncated: false,
+        count: 2,
+      });
+      render(<PlsqlAnalysisWorkspace />);
+      await selectFromExplorer(
+        user,
+        { items: [functionObject, payrollObject], truncated: false, count: 2 },
+        /GET_SALARY/,
+      );
+      await user.click(screen.getByRole("button", { name: /RUN_PAYROLL/ }));
+      expect(
+        await screen.findByRole("heading", { name: "RUN_PAYROLL" }),
+      ).toBeInTheDocument();
+
+      await act(async () => {
+        window.history.back();
+      });
+      expect(
+        await screen.findByRole("heading", { name: "GET_SALARY" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Forward" })).toBeEnabled();
+
+      await act(async () => {
+        window.history.forward();
+      });
+      expect(
+        await screen.findByRole("heading", { name: "RUN_PAYROLL" }),
+      ).toBeInTheDocument();
+    });
+
+    it("returns to the empty state when history goes back past the first object", async () => {
+      const user = userEvent.setup();
+      render(<PlsqlAnalysisWorkspace />);
+      await selectFromExplorer(
+        user,
+        { items: [functionObject], truncated: false, count: 1 },
+        /GET_SALARY/,
+      );
+      await act(async () => {
+        window.history.back();
+      });
+      expect(await screen.findByText("No object selected")).toBeInTheDocument();
+    });
+  });
+
+  it("opens the Object Explorer from the empty state's Browse objects action", async () => {
+    const user = userEvent.setup();
+    render(<PlsqlAnalysisWorkspace />);
+    await user.click(screen.getByRole("button", { name: "Browse objects" }));
+    expect(
+      screen.getByRole("dialog", { name: "Object Explorer" }),
+    ).toBeInTheDocument();
+  });
+
+  it("closes the Explorer drawer once an object is chosen in it", async () => {
+    const user = userEvent.setup();
+    mocks.searchPlsqlObjects.mockResolvedValue({
+      items: [functionObject],
+      truncated: false,
+      count: 1,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+    await user.click(screen.getByRole("button", { name: "Browse objects" }));
+    const drawer = screen.getByRole("dialog", { name: "Object Explorer" });
+    await user.click(
+      await within(drawer).findByRole(
+        "button",
+        { name: /GET_SALARY/ },
+        { timeout: 5000 },
+      ),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "GET_SALARY" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "Object Explorer" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -4,6 +4,7 @@ import { ArrowRight, Copy, LoaderCircle, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import useSWRInfinite from "swr/infinite";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   getPlsqlDependencies,
   getPlsqlImpact,
@@ -55,6 +56,7 @@ import {
   evidenceLocation,
   hopText,
   ObjectKindBadge,
+  EVIDENCE_LINK_CLASS,
 } from "./plsql-atoms";
 import { SourceBody } from "./source-viewer";
 
@@ -251,13 +253,17 @@ function OverviewPanelContent({
         <DepthField depth={depth} maxDepth={maxDepth} onChange={setDepth} />
       </div>
       {status === "loading" && (
-        <p
-          role="status"
-          className="flex items-center gap-2 text-sm text-text-secondary"
-        >
-          <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-          Loading overview…
-        </p>
+        <div role="status" className="mt-3">
+          <span className="sr-only">Loading overview…</span>
+          <div
+            aria-hidden
+            className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+          >
+            {Array.from({ length: 5 }, (_, index) => (
+              <Skeleton key={index} className="h-[4.5rem]" />
+            ))}
+          </div>
+        </div>
       )}
       {status === "error" && (
         <AnalysisError
@@ -506,7 +512,7 @@ function columnsFor(
             event.stopPropagation();
             onSelectRow(row);
           }}
-          className="break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className={EVIDENCE_LINK_CLASS}
         >
           {label}
         </button>

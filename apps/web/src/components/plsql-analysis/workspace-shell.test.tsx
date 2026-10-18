@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { WorkspaceShell } from "./workspace-shell";
@@ -6,7 +6,7 @@ import { WorkspaceShell } from "./workspace-shell";
 function renderShell(hasInspection = true) {
   return render(
     <WorkspaceShell
-      explorer={<p>explorer-content</p>}
+      explorer={() => <p>explorer-content</p>}
       inspector={<p>inspector-content</p>}
       hasInspection={hasInspection}
     >
@@ -27,7 +27,7 @@ describe("WorkspaceShell", () => {
   it("renders explorer, main area, and inspector in order when something is selected", () => {
     renderShell();
     const explorer = screen.getByLabelText("Object Explorer");
-    const main = screen.getByRole("main");
+    const main = screen.getByRole("region", { name: "Analysis workspace" });
     const inspector = screen.getByLabelText("Inspector");
     expect(screen.getByText("explorer-content")).toBeInTheDocument();
     expect(screen.getByText("main-content")).toBeInTheDocument();
@@ -54,11 +54,12 @@ describe("WorkspaceShell", () => {
     expect(screen.getByLabelText("Object Explorer").style.width).toContain(
       "clamp(",
     );
-    expect(screen.getByLabelText("Inspector").style.width).toContain(
-      "clamp(",
-    );
-    expect(screen.getByRole("main").className).toContain("min-w-0");
-    expect(screen.getByRole("main").className).toContain("flex-1");
+    expect(screen.getByLabelText("Inspector").style.width).toContain("clamp(");
+    const workspace = screen.getByRole("region", {
+      name: "Analysis workspace",
+    });
+    expect(workspace.className).toContain("min-w-0");
+    expect(workspace.className).toContain("flex-1");
   });
 
   it("collapses the Explorer docked pane without unmounting it", async () => {
@@ -119,7 +120,7 @@ describe("WorkspaceShell", () => {
     const user = userEvent.setup();
     render(
       <WorkspaceShell
-        explorer={<input aria-label="Explorer search" />}
+        explorer={() => <input aria-label="Explorer search" />}
         inspector={<p>inspector-content</p>}
         hasInspection={false}
       >
@@ -147,5 +148,95 @@ describe("WorkspaceShell", () => {
       "border-r",
     );
     expect(screen.getByLabelText("Inspector").className).toContain("border-l");
+  });
+
+  it("docks the Explorer from lg and the Inspector from xl", () => {
+    renderShell();
+    expect(screen.getByLabelText("Object Explorer").className).toContain(
+      "lg:block",
+    );
+    expect(screen.getByLabelText("Inspector").className).toContain("xl:block");
+    expect(screen.getByRole("button", { name: "Objects" }).className).toContain(
+      "lg:hidden",
+    );
+    expect(
+      screen.getByRole("button", { name: "Inspector" }).className,
+    ).toContain("xl:hidden");
+  });
+
+  it("offers a skip link past the Explorer to the analysis workspace", () => {
+    renderShell();
+    const skip = screen.getByRole("link", {
+      name: "Skip to analysis workspace",
+    });
+    expect(skip).toHaveAttribute("href", "#plsql-workspace");
+    expect(
+      screen.getByRole("region", { name: "Analysis workspace" }),
+    ).toHaveAttribute("id", "plsql-workspace");
+  });
+
+  it("shows a visible drawer title that leaves room for the close button", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    await user.click(screen.getByRole("button", { name: "Objects" }));
+    const drawer = screen.getByRole("dialog", { name: "Object Explorer" });
+    const title = within(drawer).getByText("Object Explorer");
+    expect(title.className).not.toContain("sr-only");
+    expect(title.parentElement?.className).toContain("pr-16");
+  });
+
+  it("returns focus to the Objects button when the drawer is dismissed", async () => {
+    const user = userEvent.setup();
+    renderShell();
+    const objects = screen.getByRole("button", { name: "Objects" });
+    await user.click(objects);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(objects).toHaveFocus());
+  });
+
+  it("closes the drawer when the Explorer reports a selection", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceShell
+        explorer={({ closeDrawer }) => (
+          <button type="button" onClick={closeDrawer}>
+            pick-object
+          </button>
+        )}
+        inspector={<p>inspector-content</p>}
+        hasInspection={false}
+      >
+        <p>main-content</p>
+      </WorkspaceShell>,
+    );
+    await user.click(screen.getByRole("button", { name: "Objects" }));
+    const drawer = screen.getByRole("dialog", { name: "Object Explorer" });
+    await user.click(
+      within(drawer).getByRole("button", { name: "pick-object" }),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Object Explorer" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("lets the main area open the Explorer when it is not docked", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceShell
+        explorer={() => <input aria-label="Explorer search" type="search" />}
+        inspector={<p>inspector-content</p>}
+        hasInspection={false}
+      >
+        {({ openExplorer }) => (
+          <button type="button" onClick={openExplorer}>
+            browse
+          </button>
+        )}
+      </WorkspaceShell>,
+    );
+    await user.click(screen.getByRole("button", { name: "browse" }));
+    expect(
+      screen.getByRole("dialog", { name: "Object Explorer" }),
+    ).toBeInTheDocument();
   });
 });

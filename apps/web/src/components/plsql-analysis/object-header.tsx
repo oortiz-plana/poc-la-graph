@@ -31,14 +31,22 @@ export function ObjectHeader({
   const segments = object.qualifiedName.split(".");
   return (
     <header>
-      <p aria-label="Qualified name" className="flex flex-wrap items-center gap-1 text-xs text-text-muted">
-        {segments.map((segment, index) => (
-          <span key={`${segment}-${index}`} className="flex items-center gap-1">
-            {index > 0 && <span aria-hidden>/</span>}
-            <span>{segment}</span>
-          </span>
-        ))}
-      </p>
+      <nav aria-label="Qualified name">
+        <ol className="flex flex-wrap items-center gap-1 text-xs text-text-muted">
+          {segments.map((segment, index) => (
+            <li
+              key={`${segment}-${index}`}
+              aria-current={
+                index === segments.length - 1 ? "location" : undefined
+              }
+              className="flex items-center gap-1"
+            >
+              {index > 0 && <span aria-hidden>/</span>}
+              <span>{segment}</span>
+            </li>
+          ))}
+        </ol>
+      </nav>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1
           ref={headingRef}
@@ -88,9 +96,16 @@ export function ObjectTabs({
 }) {
   return (
     <Tabs value={value} onValueChange={(next) => onChange(next as PlsqlTab)}>
-      <TabsList aria-label="Object views" className="mt-3">
+      <TabsList
+        aria-label="Object views"
+        className="mt-3 h-auto max-w-full overflow-x-auto"
+      >
         {OBJECT_TABS.map((tab) => (
-          <TabsTrigger key={tab.value} value={tab.value}>
+          <TabsTrigger
+            key={tab.value}
+            value={tab.value}
+            className="px-1.5 text-[13px] max-md:min-h-11 sm:px-3 sm:text-sm"
+          >
             {tab.label}
           </TabsTrigger>
         ))}

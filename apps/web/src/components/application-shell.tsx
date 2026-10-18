@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Archive,
   CircleCheck,
@@ -15,6 +16,7 @@ import {
   Trash2,
   Undo2,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -48,6 +50,7 @@ import {
   restoreConversation,
 } from "@/lib/api";
 import type { ConversationSummary, Project } from "@/lib/contracts";
+import { cn } from "@/lib/utils";
 import { useAuth } from "./auth-provider";
 import {
   ProjectNavigation,
@@ -62,11 +65,14 @@ export function ApplicationShell({
   project,
   fileCount = 0,
   section,
+  defaultSidebarOpen = true,
 }: {
   children: ReactNode;
   project?: Project;
   fileCount?: number;
   section?: ProjectSection;
+  /** Workspaces that need the width (e.g. the PL/SQL console) start with the app navigation collapsed. */
+  defaultSidebarOpen?: boolean;
 }) {
   const auth = useAuth();
   const navigation = (
@@ -79,11 +85,18 @@ export function ApplicationShell({
 
   return (
     <SidebarProvider
+      defaultOpen={defaultSidebarOpen}
       className="h-dvh min-h-0 overflow-hidden bg-background"
       style={
         { "--sidebar-width": "clamp(14rem, 18vw, 19rem)" } as CSSProperties
       }
     >
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:border focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:ring-2 focus:ring-primary"
+      >
+        Skip to main content
+      </a>
       <Sidebar collapsible="offcanvas" className="border-r bg-surface">
         <SidebarContent>{navigation}</SidebarContent>
       </Sidebar>
@@ -125,7 +138,13 @@ export function ApplicationShell({
             </div>
           </div>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <div
+          id="main-content"
+          tabIndex={-1}
+          className="min-h-0 flex-1 overflow-y-auto focus:outline-none"
+        >
+          {children}
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );
@@ -141,33 +160,34 @@ function ApplicationNavigation({
   section?: ProjectSection;
 }) {
   const auth = useAuth();
+  const pathname = usePathname() ?? "/";
   if (!project) {
     return (
       <nav aria-label="Application" className="p-4">
         <p className="px-3 text-xs font-medium text-text-muted">Workspace</p>
-        <Link
-          href="/"
-          aria-current="page"
-          className="mt-2 flex min-h-11 items-center gap-3 rounded-md bg-selected px-3 text-sm font-medium text-primary"
-        >
-          <FolderKanban aria-hidden className="h-5 w-5" /> Projects
-        </Link>
-        {auth.roles.has("admin") && (
-          <Link
-            href="/governance"
-            className="mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium text-text-secondary hover:bg-background"
-          >
-            <Users aria-hidden className="h-5 w-5" /> Tenant governance
-          </Link>
-        )}
-        {auth.config?.plsqlEnabled && (
-          <Link
-            href="/plsql"
-            className="mt-1 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium text-text-secondary hover:bg-background"
-          >
-            <Network aria-hidden className="h-5 w-5" /> PL/SQL analysis
-          </Link>
-        )}
+        <div className="mt-2 space-y-1">
+          <NavLink href="/" icon={FolderKanban} current={pathname === "/"}>
+            Projects
+          </NavLink>
+          {auth.roles.has("admin") && (
+            <NavLink
+              href="/governance"
+              icon={Users}
+              current={pathname.startsWith("/governance")}
+            >
+              Tenant governance
+            </NavLink>
+          )}
+          {auth.config?.plsqlEnabled && (
+            <NavLink
+              href="/plsql"
+              icon={Network}
+              current={pathname.startsWith("/plsql")}
+            >
+              PL/SQL analysis
+            </NavLink>
+          )}
+        </div>
       </nav>
     );
   }
@@ -177,6 +197,33 @@ function ApplicationNavigation({
       fileCount={fileCount}
       section={section}
     />
+  );
+}
+
+function NavLink({
+  href,
+  icon: Icon,
+  current,
+  children,
+}: {
+  href: string;
+  icon: LucideIcon;
+  current: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={current ? "page" : undefined}
+      className={cn(
+        "flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium",
+        current
+          ? "bg-selected text-primary"
+          : "text-text-secondary hover:bg-background",
+      )}
+    >
+      <Icon aria-hidden className="h-5 w-5" /> {children}
+    </Link>
   );
 }
 

@@ -16,8 +16,8 @@ import { HealthPanel } from "./health-panel";
 
 /**
  * Workspace-header entry to Analysis Health: a trigger button with the
- * repository-wide warning count and a dialog whose scope follows the
- * selected object (repository-wide when none is selected).
+ * warning count for the same scope the dialog opens on (the selected object,
+ * or the whole repository when none is selected).
  */
 export function AnalysisHealth({
   objectId,
@@ -31,7 +31,8 @@ export function AnalysisHealth({
 
   useEffect(() => {
     let cancelled = false;
-    getPlsqlHealth()
+    setTotal(undefined);
+    getPlsqlHealth(objectId)
       .then((health) => {
         if (!cancelled) setTotal(health.total);
       })
@@ -41,14 +42,28 @@ export function AnalysisHealth({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [objectId]);
+
+  const scope = objectId ? "this object" : "the repository";
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        variant="outline"
+        size="sm"
+        aria-label={
+          total !== undefined && total > 0
+            ? `Analysis Health, ${total} ${total === 1 ? "diagnostic" : "diagnostics"} for ${scope}`
+            : undefined
+        }
+        onClick={() => setOpen(true)}
+      >
         <TriangleAlert aria-hidden /> Analysis Health
         {total !== undefined && total > 0 && (
-          <span className="rounded-full bg-warning-surface px-2 py-0.5 text-xs text-warning">
+          <span
+            aria-hidden
+            className="rounded-full bg-warning-surface px-2 py-0.5 text-xs text-warning"
+          >
             {total}
           </span>
         )}
@@ -58,8 +73,8 @@ export function AnalysisHealth({
           <DialogHeader>
             <DialogTitle>Analysis Health</DialogTitle>
             <DialogDescription>
-              Diagnostics computed while projecting the analyzed corpus.
-              They never block navigation.
+              Diagnostics computed while projecting the analyzed corpus. They
+              never block navigation.
             </DialogDescription>
           </DialogHeader>
           <HealthPanel objectId={objectId} onOpenEvidence={onOpenEvidence} />

@@ -16,6 +16,8 @@ export type ObjectFilter = {
   key: ObjectFilterKey;
   label: string;
   kinds: PlsqlObjectKind[] | undefined;
+  /** Set when the backend never returns this kind, so the filter stays disabled. */
+  unavailableReason?: string;
 };
 
 export const PRIMARY_FILTERS: ObjectFilter[] = [
@@ -31,7 +33,12 @@ export const MORE_FILTERS: ObjectFilter[] = [
   { key: "Trigger", label: "Triggers", kinds: ["Trigger"] },
   { key: "Sequence", label: "Sequences", kinds: ["Sequence"] },
   { key: "Index", label: "Indexes", kinds: ["Index"] },
-  { key: "Synonym", label: "Synonyms", kinds: ["Synonym"] },
+  {
+    key: "Synonym",
+    label: "Synonyms",
+    kinds: ["Synonym"],
+    unavailableReason: "not searchable",
+  },
   { key: "Type", label: "Types", kinds: ["Type"] },
   {
     key: "AnonymousBlock",
@@ -93,6 +100,7 @@ export function ObjectFilters({
           {MORE_FILTERS.map((entry) => (
             <DropdownMenuItem
               key={entry.key}
+              disabled={entry.unavailableReason !== undefined}
               onSelect={() => onChange(entry)}
               className={
                 entry.key === active.key
@@ -101,6 +109,11 @@ export function ObjectFilters({
               }
             >
               {entry.label}
+              {entry.unavailableReason && (
+                <span className="text-xs text-text-muted">
+                  ({entry.unavailableReason})
+                </span>
+              )}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

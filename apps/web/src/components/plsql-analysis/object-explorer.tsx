@@ -12,6 +12,7 @@ import {
 } from "./object-filters";
 import { PackageNode, type PackageGroup } from "./package-node";
 import { ObjectRow } from "./object-row";
+import { useRovingFocus } from "./use-roving-focus";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const SEARCH_LIMIT = 100;
@@ -71,6 +72,8 @@ export function ObjectExplorer({
   const [attempt, setAttempt] = useState(0);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const requestSeq = useRef(0);
+  const { containerRef: listRef, containerProps: listProps } =
+    useRovingFocus<HTMLUListElement>();
 
   useEffect(() => {
     const seq = ++requestSeq.current;
@@ -157,7 +160,12 @@ export function ObjectExplorer({
           </p>
         )}
         {status === "ready" && (groups.length > 0 || ungrouped.length > 0) && (
-          <ul aria-label="Object search results" className="space-y-0.5">
+          <ul
+            ref={listRef}
+            aria-label="Object search results"
+            className="space-y-0.5"
+            {...listProps}
+          >
             {groups.map((group) => (
               <PackageNode
                 key={group.key}

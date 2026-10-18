@@ -7,7 +7,12 @@ import type {
   PlsqlPath,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
-import { KIND_LABELS, ObjectKindIcon, RelationshipChip } from "./plsql-atoms";
+import {
+  EVIDENCE_LINK_CLASS,
+  KIND_LABELS,
+  ObjectKindIcon,
+  RelationshipChip,
+} from "./plsql-atoms";
 
 /** Minimal shape needed to render a chain of nodes joined by relationships. */
 export type PathLike = Pick<PlsqlPath, "nodes" | "relationships">;
@@ -158,7 +163,7 @@ function PathEvidenceLink({
     <button
       type="button"
       onClick={() => onOpenEvidence(evidence)}
-      className="min-h-9 max-w-full break-words text-xs text-text-secondary underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className={`max-w-full ${EVIDENCE_LINK_CLASS}`}
     >
       {location}
     </button>

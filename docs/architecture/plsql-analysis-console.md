@@ -263,9 +263,11 @@ flowchart TB
 ```text
 apps/web/src/app/plsql/page.tsx          thin Server Component
 apps/web/src/components/plsql-analysis/
-  plsql-analysis-workspace.tsx           workspace state: selection, tabs, history, inspection
+  plsql-analysis-workspace.tsx           workspace state: selection, tabs, inspection
+  plsql-location.ts / use-plsql-history.ts  URL (`?object=…&tab=…`) ⇄ selection, browser history
   workspace-shell.tsx                    3 panes (Explorer | Workspace | Inspector) + drawers
   object-explorer.tsx                    debounced search, kind filters, package tree
+  use-roving-focus.ts                    single Tab stop + arrow keys over the result list
   object-header.tsx                      breadcrumb, kind, actions, object tabs
   overview-panel.tsx                     headline metrics + direct callers
   dependencies-panel.tsx                 category chips, list/graph, expansion, source split
@@ -278,9 +280,33 @@ apps/web/src/components/plsql-analysis/
 ```
 
 - The existing application left menu is the only application navigation; the
-  Object Explorer is contextual navigation inside the PL/SQL workspace. Panes
-  scroll independently; the Inspector collapses first (xl), then the Explorer
-  (md), each into its own drawer, while the application drawer is untouched.
+  Object Explorer is contextual navigation inside the PL/SQL workspace. The
+  menu marks the section for the current route (`aria-current="page"`) and
+  starts collapsed on this route so the analysis area keeps the width.
+  Panes scroll independently; the Inspector docks from `xl` and the Explorer
+  from `lg`, and below those widths each opens as its own drawer from the
+  toolbar. Drawers have a visible title that clears the close button, close
+  themselves after an object is chosen, and return focus to the button that
+  opened them.
+- **Deep links and history.** The selected object and tab live in the URL
+  (`/plsql?object=<opaque id>&tab=impact`; the default tab is omitted).
+  Choosing an object pushes a history entry, switching tabs only replaces the
+  current one, so the browser's Back/Forward walk the visited objects and the
+  in-app Back/Forward buttons delegate to them. A reload or shared link
+  re-fetches the object through `getPlsqlObject`; an unknown id shows an
+  explicit "not found" state and an unreachable gateway offers a retry. The
+  document title follows the selected object. Object IDs stay opaque; the
+  URL only carries them.
+- **Keyboard.** Two skip links (to the main content, and past the Explorer
+  to the analysis workspace). The Explorer results expose one Tab stop; the
+  arrow keys, Home and End move between rows and Left/Right collapse or
+  expand a package. The qualified name is a breadcrumb (`nav` + `ol`) that
+  marks the object itself with `aria-current="location"`. Selecting an
+  object moves focus to its heading. The Source tab opens the selected
+  object's source on its own, like the header's "Open source" action.
+- **Analysis Health** counts diagnostics for the same scope the dialog opens
+  on (the selected object, or the repository when none is selected); the
+  dialog's checkbox widens it to the whole repository.
 - Data flow follows the chat surface: client components call typed functions
   in `apps/web/src/lib/api.ts` (`searchPlsqlObjects`, `getPlsqlOverview`,
   `getPlsqlDependencies`, `getPlsqlImpact`, `findPlsqlPaths`,

@@ -20,3 +20,5 @@
 
 graphify-out/
 neo4j/
+# macOS
+.DS_Store

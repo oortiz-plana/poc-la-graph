@@ -282,6 +282,62 @@ describe("OverviewPanel", () => {
     );
   });
 
+  it("counts only triggers on the Triggers card of a Table, before it is opened", async () => {
+    const table: PlsqlObject = {
+      ...getSalary,
+      id: employees.id,
+      kind: "Table",
+      name: "EMPLOYEES",
+      qualifiedName: "HR.EMPLOYEES",
+      owner: null,
+    };
+    const trigger = ref(
+      "plsql://sample/HR/TRIGGER/TRG_EMPLOYEES_AUDIT",
+      "Trigger",
+      "TRG_EMPLOYEES_AUDIT",
+      "HR.TRG_EMPLOYEES_AUDIT",
+    );
+    const departments = ref(
+      "plsql://sample/HR/TABLE/DEPARTMENTS",
+      "Table",
+      "DEPARTMENTS",
+      "HR.DEPARTMENTS",
+    );
+    getPlsqlImpact.mockResolvedValue({
+      ...impactResult,
+      object: ref(table.id, "Table", table.name, table.qualifiedName),
+    });
+    getPlsqlDependencies.mockImplementation((_objectId, category) =>
+      Promise.resolve({
+        // "other" mixes relationships: one trigger, two foreign keys.
+        counts: { callers: 0, callees: 0, reads: 0, writes: 0, other: 3 },
+        items:
+          category === "other"
+            ? [
+                { ...callsEdge(trigger, table), relationship: "TRIGGER_ON" },
+                {
+                  ...callsEdge(table, departments),
+                  relationship: "FOREIGN_KEY",
+                },
+                {
+                  ...callsEdge(departments, table),
+                  relationship: "FOREIGN_KEY",
+                },
+              ]
+            : [],
+        truncated: false,
+        total: 3,
+      } satisfies PlsqlDependencySummary),
+    );
+    renderPanel(table);
+
+    const triggers = await screen.findByRole("button", { name: /Triggers/ });
+    expect(triggers).toHaveTextContent("1");
+    expect(triggers).not.toHaveTextContent("3");
+    expect(getPlsqlDependencies).toHaveBeenCalledWith(table.id, "reads");
+    expect(getPlsqlDependencies).toHaveBeenCalledWith(table.id, "other");
+  });
+
   it("shows the Direct callers detail table with a Relationship column", async () => {
     getPlsqlImpact.mockResolvedValue(impactResult);
     getPlsqlDependencies.mockResolvedValue(

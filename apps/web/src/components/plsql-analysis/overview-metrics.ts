@@ -196,15 +196,26 @@ export function overviewMetricsForKind(
 }
 
 /**
- * The first dependency-category metric's category, if any. A single fetch
- * of any one category returns every category's counts, so this is the one
- * category worth fetching eagerly to populate every dependency-sourced card.
+ * Dependency categories to fetch up front. One fetch of any category returns
+ * every category's counts, so the first dependency-sourced metric's category
+ * populates the plain cards. A metric narrowed to one relationship
+ * (`onlyRelationship`) cannot use those counts, because its category mixes
+ * other relationships (e.g. "other" holds triggers, foreign keys and view
+ * dependencies), so its category is fetched too and the card is right on the
+ * first render instead of changing once the card is opened.
  */
-export function firstDependencyCategory(
+export function eagerDependencyCategories(
   metrics: OverviewMetricDef[],
-): PlsqlDependencyCategory | undefined {
+): PlsqlDependencyCategory[] {
+  const categories: PlsqlDependencyCategory[] = [];
+  const add = (category: PlsqlDependencyCategory) => {
+    if (!categories.includes(category)) categories.push(category);
+  };
   for (const metric of metrics) {
-    if (metric.source.kind === "dependency") return metric.source.category;
+    if (metric.source.kind !== "dependency") continue;
+    if (categories.length === 0 || metric.source.onlyRelationship) {
+      add(metric.source.category);
+    }
   }
-  return undefined;
+  return categories;
 }

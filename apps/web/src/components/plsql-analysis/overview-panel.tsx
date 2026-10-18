@@ -46,7 +46,7 @@ import {
   sortImpactItems,
 } from "./impact-report";
 import {
-  firstDependencyCategory,
+  eagerDependencyCategories,
   overviewMetricsForKind,
   type OverviewMetricDef,
 } from "./overview-metrics";
@@ -194,14 +194,15 @@ function OverviewPanelContent({
     ? problemCodeOf(impactPages.error)
     : dependencyErrorCode;
 
-  // Baseline load: one dependency category, which returns every category's
-  // counts in one response. The impact summary loads through the paginated
-  // hook above; together they cover every metric's card number and the
-  // default-selected metric's rows for every kind.
+  // Baseline load: one dependency category returns every category's counts
+  // in one response, plus the categories behind relationship-narrowed cards
+  // (see `eagerDependencyCategories`). The impact summary loads through the
+  // paginated hook above; together they cover every metric's card number and
+  // the default-selected metric's rows for every kind.
   useEffect(() => {
     let cancelled = false;
     const config = overviewMetricsForKind(objectKind);
-    const category = firstDependencyCategory(config.metrics);
+    const categories = eagerDependencyCategories(config.metrics);
 
     setSelectedMetricKey(config.metrics[0].key);
     setSelectedRowId(undefined);
@@ -209,10 +210,18 @@ function OverviewPanelContent({
     setDependencyStatus("loading");
     setDependencyErrorCode(undefined);
 
-    (category ? getPlsqlDependencies(objectId, category) : Promise.resolve())
-      .then((depsValue) => {
+    Promise.all(
+      categories.map((category) => getPlsqlDependencies(objectId, category)),
+    )
+      .then((values) => {
         if (cancelled) return;
-        if (category && depsValue) setPages({ [category]: depsValue });
+        const loaded: Partial<
+          Record<PlsqlDependencyCategory, PlsqlDependencySummary>
+        > = {};
+        categories.forEach((category, index) => {
+          loaded[category] = values[index];
+        });
+        setPages(loaded);
         setDependencyStatus("ready");
       })
       .catch((error: unknown) => {

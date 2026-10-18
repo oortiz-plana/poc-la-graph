@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  firstDependencyCategory,
+  eagerDependencyCategories,
   overviewMetricsForKind,
 } from "./overview-metrics";
 
@@ -66,20 +66,28 @@ describe("overviewMetricsForKind", () => {
   });
 });
 
-describe("firstDependencyCategory", () => {
-  it("finds the first dependency-sourced metric's category", () => {
+describe("eagerDependencyCategories", () => {
+  it("starts with the first dependency-sourced metric's category", () => {
     expect(
-      firstDependencyCategory(overviewMetricsForKind("Table").metrics),
-    ).toBe("reads");
+      eagerDependencyCategories(overviewMetricsForKind("Function").metrics),
+    ).toEqual(["callees"]);
     expect(
-      firstDependencyCategory(overviewMetricsForKind("Function").metrics),
-    ).toBe("callees");
-    expect(
-      firstDependencyCategory(overviewMetricsForKind("Trigger").metrics),
-    ).toBe("other");
+      eagerDependencyCategories(overviewMetricsForKind("Trigger").metrics),
+    ).toEqual(["other"]);
   });
 
-  it("returns undefined when no metric is dependency-sourced", () => {
-    expect(firstDependencyCategory([])).toBeUndefined();
+  it("also loads the category of a relationship-narrowed metric, so its card is exact", () => {
+    // Tables and views count only TRIGGER_ON edges out of the mixed "other"
+    // category (which also holds foreign keys and view dependencies).
+    expect(
+      eagerDependencyCategories(overviewMetricsForKind("Table").metrics),
+    ).toEqual(["reads", "other"]);
+    expect(
+      eagerDependencyCategories(overviewMetricsForKind("View").metrics),
+    ).toEqual(["reads", "other"]);
+  });
+
+  it("returns nothing when no metric is dependency-sourced", () => {
+    expect(eagerDependencyCategories([])).toEqual([]);
   });
 });

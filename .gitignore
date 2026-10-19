@@ -22,3 +22,7 @@ graphify-out/
 neo4j/
 # macOS
 .DS_Store
+
+apps/web/tsconfig.tsbuildinfo
+.vscode/settings.json
+apps/web/tsconfig.tsbuildinfo

@@ -633,7 +633,7 @@ function ImpactBody({
           No impacted dependents
         </p>
       ) : (
-        <div className="mt-2 overflow-x-auto rounded-lg border bg-surface">
+        <div className="mt-2 overflow-x-auto overflow-y-hidden rounded-lg border bg-surface">
           <table
             aria-labelledby="plsql-impact-list-heading"
             className="w-full text-sm"

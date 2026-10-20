@@ -254,7 +254,7 @@ export function PlsqlAnalysisWorkspace() {
   }
 
   return (
-    <ApplicationShell defaultSidebarOpen={false}>
+    <ApplicationShell>
       {!auth.config.plsqlEnabled ? (
         <div className="p-4 sm:p-6 lg:p-8">
           <h1 className="text-2xl font-semibold">PL/SQL analysis</h1>
@@ -283,7 +283,7 @@ export function PlsqlAnalysisWorkspace() {
         >
           {({ openExplorer }) =>
             selected ? (
-              <div className="mx-auto max-w-[75rem] p-4 sm:p-6">
+              <div className="mx-auto flex min-h-0 w-full max-w-[75rem] flex-1 flex-col p-4 sm:p-6">
                 <ObjectHeader
                   object={selected}
                   headingRef={headingRef}
@@ -396,7 +396,7 @@ export function PlsqlAnalysisWorkspace() {
                 </ObjectTabs>
               </div>
             ) : (
-              <div className="mx-auto max-w-[75rem] p-4 sm:p-6 lg:p-8">
+              <div className="mx-auto min-h-0 w-full max-w-[75rem] flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h1 className="text-2xl font-semibold">PL/SQL analysis</h1>
                   <AnalysisHealth onOpenEvidence={openEvidence} />

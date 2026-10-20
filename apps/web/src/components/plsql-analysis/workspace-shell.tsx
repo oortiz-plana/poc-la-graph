@@ -115,9 +115,9 @@ export function WorkspaceShell({
         id="plsql-workspace"
         tabIndex={-1}
         aria-label="Analysis workspace"
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto focus:outline-none"
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden focus:outline-none"
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-surface/95 px-3 py-2 backdrop-blur">
+        <div className="z-10 flex shrink-0 items-center justify-between gap-2 border-b bg-surface/95 px-3 py-2 backdrop-blur">
           <Button
             ref={objectsButtonRef}
             variant="outline"

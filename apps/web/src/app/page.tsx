@@ -1,10 +1,5 @@
-import { AuthProvider } from "@/components/auth-provider";
-import { ProjectWorkspace } from "@/components/project-workspace";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <AuthProvider>
-      <ProjectWorkspace />
-    </AuthProvider>
-  );
+  redirect("/plsql");
 }

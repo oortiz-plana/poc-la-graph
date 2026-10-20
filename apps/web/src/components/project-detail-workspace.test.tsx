@@ -103,34 +103,6 @@ describe("ProjectDetailWorkspace", () => {
     mocks.getProjectAccessContext.mockResolvedValue(null);
   });
 
-  it("provides shared routable project navigation", async () => {
-    render(
-      <ProjectDetailWorkspace projectId={project.id} section="overview" />,
-    );
-
-    expect(
-      await screen.findByRole("heading", { name: project.name }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "All projects" })).toHaveAttribute(
-      "href",
-      "/",
-    );
-    expect(screen.getByRole("link", { name: "Files 1" })).toHaveAttribute(
-      "href",
-      `/projects/${project.id}?section=documents`,
-    );
-    expect(
-      screen.getByRole("link", { name: "Access & sharing" }),
-    ).toHaveAttribute("href", `/projects/${project.id}?section=access`);
-    expect(
-      screen.getByRole("navigation", { name: "Project" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Toggle navigation" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
   it("supports file selection, validation feedback, removal, and drag and drop", async () => {
     const user = userEvent.setup();
     mocks.validateUploadSelection.mockImplementation((files: File[]) =>

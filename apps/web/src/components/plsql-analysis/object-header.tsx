@@ -26,7 +26,7 @@ export function ObjectHeader({
 }) {
   const segments = object.qualifiedName.split(".");
   return (
-    <header>
+    <header className="shrink-0">
       <nav aria-label="Qualified name">
         <ol className="flex flex-wrap items-center gap-1 text-xs text-text-muted">
           {segments.map((segment, index) => (
@@ -70,10 +70,14 @@ export function ObjectTabs({
   children: ReactNode;
 }) {
   return (
-    <Tabs value={value} onValueChange={(next) => onChange(next as PlsqlTab)}>
+    <Tabs
+      value={value}
+      onValueChange={(next) => onChange(next as PlsqlTab)}
+      className="flex min-h-0 flex-1 flex-col"
+    >
       <TabsList
         aria-label="Object views"
-        className="mt-3 h-auto max-w-full overflow-x-auto"
+        className="mt-3 h-auto max-w-full shrink-0 self-start overflow-x-auto overflow-y-hidden"
       >
         {OBJECT_TABS.map((tab) => (
           <TabsTrigger
@@ -85,7 +89,9 @@ export function ObjectTabs({
           </TabsTrigger>
         ))}
       </TabsList>
-      {children}
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+        {children}
+      </div>
     </Tabs>
   );
 }

@@ -239,11 +239,7 @@ export function ProjectDetailWorkspace({
     buildStatus?.status === "building";
 
   return (
-    <ApplicationShell
-      project={project}
-      fileCount={files.length}
-      section={section}
-    >
+    <ApplicationShell>
       <main className="mx-auto max-w-[90rem] p-4 sm:p-6 lg:p-8">
         <header className="border-b pb-6">
           <div className="flex flex-wrap items-start justify-between gap-4">

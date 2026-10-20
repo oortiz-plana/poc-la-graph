@@ -1,10 +1,5 @@
-import { AuthProvider } from "@/components/auth-provider";
-import { TenantGovernanceWorkspace } from "@/components/tenant-governance-workspace";
+import { redirect } from "next/navigation";
 
 export default function GovernancePage() {
-  return (
-    <AuthProvider>
-      <TenantGovernanceWorkspace />
-    </AuthProvider>
-  );
+  redirect("/plsql");
 }

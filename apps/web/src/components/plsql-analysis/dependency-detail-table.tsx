@@ -52,7 +52,7 @@ export function DependencyDetailTable<T>({
   return (
     <div
       className={cn(
-        "overflow-x-auto",
+        "overflow-x-auto overflow-y-hidden",
         bordered && "rounded-lg border bg-surface",
       )}
     >

@@ -93,6 +93,10 @@ SCHEMA_FILE_PATH: Final = "path"
 PATH_RELATIONSHIPS: Final[frozenset[str]] = frozenset(
     {"CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "TRIGGERS", "FOREIGN_KEY"}
 )
+# Dependency-path search also walks `CONTAINS` so a package reaches the
+# objects its member routines use (Package -> member -> Table). Impact keeps
+# using `PATH_RELATIONSHIPS` and anchors packages through their members.
+PATH_TRAVERSAL_RELATIONSHIPS: Final[frozenset[str]] = PATH_RELATIONSHIPS | {"CONTAINS"}
 TABLE_ACCESS_RELATIONSHIPS: Final[frozenset[str]] = frozenset(
     {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON", "FOREIGN_KEY"}
 )

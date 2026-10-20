@@ -61,6 +61,7 @@ from app.integrations.plsql.catalog import (
     OBJECT_DECLARATION,
     OBJECTS_BY_QUALIFIED_NAMES,
     PATH_RELATIONSHIPS,
+    PATH_TRAVERSAL_RELATIONSHIPS,
     REQUIRED_QUALIFIED_NAME_INDEX,
     RESOLUTIONS,
     SCHEMA_EDGE_END_OFFSET,
@@ -144,10 +145,10 @@ _KIND_LABEL_PRIORITY: Final[tuple[ObjectKind, ...]] = (
     "AnonymousBlock",
     "Synonym",
 )
-# `PATH_RELATIONSHIPS` already includes `TRIGGERS` (catalog.py); this set
-# just adds `TRIGGER_ON` on top, so a new `PATH_RELATIONSHIPS` member is
-# picked up here automatically and never needs a direct edit.
-_TRIGGER_AWARE_RELATIONSHIPS: Final[frozenset[str]] = PATH_RELATIONSHIPS | {
+# `PATH_TRAVERSAL_RELATIONSHIPS` already includes `TRIGGERS` and `CONTAINS`
+# (catalog.py); this set just adds `TRIGGER_ON` on top, so a new member there
+# is picked up here automatically and never needs a direct edit.
+_TRIGGER_AWARE_RELATIONSHIPS: Final[frozenset[str]] = PATH_TRAVERSAL_RELATIONSHIPS | {
     "TRIGGER_ON"
 }
 
@@ -927,7 +928,7 @@ class Neo4jPlsqlAnalysisClient:
             rows = await self._execute(
                 EDGE_OUTGOING,
                 projectId=self._project_id,
-                relationships=list(PATH_RELATIONSHIPS),
+                relationships=list(PATH_TRAVERSAL_RELATIONSHIPS),
                 sources=sources,
                 limit=remaining + 1,
             )

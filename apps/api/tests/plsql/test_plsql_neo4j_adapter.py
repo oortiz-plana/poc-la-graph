@@ -592,7 +592,58 @@ async def test_find_paths_expands_bounded_frontiers(
         "VIEW_DEPENDS_ON",
         "FOREIGN_KEY",
         "TRIGGERS",
+        "CONTAINS",
     }
+
+
+async def test_find_paths_reaches_table_through_package_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = _object_record("VU_SFI.FA_QFACT_CALC", kind="Package")
+    table = _object_record("VU_SFI.FA_TDOCU", kind="Table")
+    contains = _edge_row(
+        relationship="CONTAINS",
+        sourceQualifiedName="VU_SFI.FA_QFACT_CALC",
+        sourceName="FA_QFACT_CALC",
+        sourceLabels=["DatabaseObject", "Package"],
+        targetQualifiedName="VU_SFI.FA_QFACT_CALC.ESTADO_DOCU_MORA",
+        targetName="ESTADO_DOCU_MORA",
+        targetLabels=["DatabaseObject", "ExecutableUnit", "Function"],
+    )
+    reads = _edge_row(
+        relationship="READS",
+        sourceQualifiedName="VU_SFI.FA_QFACT_CALC.ESTADO_DOCU_MORA",
+        sourceName="ESTADO_DOCU_MORA",
+        sourceLabels=["DatabaseObject", "ExecutableUnit", "Function"],
+        targetQualifiedName="VU_SFI.FA_TDOCU",
+        targetName="FA_TDOCU",
+        targetLabels=["DatabaseObject", "Table"],
+    )
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        if query == EDGE_OUTGOING and params["sources"] == ["VU_SFI.FA_QFACT_CALC"]:
+            return [contains]
+        if query == EDGE_OUTGOING and params["sources"] == [
+            "VU_SFI.FA_QFACT_CALC.ESTADO_DOCU_MORA"
+        ]:
+            return [reads]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache[package.id] = package
+    client._object_cache[table.id] = table
+    try:
+        page = await client.find_paths(
+            from_id=package.id, to_id=table.id, max_hops=3, limit=10
+        )
+    finally:
+        client.close()
+
+    assert page.total == 1
+    assert [step.relationship for step in page.items[0].steps] == [
+        "CONTAINS",
+        "READS",
+    ]
 
 
 async def test_find_paths_raises_when_traversal_budget_exceeded(

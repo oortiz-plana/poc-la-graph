@@ -1,6 +1,21 @@
-name: ${COMPOSE_PROJECT_NAME:-graphify-agent-poc}
+name: ${COMPOSE_PROJECT_NAME:-plsql-deps}
 
 services:
+  # Creates the writable state directories (conversation DB, manifest) in a
+  # fresh knowledge volume; the api runs as a non-root user and cannot create
+  # them itself. Mirrors the same service in docker-compose.yml.
+  knowledge-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "mkdir -p /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state /knowledge/projects && chown -R 10001:10001 /knowledge/staging /knowledge/graph /knowledge/archive /knowledge/failed /knowledge/state /knowledge/projects"]
+    volumes:
+      - graphify_knowledge:/knowledge
+      - ./knowledge/input:/knowledge/input:ro
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    network_mode: none
+    restart: "no"
+
   api:
     build:
       context: .
@@ -109,6 +124,8 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:
+      knowledge-init:
+        condition: service_completed_successfully
       keycloak:
         condition: service_started
     healthcheck:

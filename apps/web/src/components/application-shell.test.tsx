@@ -1,5 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { renderWithIntl } from "@/test/render-with-intl";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("@/i18n/actions", () => ({ setLocale: vi.fn() }));
 
 vi.mock("./auth-provider", () => ({
   useAuth: () => ({
@@ -14,7 +18,7 @@ import { ApplicationShell } from "./application-shell";
 
 describe("ApplicationShell navigation", () => {
   it("offers a skip link to the main content", () => {
-    render(
+    renderWithIntl(
       <ApplicationShell>
         <p>content</p>
       </ApplicationShell>,
@@ -29,7 +33,7 @@ describe("ApplicationShell navigation", () => {
   });
 
   it("has no application navigation", () => {
-    render(
+    renderWithIntl(
       <ApplicationShell>
         <p>content</p>
       </ApplicationShell>,

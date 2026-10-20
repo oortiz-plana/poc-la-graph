@@ -1,0 +1,13 @@
+{
+  "skipToMain": "Saltar al contenido principal",
+  "appName": "Graphify Knowledge Agent",
+  "tagline": "Espacio de investigación basado en evidencia",
+  "apiReady": "API lista",
+  "environment": "Local",
+  "logOut": "Cerrar sesión",
+  "language": "Idioma",
+  "languageNames": {
+    "en": "English",
+    "es": "Español"
+  }
+}

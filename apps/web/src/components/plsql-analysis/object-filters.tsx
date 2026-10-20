@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+import { useTranslations } from "next-intl";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,41 +11,41 @@ import {
 import type { PlsqlObjectKind } from "@/lib/contracts";
 
 export type ObjectFilterKey =
-  "all" | "packages" | "routines" | "tables" | "views" | PlsqlObjectKind;
+  | "all"
+  | "packages"
+  | "routines"
+  | "tables"
+  | "views"
+  | "Trigger"
+  | "Sequence"
+  | "Index"
+  | "Synonym"
+  | "Type"
+  | "AnonymousBlock";
 
 export type ObjectFilter = {
   key: ObjectFilterKey;
-  label: string;
   kinds: PlsqlObjectKind[] | undefined;
   /** Set when the backend never returns this kind, so the filter stays disabled. */
-  unavailableReason?: string;
+  unavailable?: boolean;
 };
 
 export const PRIMARY_FILTERS: ObjectFilter[] = [
-  { key: "all", label: "All", kinds: undefined },
-  { key: "packages", label: "Packages", kinds: ["Package"] },
-  { key: "routines", label: "Routines", kinds: ["Procedure", "Function"] },
-  { key: "tables", label: "Tables", kinds: ["Table"] },
-  { key: "views", label: "Views", kinds: ["View"] },
+  { key: "all", kinds: undefined },
+  { key: "packages", kinds: ["Package"] },
+  { key: "routines", kinds: ["Procedure", "Function"] },
+  { key: "tables", kinds: ["Table"] },
+  { key: "views", kinds: ["View"] },
 ];
 
 /** Less common kinds, tucked behind the "More" menu to keep the primary row compact. */
 export const MORE_FILTERS: ObjectFilter[] = [
-  { key: "Trigger", label: "Triggers", kinds: ["Trigger"] },
-  { key: "Sequence", label: "Sequences", kinds: ["Sequence"] },
-  { key: "Index", label: "Indexes", kinds: ["Index"] },
-  {
-    key: "Synonym",
-    label: "Synonyms",
-    kinds: ["Synonym"],
-    unavailableReason: "not searchable",
-  },
-  { key: "Type", label: "Types", kinds: ["Type"] },
-  {
-    key: "AnonymousBlock",
-    label: "Anonymous blocks",
-    kinds: ["AnonymousBlock"],
-  },
+  { key: "Trigger", kinds: ["Trigger"] },
+  { key: "Sequence", kinds: ["Sequence"] },
+  { key: "Index", kinds: ["Index"] },
+  { key: "Synonym", kinds: ["Synonym"], unavailable: true },
+  { key: "Type", kinds: ["Type"] },
+  { key: "AnonymousBlock", kinds: ["AnonymousBlock"] },
 ];
 
 export const DEFAULT_FILTER = PRIMARY_FILTERS[0];
@@ -60,9 +61,10 @@ export function ObjectFilters({
   active: ObjectFilter;
   onChange: (filter: ObjectFilter) => void;
 }) {
+  const t = useTranslations("plsqlWorkspace.filters");
   const moreActive = isMoreFilter(active);
   return (
-    <div role="group" aria-label="Object kind" className="flex flex-wrap gap-1">
+    <div role="group" aria-label={t("group")} className="flex flex-wrap gap-1">
       {PRIMARY_FILTERS.map((entry) => {
         const pressed = entry.key === active.key;
         return (
@@ -77,7 +79,7 @@ export function ObjectFilters({
                 : "bg-surface text-text-secondary hover:bg-background"
             }`}
           >
-            {entry.label}
+            {t(entry.key)}
           </button>
         );
       })}
@@ -92,7 +94,7 @@ export function ObjectFilters({
                 : "bg-surface text-text-secondary hover:bg-background"
             }`}
           >
-            {moreActive ? active.label : "More"}
+            {moreActive ? t(active.key) : t("more")}
             <ChevronDown aria-hidden className="h-3 w-3" />
           </button>
         </DropdownMenuTrigger>
@@ -100,7 +102,7 @@ export function ObjectFilters({
           {MORE_FILTERS.map((entry) => (
             <DropdownMenuItem
               key={entry.key}
-              disabled={entry.unavailableReason !== undefined}
+              disabled={entry.unavailable === true}
               onSelect={() => onChange(entry)}
               className={
                 entry.key === active.key
@@ -108,10 +110,10 @@ export function ObjectFilters({
                   : undefined
               }
             >
-              {entry.label}
-              {entry.unavailableReason && (
+              {t(entry.key)}
+              {entry.unavailable && (
                 <span className="text-xs text-text-muted">
-                  ({entry.unavailableReason})
+                  ({t("notSearchable")})
                 </span>
               )}
             </DropdownMenuItem>

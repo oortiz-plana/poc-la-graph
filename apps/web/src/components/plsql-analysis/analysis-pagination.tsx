@@ -1,6 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useState, type ReactNode } from "react";
 import { SWRConfig } from "swr";
 import { Button } from "@/components/ui/button";
@@ -35,14 +36,15 @@ export function AnalysisPagination({
   onLoadMore: () => void;
   onRetry: () => void;
 }) {
+  const t = useTranslations("plsqlWorkspace.pagination");
   return (
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
       <p aria-live="polite" className="text-sm text-text-secondary">
-        Showing {loaded} of {total}
+        {t("showing", { loaded, total })}
       </p>
       {error && (
         <p role="alert" className="text-sm text-text-secondary">
-          Could not load more results. Loaded results are still available.
+          {t("loadError")}
         </p>
       )}
       {(error || nextCursor) && (
@@ -56,7 +58,7 @@ export function AnalysisPagination({
           {loading && (
             <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
           )}
-          {loading ? "Loading…" : error ? "Retry loading more" : "Load more"}
+          {loading ? t("loading") : error ? t("retry") : t("loadMore")}
         </Button>
       )}
     </div>

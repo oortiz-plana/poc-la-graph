@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, LoaderCircle } from "lucide-react";
+import { useTranslations } from "next-intl";
 import {
   useEffect,
   useMemo,
@@ -32,9 +33,9 @@ import {
 import { DependencyPathTrail } from "./dependency-path-trail";
 import {
   displayPackageOf,
-  evidenceLineLabel,
+  useEvidenceLineLabel,
   evidenceLocation,
-  hopText,
+  useHopText,
   ObjectKindBadge,
   EVIDENCE_LINK_CLASS,
 } from "./plsql-atoms";
@@ -146,6 +147,7 @@ function ImpactReportContent({
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
 }) {
+  const t = useTranslations("plsqlImpact.impact");
   const auth = useAuth();
   const maxDepth = auth.config.plsqlMaxHops ?? FALLBACK_MAX_DEPTH;
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -255,7 +257,7 @@ function ImpactReportContent({
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} className="text-xl font-semibold">
-        Impact analysis
+        {t("heading")}
       </h2>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <ImpactControls
@@ -273,7 +275,7 @@ function ImpactReportContent({
                 setOpenPackages(new Set());
               }}
             />
-            Group by package
+            {t("groupByPackage")}
           </label>
           <ViewModeToggle mode={viewMode} onChange={setViewMode} />
         </div>
@@ -284,7 +286,7 @@ function ImpactReportContent({
           className="flex items-center gap-2 text-sm text-text-secondary"
         >
           <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-          Loading impact analysis…
+          {t("loading")}
         </p>
       )}
       {status === "error" && (
@@ -350,23 +352,24 @@ function ImpactControls({
   maxDepth: number;
   onChange: (patch: Partial<Filters>) => void;
 }) {
+  const t = useTranslations("plsqlImpact.impact");
   const fieldClass = "flex min-w-32 flex-col text-sm font-medium leading-5";
   const selectClass =
     "mt-1 block min-h-10 w-full rounded-md border bg-surface px-2 text-sm";
   return (
     <div className="mt-3 flex flex-wrap items-start gap-x-3 gap-y-2">
       <label className={fieldClass}>
-        Direction
+        {t("direction")}
         <select
-          aria-label="Direction"
+          aria-label={t("direction")}
           value={filters.direction}
           onChange={(event) =>
             onChange({ direction: event.target.value as ImpactDirection })
           }
           className={selectClass}
         >
-          <option value="upstream">Upstream</option>
-          <option value="downstream">Downstream</option>
+          <option value="upstream">{t("upstream")}</option>
+          <option value="downstream">{t("downstream")}</option>
         </select>
       </label>
       <DepthField
@@ -376,9 +379,9 @@ function ImpactControls({
         onChange={(depth) => onChange({ depth })}
       />
       <label className={`${fieldClass} min-w-44`}>
-        Relationship
+        {t("relationship")}
         <select
-          aria-label="Relationship"
+          aria-label={t("relationship")}
           value={filters.relationship}
           disabled={filters.writesOnly}
           onChange={(event) =>
@@ -400,7 +403,7 @@ function ImpactControls({
             ] as const
           ).map((relationship) => (
             <option key={relationship} value={relationship}>
-              {relationship}
+              {relationship === "All" ? t("relationshipAll") : relationship}
             </option>
           ))}
         </select>
@@ -411,7 +414,7 @@ function ImpactControls({
           checked={filters.directOnly}
           onChange={(event) => onChange({ directOnly: event.target.checked })}
         />
-        Direct only
+        {t("directOnly")}
       </label>
       <label className="mt-6 flex h-10 items-center gap-2 text-sm">
         <input
@@ -419,7 +422,7 @@ function ImpactControls({
           checked={filters.writesOnly}
           onChange={(event) => onChange({ writesOnly: event.target.checked })}
         />
-        Writes only
+        {t("writesOnly")}
       </label>
     </div>
   );
@@ -443,6 +446,7 @@ export function DepthField({
   disabled?: boolean;
   onChange: (depth: number) => void;
 }) {
+  const t = useTranslations("plsqlImpact.impact");
   const [draft, setDraft] = useState(String(depth));
 
   useEffect(() => {
@@ -460,11 +464,11 @@ export function DepthField({
 
   return (
     <label className="flex min-w-20 flex-col text-sm font-medium leading-5">
-      Depth
+      {t("depth")}
       <input
         type="number"
         inputMode="numeric"
-        aria-label="Depth"
+        aria-label={t("depth")}
         min={1}
         max={maxDepth}
         step={1}
@@ -481,7 +485,7 @@ export function DepthField({
         className="mt-1 block min-h-10 w-full rounded-md border bg-surface px-2 text-sm"
       />
       <span className="mt-1 block text-xs font-normal text-text-secondary">
-        Max {maxDepth} hops
+        {t("maxHops", { max: maxDepth })}
       </span>
     </label>
   );
@@ -504,6 +508,7 @@ function ImpactGraph({
   onTogglePackage,
   onOpenObject,
 }: ImpactGraphProps) {
+  const t = useTranslations("plsqlImpact.impact");
   const nodeMap = new Map<string, GraphNode>();
   const refById = new Map<string, PlsqlObjectReference>();
   const refByPackage = new Map<string, PlsqlObjectReference[]>();
@@ -572,11 +577,11 @@ function ImpactGraph({
           const ref = refById.get(nodeId);
           if (ref) onOpenObject(ref);
         }}
-        ariaLabel={`Impact graph for ${result.object.qualifiedName}`}
+        ariaLabel={t("graphLabel", { name: result.object.qualifiedName })}
       />
       {groupByPackage && refsForPackage.size > 0 && (
         <p className="mt-2 text-sm text-text-secondary">
-          Select a package node to drill into its routines.
+          {t("drillIntoPackage")}
         </p>
       )}
     </div>
@@ -610,25 +615,26 @@ function ImpactBody({
   onInspectPath: (path: PlsqlPath) => void;
   onFocusInGraph: (nodeId: string) => void;
 }) {
+  const t = useTranslations("plsqlImpact.impact");
   const { summary } = result;
   const items = useMemo(() => sortImpactItems(result.items), [result.items]);
   const selectedItem = items.find((item) => item.id === selectedId);
   return (
     <div className="mt-4">
       <h3 className="text-sm font-semibold text-text-secondary">
-        Blast radius
+        {t("blastRadius")}
       </h3>
       <dl className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard value={summary.direct} label="Direct" />
-        <StatCard value={summary.indirect} label="Indirect dependents" />
-        <StatCard value={summary.packages} label="Packages" />
-        <StatCard value={summary.tablesModified} label="Tables modified" />
+        <StatCard value={summary.direct} label={t("direct")} />
+        <StatCard value={summary.indirect} label={t("indirect")} />
+        <StatCard value={summary.packages} label={t("packages")} />
+        <StatCard value={summary.tablesModified} label={t("tablesModified")} />
       </dl>
       <h3
         id="plsql-impact-list-heading"
         className="mt-6 text-sm font-semibold text-text-secondary"
       >
-        Affected objects
+        {t("affectedObjects")}
       </h3>
       <div className="mt-2">
         <ListDetailSplit
@@ -636,7 +642,7 @@ function ImpactBody({
             <>
               {items.length === 0 ? (
                 <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-                  No impacted dependents
+                  {t("noImpacted")}
                 </p>
               ) : (
                 <div className="overflow-x-auto overflow-y-hidden rounded-lg border bg-surface">
@@ -647,22 +653,22 @@ function ImpactBody({
                     <thead>
                       <tr className="text-left text-xs text-text-secondary">
                         <th scope="col" className="px-3 py-2 font-medium">
-                          Object
+                          {t("columnObject")}
                         </th>
                         <th scope="col" className="px-3 py-2 font-medium">
-                          Package
+                          {t("columnPackage")}
                         </th>
                         <th scope="col" className="px-3 py-2 font-medium">
-                          Type
+                          {t("columnType")}
                         </th>
                         <th
                           scope="col"
                           className="px-3 py-2 text-right font-medium"
                         >
-                          Distance
+                          {t("columnDistance")}
                         </th>
                         <th scope="col" className="px-3 py-2 font-medium">
-                          Evidence
+                          {t("columnEvidence")}
                         </th>
                       </tr>
                     </thead>
@@ -716,6 +722,8 @@ function AffectedObjectRow({
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
 }) {
+  const evidenceLineLabel = useEvidenceLineLabel();
+  const hopText = useHopText();
   const pkg = displayPackageOf(item.dependent);
   const evidence = primaryEvidence(item);
   const evidenceLabel = evidenceLineLabel(evidence);
@@ -829,6 +837,9 @@ function ImpactDetail({
   onInspectPath: (path: PlsqlPath) => void;
   onFocusInGraph: (nodeId: string) => void;
 }) {
+  const t = useTranslations("plsqlImpact.impact");
+  const evidenceLineLabel = useEvidenceLineLabel();
+  const hopText = useHopText();
   const paths = useMemo(() => sortPaths(item.paths), [item.paths]);
   const activeIndex = Math.min(pathIndex, paths.length - 1);
   const path = paths[activeIndex];
@@ -849,10 +860,10 @@ function ImpactDetail({
 
   return (
     <InsightPanel
-      ariaLabel={`Why ${item.dependent.name} is affected`}
-      title="Why is this affected?"
+      ariaLabel={t("whyLabel", { name: item.dependent.name })}
+      title={t("whyTitle")}
       subtitle={item.dependent.qualifiedName}
-      closeLabel={`Close why ${item.dependent.name} is affected`}
+      closeLabel={t("closeWhy", { name: item.dependent.name })}
       onClose={onClose}
       trail={
         <>
@@ -865,21 +876,23 @@ function ImpactDetail({
               showKind
             />
           ) : (
-            <p className="text-sm text-text-secondary">No path available</p>
+            <p className="text-sm text-text-secondary">{t("noPath")}</p>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
             <span className="font-medium text-text-primary">
               {path ? hopText(path.hopCount) : null}
             </span>
             {paths.length > 1 && (
-              <span aria-live="polite">{paths.length} paths found</span>
+              <span aria-live="polite">
+                {t("pathsFound", { count: paths.length })}
+              </span>
             )}
             {lineLabel !== undefined && <span>{lineLabel}</span>}
           </div>
           {paths.length > 1 && (
             <div className="mt-2">
               <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
-                Path
+                {t("path")}
                 <select
                   value={activeIndex}
                   onChange={(event) =>
@@ -889,9 +902,15 @@ function ImpactDetail({
                 >
                   {paths.map((candidate, candidateIndex) => (
                     <option key={candidate.id} value={candidateIndex}>
-                      Path {candidateIndex + 1}
-                      {candidateIndex === 0 ? " · shortest" : ""} ·{" "}
-                      {hopText(candidate.hopCount)}
+                      {t(
+                        candidateIndex === 0
+                          ? "pathOptionShortest"
+                          : "pathOption",
+                        {
+                          number: candidateIndex + 1,
+                          hops: hopText(candidate.hopCount),
+                        },
+                      )}
                     </option>
                   ))}
                 </select>
@@ -904,7 +923,7 @@ function ImpactDetail({
               variant="outline"
               onClick={() => onOpenObject(item.dependent)}
             >
-              Open object
+              {t("openObject")}
             </Button>
             <Button
               size="sm"
@@ -912,25 +931,26 @@ function ImpactDetail({
               onClick={() => path && onInspectPath(path)}
               disabled={!path}
             >
-              View full path
+              {t("viewFullPath")}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => onFocusInGraph(item.dependent.id)}
             >
-              Focus in graph
+              {t("focusInGraph")}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => void copyQualifiedName()}
             >
-              <Copy aria-hidden /> {copied ? "Copied" : "Copy qualified name"}
+              <Copy aria-hidden />{" "}
+              {copied ? t("copied") : t("copyQualifiedName")}
             </Button>
           </div>
           <p aria-live="polite" className="sr-only">
-            {copied ? "Qualified name copied to clipboard." : ""}
+            {copied ? t("copiedAnnouncement") : ""}
           </p>
         </>
       }
@@ -938,7 +958,7 @@ function ImpactDetail({
         <>
           {finalEdge?.evidence?.sourceFileId ? (
             <SourceBody
-              heading="Source evidence"
+              heading={t("sourceEvidence")}
               compact
               onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
               request={{
@@ -950,7 +970,7 @@ function ImpactDetail({
             />
           ) : (
             <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-              No source evidence available for this relationship.
+              {t("noEvidence")}
             </p>
           )}
         </>

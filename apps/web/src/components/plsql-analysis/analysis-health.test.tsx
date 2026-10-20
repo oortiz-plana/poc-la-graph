@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import { renderWithIntl as render } from "@/test/render-with-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getPlsqlHealth = vi.hoisted(() => vi.fn());

@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 
 /**
@@ -24,6 +25,7 @@ export function InsightPanel({
   trail: ReactNode;
   evidence: ReactNode;
 }) {
+  const t = useTranslations("plsqlOverview");
   return (
     <section aria-label={ariaLabel} className="rounded-lg border bg-background">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
@@ -50,7 +52,7 @@ export function InsightPanel({
       <div className="flex flex-wrap items-start">
         <div className="min-w-0 flex-[1_1_16rem] p-4">{trail}</div>
         <section
-          aria-label="Source evidence"
+          aria-label={t("insight.sourceEvidence")}
           className="min-w-0 flex-[2_1_22rem] p-4"
         >
           {evidence}

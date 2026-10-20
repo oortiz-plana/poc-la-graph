@@ -1,6 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
+
+// The switcher needs the Next app router and a server action; shells under test
+// only need it to be present. locale-switcher.test.tsx unmocks it.
+vi.mock("@/components/locale-switcher", () => ({
+  LocaleSwitcher: () => null,
+}));
 
 afterEach(() => {
   cleanup();

@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, PanelLeft, PanelRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,6 +64,7 @@ export function WorkspaceShell({
   hasInspection: boolean;
   children: ReactNode | ((controls: WorkspaceShellControls) => ReactNode);
 }) {
+  const t = useTranslations("plsqlWorkspace.shell");
   const [explorerDrawerOpen, setExplorerDrawerOpen] = useState(false);
   const [explorerDrawerMounted, setExplorerDrawerMounted] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
@@ -102,7 +104,7 @@ export function WorkspaceShell({
       >
         <DockedPane
           side="left"
-          label="Object Explorer"
+          label={t("objectExplorer")}
           width="clamp(14rem,20vw,20rem)"
           dockFrom="lg"
           paneRef={dockedExplorerRef}
@@ -114,7 +116,7 @@ export function WorkspaceShell({
       <section
         id="plsql-workspace"
         tabIndex={-1}
-        aria-label="Analysis workspace"
+        aria-label={t("analysisWorkspace")}
         className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden focus:outline-none"
       >
         <div className="z-10 flex shrink-0 items-center justify-between gap-2 border-b bg-surface/95 px-3 py-2 backdrop-blur">
@@ -125,7 +127,7 @@ export function WorkspaceShell({
             className="lg:hidden"
             onClick={openExplorerDrawer}
           >
-            <PanelLeft aria-hidden /> Objects
+            <PanelLeft aria-hidden /> {t("objects")}
           </Button>
           <span className="flex-1" />
           {hasInspection && (
@@ -135,7 +137,7 @@ export function WorkspaceShell({
               className="xl:hidden"
               onClick={() => setInspectorDrawerOpen(true)}
             >
-              <PanelRight aria-hidden /> Inspector
+              <PanelRight aria-hidden /> {t("inspector")}
             </Button>
           )}
         </div>
@@ -150,7 +152,7 @@ export function WorkspaceShell({
         >
           <DockedPane
             side="right"
-            label="Inspector"
+            label={t("inspector")}
             width="clamp(16rem,22vw,22rem)"
             dockFrom="xl"
           >
@@ -174,9 +176,11 @@ export function WorkspaceShell({
             )}
           >
             <SheetHeader className="min-h-[4.875rem] shrink-0 justify-center space-y-0 border-b px-4 pr-16">
-              <SheetTitle className="text-base">Object Explorer</SheetTitle>
+              <SheetTitle className="text-base">
+                {t("objectExplorer")}
+              </SheetTitle>
               <SheetDescription className="sr-only">
-                PL/SQL object navigation
+                {t("explorerDescription")}
               </SheetDescription>
             </SheetHeader>
             <div className="min-h-0 flex-1">
@@ -192,9 +196,9 @@ export function WorkspaceShell({
             className="flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-0 p-0"
           >
             <SheetHeader className="min-h-[4.875rem] shrink-0 justify-center space-y-0 border-b px-4 pr-16">
-              <SheetTitle className="text-base">Inspector</SheetTitle>
+              <SheetTitle className="text-base">{t("inspector")}</SheetTitle>
               <SheetDescription className="sr-only">
-                Selected object and dependency details
+                {t("inspectorDescription")}
               </SheetDescription>
             </SheetHeader>
             <div className="min-h-0 flex-1 overflow-y-auto">{inspector}</div>
@@ -237,6 +241,7 @@ function DockedPane({
   skipTo?: string;
   children: ReactNode;
 }) {
+  const t = useTranslations("plsqlWorkspace.shell");
   const { state, toggleSidebar } = useSidebar();
   const collapsed = state === "collapsed";
   const showChevronRight = side === "left" ? collapsed : !collapsed;
@@ -259,7 +264,7 @@ function DockedPane({
           href={`#${skipTo}`}
           className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-20 focus:rounded-md focus:border focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:ring-2 focus:ring-primary"
         >
-          Skip to analysis workspace
+          {t("skipToWorkspace")}
         </a>
       )}
       <SidebarContent className="h-full overflow-y-auto">
@@ -275,7 +280,7 @@ function DockedPane({
     <button
       key="toggle"
       type="button"
-      aria-label={collapsed ? `Show ${label}` : `Hide ${label}`}
+      aria-label={collapsed ? t("show", { label }) : t("hide", { label })}
       aria-pressed={!collapsed}
       onClick={toggleSidebar}
       className={cn(

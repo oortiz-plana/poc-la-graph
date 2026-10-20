@@ -9,7 +9,7 @@ import type {
 } from "@/lib/contracts";
 import {
   EVIDENCE_LINK_CLASS,
-  KIND_LABELS,
+  useKindLabel,
   ObjectKindIcon,
   RelationshipChip,
 } from "./plsql-atoms";
@@ -106,6 +106,7 @@ function PathNode({
   onOpenObject?: (reference: PlsqlObjectReference) => void;
   showKind?: boolean;
 }) {
+  const kindLabel = useKindLabel();
   const chipClass = cn(
     "inline-flex max-w-full items-center gap-1.5 rounded-md border px-3 py-1 text-sm font-medium",
     highlighted
@@ -139,9 +140,7 @@ function PathNode({
         </span>
       )}
       {showKind && (
-        <span className="text-xs text-text-muted">
-          {KIND_LABELS[node.kind]}
-        </span>
+        <span className="text-xs text-text-muted">{kindLabel(node.kind)}</span>
       )}
     </span>
   );

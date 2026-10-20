@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import type {
   PlsqlDependency,
@@ -33,12 +34,9 @@ export function InspectorPanel({
   inspection?: Inspection;
   onOpenObject?: (reference: PlsqlObjectReference) => void;
 }) {
+  const t = useTranslations("plsqlDependencies.inspector");
   if (!inspection) {
-    return (
-      <p className="p-4 text-sm text-text-secondary">
-        Select an object, dependency, or path to inspect its details.
-      </p>
-    );
+    return <p className="p-4 text-sm text-text-secondary">{t("empty")}</p>;
   }
   if (inspection.kind === "object") {
     return (
@@ -63,12 +61,13 @@ function ObjectInspection({
   object: PlsqlObject;
   onOpenObject?: (reference: PlsqlObjectReference) => void;
 }) {
+  const t = useTranslations("plsqlDependencies.inspector");
   const declaration = object.declaration;
   return (
     <div>
       <header className="border-b px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-          Object details
+          {t("objectDetails")}
         </p>
         <p className="mt-1 flex flex-wrap items-center gap-2">
           <ObjectLink
@@ -82,15 +81,17 @@ function ObjectInspection({
         </p>
       </header>
       <dl className="divide-y">
-        <Row label="Schema" value={object.schema} />
-        <Row label="Qualified name" value={object.qualifiedName} />
-        {object.owner && <Row label="Package" value={object.owner} />}
-        {declaration?.path && <Row label="File" value={declaration.path} />}
+        <Row label={t("schema")} value={object.schema} />
+        <Row label={t("qualifiedName")} value={object.qualifiedName} />
+        {object.owner && <Row label={t("package")} value={object.owner} />}
+        {declaration?.path && (
+          <Row label={t("file")} value={declaration.path} />
+        )}
         {declaration?.startLine != null && (
-          <Row label="Start line" value={String(declaration.startLine)} />
+          <Row label={t("startLine")} value={String(declaration.startLine)} />
         )}
         {declaration?.endOffset != null && (
-          <Row label="End offset" value={String(declaration.endOffset)} />
+          <Row label={t("endOffset")} value={String(declaration.endOffset)} />
         )}
       </dl>
     </div>
@@ -104,11 +105,12 @@ function EdgeInspection({
   edge: PlsqlDependency;
   onOpenObject?: (reference: PlsqlObjectReference) => void;
 }) {
+  const t = useTranslations("plsqlDependencies.inspector");
   return (
     <div>
       <header className="border-b px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-          Dependency edge
+          {t("dependencyEdge")}
         </p>
         <p className="mt-1 flex flex-wrap items-center gap-2">
           <ResolutionBadge resolution={edge.resolution} />
@@ -116,22 +118,22 @@ function EdgeInspection({
       </header>
       <dl className="divide-y">
         <ReferenceRow
-          label="From"
+          label={t("from")}
           reference={edge.source}
           onOpenObject={onOpenObject}
         />
         <Row
-          label="Relationship"
+          label={t("relationship")}
           value={<RelationshipChip relationship={edge.relationship} />}
         />
         <ReferenceRow
-          label="To"
+          label={t("to")}
           reference={edge.target}
           onOpenObject={onOpenObject}
         />
         <Row
-          label="Evidence"
-          value={evidenceLocation(edge.evidence) ?? "None"}
+          label={t("evidence")}
+          value={evidenceLocation(edge.evidence) ?? t("none")}
         />
       </dl>
     </div>
@@ -145,29 +147,34 @@ function PathInspection({
   path: PlsqlPath;
   onOpenObject?: (reference: PlsqlObjectReference) => void;
 }) {
+  const t = useTranslations("plsqlDependencies.inspector");
   const from = path.nodes[0];
   const to = path.nodes[path.nodes.length - 1];
   return (
     <div>
       <header className="border-b px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-          Dependency path
+          {t("dependencyPath")}
         </p>
       </header>
       <dl className="divide-y">
         <ReferenceRow
-          label="From"
+          label={t("from")}
           reference={from}
           onOpenObject={onOpenObject}
         />
-        <ReferenceRow label="To" reference={to} onOpenObject={onOpenObject} />
+        <ReferenceRow
+          label={t("to")}
+          reference={to}
+          onOpenObject={onOpenObject}
+        />
         <Row
-          label="Hops"
-          value={path.hopCount === 1 ? "1 hop" : `${path.hopCount} hops`}
+          label={t("hops")}
+          value={t("hopCount", { count: path.hopCount })}
         />
       </dl>
       <div className="border-t px-4 py-3">
-        <p className="text-xs text-text-muted">Full path</p>
+        <p className="text-xs text-text-muted">{t("fullPath")}</p>
         <ol className="mt-2 space-y-1.5">
           {path.nodes.map((node, index) => (
             <li

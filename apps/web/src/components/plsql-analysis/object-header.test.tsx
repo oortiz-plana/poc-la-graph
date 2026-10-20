@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import { renderWithIntl as render } from "@/test/render-with-intl";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { PlsqlObject } from "@/lib/contracts";

@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, LoaderCircle, Minus, Plus } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { getPlsqlDependencies, type PlsqlProblemCode } from "@/lib/api";
@@ -25,7 +26,7 @@ import {
 } from "./dependency-graph";
 import { dependencyToPath, DependencyPathTrail } from "./dependency-path-trail";
 import {
-  evidenceLineLabel,
+  useEvidenceLineLabel,
   evidenceLocation,
   RelationshipChip,
   ResolutionBadge,
@@ -38,12 +39,12 @@ import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
 
 type SectionStatus = "loading" | "ready" | "error";
 
-const CATEGORIES: { value: PlsqlDependencyCategory; label: string }[] = [
-  { value: "callers", label: "Callers" },
-  { value: "callees", label: "Callees" },
-  { value: "reads", label: "Reads" },
-  { value: "writes", label: "Writes" },
-  { value: "other", label: "Other" },
+const CATEGORIES: { value: PlsqlDependencyCategory }[] = [
+  { value: "callers" },
+  { value: "callees" },
+  { value: "reads" },
+  { value: "writes" },
+  { value: "other" },
 ];
 
 /** One compact result row: the edge plus whichever endpoint isn't the analyzed object. */
@@ -79,6 +80,8 @@ export function DependenciesPanel({
   /** "View full path" contextual action: shows the one-hop edge as a path in the Inspector. */
   onInspectPath?: (path: PlsqlPath) => void;
 }) {
+  const t = useTranslations("plsqlDependencies");
+  const evidenceLineLabel = useEvidenceLineLabel();
   const objectId = object.id;
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [category, setCategory] = useState<PlsqlDependencyCategory>(
@@ -241,9 +244,6 @@ export function DependenciesPanel({
   const activeSummary =
     viewMode === "list" && status === "ready" ? activePage : undefined;
   const graph = viewMode === "graph" ? buildGraph() : undefined;
-  const activeCategoryLabel = CATEGORIES.find(
-    (entry) => entry.value === category,
-  )?.label;
 
   const rows: DependencyListRow[] = (activeSummary?.items ?? []).map(
     (edge) => ({
@@ -255,7 +255,7 @@ export function DependenciesPanel({
 
   const columns: DetailTableColumn<DependencyListRow>[] = [
     {
-      header: "Related object",
+      header: t("columns.relatedObject"),
       cell: (row) => (
         <span
           title={row.other.qualifiedName}
@@ -266,15 +266,15 @@ export function DependenciesPanel({
       ),
     },
     {
-      header: "Relationship",
+      header: t("columns.relationship"),
       cell: (row) => <RelationshipChip relationship={row.edge.relationship} />,
     },
     {
-      header: "Resolution",
+      header: t("columns.resolution"),
       cell: (row) => <ResolutionBadge resolution={row.edge.resolution} />,
     },
     {
-      header: "Evidence",
+      header: t("columns.evidence"),
       cell: (row) => {
         const label = evidenceLineLabel(row.edge.evidence);
         const fullLocation = evidenceLocation(row.edge.evidence);
@@ -309,12 +309,12 @@ export function DependenciesPanel({
   ];
 
   return (
-    <section aria-label="Dependencies">
+    <section aria-label={t("panel.ariaLabel")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         {viewMode === "list" ? (
           <div
             role="group"
-            aria-label="Dependency category"
+            aria-label={t("panel.categoryGroup")}
             className="flex flex-wrap gap-2"
           >
             {CATEGORIES.map((entry) => {
@@ -332,7 +332,7 @@ export function DependenciesPanel({
                       : "bg-surface text-text-secondary hover:bg-background"
                   }`}
                 >
-                  {entry.label}
+                  {t(`categories.${entry.value}`)}
                   {count !== undefined && (
                     <span className="rounded-full bg-background px-2 py-0.5 text-xs">
                       {count}
@@ -345,7 +345,7 @@ export function DependenciesPanel({
         ) : (
           <div
             role="group"
-            aria-label="Graph expansion"
+            aria-label={t("panel.graphExpansion")}
             className="flex flex-wrap gap-2"
           >
             {CATEGORIES.map((entry) => {
@@ -368,7 +368,7 @@ export function DependenciesPanel({
                   ) : (
                     <Plus aria-hidden className="h-3.5 w-3.5" />
                   )}
-                  {entry.label}
+                  {t(`categories.${entry.value}`)}
                   {count !== undefined && (
                     <span className="rounded-full bg-background px-2 py-0.5 text-xs">
                       {count}
@@ -382,7 +382,7 @@ export function DependenciesPanel({
               onClick={expandOneLevel}
               className="inline-flex min-h-9 items-center gap-1.5 rounded-full border bg-surface px-3 py-1 text-sm font-medium text-text-secondary hover:bg-background"
             >
-              <Plus aria-hidden className="h-3.5 w-3.5" /> One level
+              <Plus aria-hidden className="h-3.5 w-3.5" /> {t("panel.oneLevel")}
             </button>
           </div>
         )}
@@ -395,7 +395,7 @@ export function DependenciesPanel({
           className="mt-3 flex items-center gap-2 text-sm text-text-secondary"
         >
           <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-          Loading dependencies…
+          {t("panel.loading")}
         </p>
       )}
       {status === "error" && (
@@ -420,11 +420,11 @@ export function DependenciesPanel({
               const edge = graph.edgeById.get(edgeId);
               if (edge) selectEdge(edge);
             }}
-            ariaLabel={`Dependency graph for ${object.qualifiedName}`}
+            ariaLabel={t("panel.graphLabel", { name: object.qualifiedName })}
           />
           {expanded.size === 0 && (
             <p className="mt-2 text-sm text-text-secondary">
-              Expand a category to explore the neighborhood of {object.name}.
+              {t("panel.expandHint", { name: object.name })}
             </p>
           )}
         </>
@@ -435,27 +435,29 @@ export function DependenciesPanel({
           <>
             {viewMode === "list" && activeSummary && (
               <section
-                aria-label="Dependency results"
+                aria-label={t("panel.resultsHeading")}
                 className="mt-3 rounded-lg border bg-surface"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
                   <h3 className="text-sm font-semibold text-text-secondary">
-                    Dependency results
+                    {t("panel.resultsHeading")}
                   </h3>
                   {activeSummary.truncated && (
                     <span className="text-xs text-warning">
-                      Results truncated
+                      {t("panel.truncated")}
                     </span>
                   )}
                 </div>
                 <DependencyDetailTable
-                  ariaLabel={`${activeCategoryLabel ?? "Dependency"} results`}
+                  ariaLabel={t("panel.tableLabel", {
+                    category: t(`categories.${category}`),
+                  })}
                   columns={columns}
                   rows={rows}
                   getRowId={(row) => row.id}
                   selectedId={selectedEdge?.id}
                   onSelectRow={(row) => selectEdge(row.edge)}
-                  emptyMessage="No matching dependencies"
+                  emptyMessage={t("panel.empty")}
                   bordered={false}
                 />
               </section>
@@ -504,6 +506,8 @@ function SelectedDependency({
   onInspectPath?: (path: PlsqlPath) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
 }) {
+  const t = useTranslations("plsqlDependencies");
+  const evidenceLineLabel = useEvidenceLineLabel();
   const other = edge.source.id === objectId ? edge.target : edge.source;
   const evidence = edge.evidence;
   const lineLabel = evidenceLineLabel(evidence);
@@ -525,9 +529,9 @@ function SelectedDependency({
 
   return (
     <InsightPanel
-      ariaLabel="Selected dependency"
-      title="Selected dependency"
-      closeLabel="Close selected dependency"
+      ariaLabel={t("selected.title")}
+      title={t("selected.title")}
+      closeLabel={t("selected.close")}
       onClose={onClose}
       trail={
         <>
@@ -555,16 +559,18 @@ function SelectedDependency({
               variant="outline"
               onClick={() => onOpenObject(other)}
             >
-              Open object
+              {t("selected.openObject")}
             </Button>
             {onAnalyzeObject && (
               <Button
                 size="sm"
                 variant="outline"
-                aria-label={`Analyze impact for ${other.name}`}
+                aria-label={t("selected.analyzeImpactFor", {
+                  name: other.name,
+                })}
                 onClick={() => onAnalyzeObject(other)}
               >
-                Analyze impact
+                {t("selected.analyzeImpact")}
               </Button>
             )}
             {onInspectPath && (
@@ -575,7 +581,7 @@ function SelectedDependency({
                   onInspectPath({ id: edge.id, ...path, hopCount: 1 })
                 }
               >
-                View full path
+                {t("selected.viewFullPath")}
               </Button>
             )}
             <Button
@@ -583,11 +589,12 @@ function SelectedDependency({
               variant="ghost"
               onClick={() => void copyQualifiedName()}
             >
-              <Copy aria-hidden /> {copied ? "Copied" : "Copy qualified name"}
+              <Copy aria-hidden />{" "}
+              {copied ? t("selected.copied") : t("selected.copyQualifiedName")}
             </Button>
           </div>
           <p aria-live="polite" className="sr-only">
-            {copied ? "Qualified name copied to clipboard." : ""}
+            {copied ? t("selected.copiedAnnouncement") : ""}
           </p>
         </>
       }
@@ -595,7 +602,7 @@ function SelectedDependency({
         <>
           {evidence?.sourceFileId ? (
             <SourceBody
-              heading="Source evidence"
+              heading={t("selected.sourceEvidence")}
               compact
               onOpenFullSource={() => onOpenEvidence(evidence)}
               request={{
@@ -607,7 +614,7 @@ function SelectedDependency({
             />
           ) : (
             <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-              No source evidence available for this dependency.
+              {t("selected.noEvidence")}
             </p>
           )}
         </>

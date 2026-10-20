@@ -10,6 +10,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import type {
   PlsqlObjectKind,
   PlsqlObjectReference,
@@ -30,7 +31,10 @@ const KIND_ICONS: Record<PlsqlObjectKind, LucideIcon> = {
   AnonymousBlock: DatabaseZap,
 };
 
-/** Plain-language label for one object kind, shared wherever a kind is rendered as text. */
+/**
+ * English-only labels for non-component callers; components should use
+ * `useKindLabel`, which follows the active locale.
+ */
 export const KIND_LABELS: Record<PlsqlObjectKind, string> = {
   Package: "Package",
   Procedure: "Procedure",
@@ -56,20 +60,20 @@ export function ObjectKindIcon({
   return <Icon aria-hidden className={className} />;
 }
 
+/** Plain-language, localized label for one object kind. */
+export function useKindLabel(): (kind: PlsqlObjectKind) => string {
+  const t = useTranslations("plsqlOverview");
+  return (kind) => t(`kinds.${kind}`);
+}
+
 export function ObjectKindBadge({ kind }: { kind: PlsqlObjectKind }) {
+  const kindLabel = useKindLabel();
   return (
     <span className="inline-flex items-center rounded-full border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-secondary">
-      {kind}
+      {kindLabel(kind)}
     </span>
   );
 }
-
-const RESOLUTION_LABELS: Record<PlsqlResolution, string> = {
-  EXACT: "Resolved",
-  INFERRED: "Inferred",
-  AMBIGUOUS: "Unresolved",
-  UNRESOLVED: "Unresolved",
-};
 
 const RESOLUTION_TONES: Record<PlsqlResolution, string> = {
   EXACT: "border-success-border bg-success-surface text-success",
@@ -88,12 +92,13 @@ export function ResolutionBadge({
 }: {
   resolution: PlsqlResolution;
 }) {
+  const t = useTranslations("plsqlOverview");
   return (
     <span
-      title={`Confidence: ${resolution}`}
+      title={t("resolution.confidence", { resolution })}
       className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${RESOLUTION_TONES[resolution]}`}
     >
-      {RESOLUTION_LABELS[resolution]}
+      {t(`resolution.${resolution}`)}
     </span>
   );
 }
@@ -170,7 +175,24 @@ export function displayPackageOf(
   return undefined;
 }
 
-/** "1 hop" / "N hops" for a traversal distance. */
+/** English-only "1 hop" / "N hops"; components should use `useHopText`. */
 export function hopText(distance: number): string {
   return distance === 1 ? "1 hop" : `${distance} hops`;
+}
+
+/** Localized "1 hop" / "N hops" for a traversal distance. */
+export function useHopText(): (distance: number) => string {
+  const t = useTranslations("plsqlOverview");
+  return (distance) => t("hop", { count: distance });
+}
+
+/** Localized counterpart of `evidenceLineLabel`. */
+export function useEvidenceLineLabel(): (
+  evidence: { path?: string | null; startLine?: number | null } | null,
+) => string | undefined {
+  const t = useTranslations("plsqlOverview");
+  return (evidence) =>
+    evidence?.startLine != null
+      ? t("line", { line: evidence.startLine })
+      : (evidence?.path ?? undefined);
 }

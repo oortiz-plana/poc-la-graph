@@ -1,0 +1,95 @@
+{
+  "pageTitle": "Análisis PL/SQL",
+  "workspace": {
+    "title": "Análisis PL/SQL",
+    "notConfigured": "El análisis no está configurado",
+    "intro": "Elige un objeto en el Explorador de objetos para revisar sus dependencias, impacto, rutas y código fuente.",
+    "back": "Atrás",
+    "forward": "Adelante",
+    "loadingObject": "Cargando objeto",
+    "notFound": "No se encontró el objeto enlazado en el corpus analizado.",
+    "noSelection": "Ningún objeto seleccionado",
+    "clearSelection": "Borrar selección",
+    "browseObjects": "Explorar objetos",
+    "openSourcePrompt": "Abre un objeto o sigue una ubicación de código fuente para verlo.",
+    "showSourceOf": "Mostrar el código fuente de {name}"
+  },
+  "shell": {
+    "objectExplorer": "Explorador de objetos",
+    "analysisWorkspace": "Espacio de análisis",
+    "objects": "Objetos",
+    "inspector": "Inspector",
+    "explorerDescription": "Navegación de objetos PL/SQL",
+    "inspectorDescription": "Detalles del objeto y de las dependencias seleccionados",
+    "skipToWorkspace": "Saltar al espacio de análisis",
+    "show": "Mostrar {label}",
+    "hide": "Ocultar {label}"
+  },
+  "header": {
+    "qualifiedName": "Nombre calificado",
+    "objectViews": "Vistas del objeto",
+    "tabs": {
+      "overview": "Resumen",
+      "dependencies": "Dependencias",
+      "impact": "Impacto",
+      "paths": "Rutas",
+      "source": "Código fuente"
+    }
+  },
+  "explorer": {
+    "searchLabel": "Buscar objetos",
+    "searchPlaceholder": "Buscar paquetes, rutinas y tablas...",
+    "showingFirst": "Mostrando los primeros {limit} resultados",
+    "searching": "Buscando…",
+    "noMatch": "Ningún objeto coincide",
+    "results": "Resultados de búsqueda de objetos",
+    "noMatchingAnnouncement": "Ningún objeto coincide.",
+    "matchingAnnouncement": "{count, plural, one {# objeto coincide.} other {# objetos coinciden.}}"
+  },
+  "filters": {
+    "group": "Tipo de objeto",
+    "more": "Más",
+    "notSearchable": "no se puede buscar",
+    "all": "Todos",
+    "packages": "Paquetes",
+    "routines": "Rutinas",
+    "tables": "Tablas",
+    "views": "Vistas",
+    "Trigger": "Disparadores",
+    "Sequence": "Secuencias",
+    "Index": "Índices",
+    "Synonym": "Sinónimos",
+    "Type": "Tipos",
+    "AnonymousBlock": "Bloques anónimos"
+  },
+  "combobox": {
+    "placeholder": "Nombre o nombre calificado",
+    "matches": "Coincidencias de {label}",
+    "searching": "Buscando…",
+    "couldNotSearch": "No se pudieron buscar objetos",
+    "noMatches": "Ningún objeto coincide",
+    "matchCount": "{count, plural, one {# objeto coincide} other {# objetos coinciden}}",
+    "searchFailed": "Falló la búsqueda de objetos",
+    "selected": "Se seleccionó {kind} {name}."
+  },
+  "viewMode": {
+    "group": "Modo de vista",
+    "graph": "Grafo",
+    "list": "Lista"
+  },
+  "pagination": {
+    "showing": "Mostrando {loaded} de {total}",
+    "loadError": "No se pudieron cargar más resultados. Los resultados cargados siguen disponibles.",
+    "loading": "Cargando…",
+    "retry": "Reintentar carga",
+    "loadMore": "Cargar más"
+  },
+  "error": {
+    "sourceTooLarge": "Este archivo es demasiado grande para mostrarlo aquí.",
+    "analysisTooLarge": "Este proyecto es demasiado grande para calcular esta vista en este momento.",
+    "unavailable": "El análisis no está disponible",
+    "sourceLimitDetail": "El visor de código fuente limita cuánto puede cargar de un solo archivo, por lo que reintentar fallaría de la misma forma.",
+    "analysisLimitDetail": "El servicio de análisis limita cuántos datos puede calcular esta vista, por lo que reintentar fallaría de la misma forma.",
+    "retry": "Reintentar consulta de análisis"
+  }
+}

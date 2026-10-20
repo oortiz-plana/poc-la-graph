@@ -17,14 +17,30 @@ export type OverviewMetricSource =
 /** Which detail-table column set a metric uses; see `dependency-detail-table.tsx`. */
 export type OverviewMetricColumns = "relationship" | "distance" | "operation";
 
+/**
+ * Metric identifiers. Each one names the `plsqlOverview.metrics.<key>` message
+ * group holding its card label and empty-state text.
+ */
+export type OverviewMetricKey =
+  | "directDependents"
+  | "indirectDependents"
+  | "readers"
+  | "writers"
+  | "triggers"
+  | "directCallers"
+  | "indirectCallers"
+  | "callees"
+  | "tablesRead"
+  | "tablesModified"
+  | "triggeredTable"
+  | "calls";
+
 export type OverviewMetricDef = {
-  key: string;
-  label: string;
+  key: OverviewMetricKey;
   source: OverviewMetricSource;
   columns: OverviewMetricColumns;
-  /** Header for the subject column, e.g. "Trigger" instead of "Object". */
-  subjectColumnHeader: string;
-  emptyMessage: string;
+  /** Header for the subject column, e.g. "trigger" instead of "object"; a `plsqlOverview.metrics.subject` key. */
+  subjectColumnHeader: "object" | "trigger" | "table";
 };
 
 export type OverviewMetricsConfig = {
@@ -36,137 +52,107 @@ export type OverviewMetricsConfig = {
 const TABLE_METRICS: OverviewMetricDef[] = [
   {
     key: "directDependents",
-    label: "Direct dependents",
     source: { kind: "impact", scope: "direct" },
     columns: "relationship",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No direct dependents",
+    subjectColumnHeader: "object",
   },
   {
     key: "indirectDependents",
-    label: "Indirect dependents",
     source: { kind: "impact", scope: "indirect" },
     columns: "distance",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No indirect dependents",
+    subjectColumnHeader: "object",
   },
   {
     key: "readers",
-    label: "Readers",
     source: { kind: "dependency", category: "reads" },
     columns: "operation",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No readers",
+    subjectColumnHeader: "object",
   },
   {
     key: "writers",
-    label: "Writers",
     source: { kind: "dependency", category: "writes" },
     columns: "operation",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No writers",
+    subjectColumnHeader: "object",
   },
   {
     key: "triggers",
-    label: "Triggers",
     source: {
       kind: "dependency",
       category: "other",
       onlyRelationship: "TRIGGER_ON",
     },
     columns: "relationship",
-    subjectColumnHeader: "Trigger",
-    emptyMessage: "No triggers",
+    subjectColumnHeader: "trigger",
   },
 ];
 
 const ROUTINE_METRICS: OverviewMetricDef[] = [
   {
     key: "directCallers",
-    label: "Direct callers",
     source: { kind: "impact", scope: "direct" },
     columns: "relationship",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No direct callers",
+    subjectColumnHeader: "object",
   },
   {
     key: "indirectCallers",
-    label: "Indirect callers",
     source: { kind: "impact", scope: "indirect" },
     columns: "distance",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No indirect callers",
+    subjectColumnHeader: "object",
   },
   {
     key: "callees",
-    label: "Callees",
     source: { kind: "dependency", category: "callees" },
     columns: "relationship",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No callees",
+    subjectColumnHeader: "object",
   },
   {
     key: "tablesRead",
-    label: "Tables read",
     source: { kind: "dependency", category: "reads" },
     columns: "operation",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No tables read",
+    subjectColumnHeader: "object",
   },
   {
     key: "tablesModified",
-    label: "Tables modified",
     source: { kind: "dependency", category: "writes" },
     columns: "operation",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No tables modified",
+    subjectColumnHeader: "object",
   },
 ];
 
 const TRIGGER_METRICS: OverviewMetricDef[] = [
   {
     key: "triggeredTable",
-    label: "Triggered table",
     source: {
       kind: "dependency",
       category: "other",
       onlyRelationship: "TRIGGER_ON",
     },
     columns: "relationship",
-    subjectColumnHeader: "Table",
-    emptyMessage: "No triggered table found",
+    subjectColumnHeader: "table",
   },
   {
     key: "calls",
-    label: "Calls",
     source: { kind: "dependency", category: "callees" },
     columns: "relationship",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No calls",
+    subjectColumnHeader: "object",
   },
   {
     key: "tablesRead",
-    label: "Tables read",
     source: { kind: "dependency", category: "reads" },
     columns: "operation",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No tables read",
+    subjectColumnHeader: "object",
   },
   {
     key: "tablesModified",
-    label: "Tables modified",
     source: { kind: "dependency", category: "writes" },
     columns: "operation",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No tables modified",
+    subjectColumnHeader: "object",
   },
   {
     key: "indirectDependents",
-    label: "Indirect dependents",
     source: { kind: "impact", scope: "indirect" },
     columns: "distance",
-    subjectColumnHeader: "Object",
-    emptyMessage: "No indirect dependents",
+    subjectColumnHeader: "object",
   },
 ];
 

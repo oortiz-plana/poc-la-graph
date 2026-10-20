@@ -60,9 +60,8 @@ describe("overviewMetricsForKind", () => {
 
   it("never shows metrics that are not meaningful for the kind (e.g. no Callers card on a Table)", () => {
     const config = overviewMetricsForKind("Table");
-    expect(config.metrics.some((metric) => metric.key === "callers")).toBe(
-      false,
-    );
+    const keys: string[] = config.metrics.map((metric) => metric.key);
+    expect(keys).not.toContain("callers");
   });
 });
 

@@ -1,12 +1,15 @@
 "use client";
 
 import { CircleCheck, LogOut } from "lucide-react";
+import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "./auth-provider";
+import { LocaleSwitcher } from "./locale-switcher";
 
 export function ApplicationShell({ children }: { children: ReactNode }) {
   const auth = useAuth();
+  const t = useTranslations("shell");
 
   return (
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
@@ -14,30 +17,29 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:border focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:ring-2 focus:ring-primary"
       >
-        Skip to main content
+        {t("skipToMain")}
       </a>
       <header className="shrink-0 border-b bg-surface/95 px-4 backdrop-blur">
         <div className="flex min-h-16 items-center justify-between gap-4">
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold">
-              Graphify Knowledge Agent
-            </p>
+            <p className="truncate text-base font-semibold">{t("appName")}</p>
             <p className="hidden text-xs text-text-muted sm:block">
-              Evidence-grounded research workspace
+              {t("tagline")}
             </p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             <span className="hidden items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs text-text-secondary md:flex">
-              <CircleCheck aria-hidden className="h-4 w-4 text-success" /> API
-              ready
+              <CircleCheck aria-hidden className="h-4 w-4 text-success" />{" "}
+              {t("apiReady")}
             </span>
             <span className="hidden rounded-full border bg-background px-2.5 py-1 text-xs text-text-secondary sm:inline">
-              Local
+              {t("environment")}
             </span>
+            <LocaleSwitcher />
             <Button variant="outline" onClick={auth.logout}>
               <LogOut aria-hidden />
-              <span className="hidden sm:inline">Log out</span>
-              <span className="sr-only sm:hidden">Log out</span>
+              <span className="hidden sm:inline">{t("logOut")}</span>
+              <span className="sr-only sm:hidden">{t("logOut")}</span>
             </Button>
           </div>
         </div>

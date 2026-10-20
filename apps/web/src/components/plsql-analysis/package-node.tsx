@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 import type { KeyboardEvent } from "react";
 import type { PlsqlObject } from "@/lib/contracts";
 import {
@@ -37,6 +38,7 @@ export function PackageNode({
   onToggle: () => void;
   onSelect: (object: PlsqlObject) => void;
 }) {
+  const t = useTranslations("plsqlImpact.packageNode");
   const isSelected = group.packageRef?.id === selectedId;
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -55,7 +57,7 @@ export function PackageNode({
         <button
           type="button"
           aria-expanded={expanded}
-          aria-label={`${expanded ? "Collapse" : "Expand"} package ${group.name}`}
+          aria-label={t(expanded ? "collapse" : "expand", { name: group.name })}
           onClick={onToggle}
           className="flex h-8 w-6 shrink-0 items-center justify-center rounded text-text-secondary hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -95,7 +97,7 @@ export function PackageNode({
         )}
       </div>
       {expanded && group.members.length > 0 && (
-        <ul aria-label={`${group.name} members`} className="mt-0.5">
+        <ul aria-label={t("members", { name: group.name })} className="mt-0.5">
           {group.members.map((member) => (
             <ObjectRow
               key={member.id}

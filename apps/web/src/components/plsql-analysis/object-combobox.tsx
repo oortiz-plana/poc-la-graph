@@ -1,6 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { searchPlsqlObjects } from "@/lib/api";
 import type { PlsqlObject } from "@/lib/contracts";
@@ -38,6 +39,7 @@ export function PlsqlObjectCombobox({
   selected: PlsqlObject | undefined;
   onSelect: (object: PlsqlObject | undefined) => void;
 }) {
+  const t = useTranslations("plsqlWorkspace.combobox");
   const [text, setText] = useState("");
   const [options, setOptions] = useState<PlsqlObject[]>([]);
   const [open, setOpen] = useState(false);
@@ -70,17 +72,15 @@ export function PlsqlObjectCombobox({
           setActiveIndex(-1);
           setAnnouncement(
             page.items.length === 0
-              ? "No matching objects"
-              : `${page.items.length} matching object${
-                  page.items.length === 1 ? "" : "s"
-                }`,
+              ? t("noMatches")
+              : t("matchCount", { count: page.items.length }),
           );
         })
         .catch(() => {
           if (requestSeq.current !== seq) return;
           setOptions([]);
           setFailed(true);
-          setAnnouncement("Object search failed");
+          setAnnouncement(t("searchFailed"));
         })
         .finally(() => {
           if (requestSeq.current === seq) setSearching(false);
@@ -90,7 +90,7 @@ export function PlsqlObjectCombobox({
       window.clearTimeout(timer);
       requestSeq.current += 1;
     };
-  }, [text, open]);
+  }, [text, open, t]);
 
   useEffect(() => {
     if (!open || activeIndex < 0) return;
@@ -118,7 +118,9 @@ export function PlsqlObjectCombobox({
     setText(optionLabel(object));
     setActiveIndex(-1);
     setOpen(false);
-    setAnnouncement(`Selected ${object.kind} ${object.qualifiedName}.`);
+    setAnnouncement(
+      t("selected", { kind: object.kind, name: object.qualifiedName }),
+    );
     onSelect(object);
   }
 
@@ -193,7 +195,7 @@ export function PlsqlObjectCombobox({
             setOpen(false);
             setActiveIndex(-1);
           }}
-          placeholder="Name or qualified name"
+          placeholder={t("placeholder")}
           className="mt-1 min-h-11 w-full rounded-md border bg-surface px-3 text-sm"
         />
       </label>
@@ -201,23 +203,23 @@ export function PlsqlObjectCombobox({
         <ul
           id={listboxId}
           role="listbox"
-          aria-label={`${label} matches`}
+          aria-label={t("matches", { label })}
           className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-surface shadow-lg"
         >
           {searching && (
             <li className="flex min-h-11 items-center gap-2 px-3 text-sm text-text-secondary">
               <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-              Searching…
+              {t("searching")}
             </li>
           )}
           {!searching && failed && (
             <li className="min-h-11 px-3 py-2 text-sm text-text-secondary">
-              Could not search objects
+              {t("couldNotSearch")}
             </li>
           )}
           {!searching && !failed && options.length === 0 && (
             <li className="min-h-11 px-3 py-2 text-sm text-text-secondary">
-              No matching objects
+              {t("noMatches")}
             </li>
           )}
           {!searching &&

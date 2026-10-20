@@ -7,6 +7,16 @@
   background: var(--color-surface);
 }
 
+/* Fills the remaining height of a flex column instead of using a viewport-based height. */
+.compact {
+  height: 45dvh;
+}
+
+.fill {
+  flex: 1 1 0;
+  height: auto;
+}
+
 /*
  * Monaco applies these class names to the whole-line decoration we create for
  * the evidence highlight. The selectors are scoped under the local `.container`

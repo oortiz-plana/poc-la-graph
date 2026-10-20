@@ -26,6 +26,8 @@ import {
 import { DependencyPathTrail } from "./dependency-path-trail";
 import { PlsqlObjectCombobox } from "./object-combobox";
 import { evidenceLineLabel, hopText } from "./plsql-atoms";
+import { InsightPanel } from "./insight-panel";
+import { ListDetailSplit } from "./list-detail-split";
 import { SourceBody } from "./source-viewer";
 import {
   ANALYSIS_PAGE_SIZE,
@@ -230,36 +232,44 @@ function DependencyPathsContent({
       )}
       {status === "ready" && result && (
         <div className="mt-3">
-          <DependencyDetailTable
-            ariaLabel="Dependency paths between the selected objects"
-            columns={columns}
-            rows={rows}
-            getRowId={(row) => row.id}
-            selectedId={selectedId}
-            onSelectRow={(row) => selectPath(row.path)}
-            emptyMessage="No dependency paths found"
+          <ListDetailSplit
+            list={
+              <>
+                <DependencyDetailTable
+                  ariaLabel="Dependency paths between the selected objects"
+                  columns={columns}
+                  rows={rows}
+                  getRowId={(row) => row.id}
+                  selectedId={selectedId}
+                  onSelectRow={(row) => selectPath(row.path)}
+                  emptyMessage="No dependency paths found"
+                />
+                <AnalysisPagination
+                  loaded={result.items.length}
+                  total={result.count}
+                  nextCursor={result.nextCursor}
+                  loading={isLoadingMore}
+                  error={Boolean(error)}
+                  onLoadMore={() => void setSize((current) => current + 1)}
+                  onRetry={() => void mutate()}
+                />
+              </>
+            }
+            detail={
+              selected && (
+                <SelectedPath
+                  key={selected.id}
+                  path={selected}
+                  onClose={() => setSelectedId(undefined)}
+                  onInspectObject={onInspectObject}
+                  onOpenEvidence={onOpenEvidence}
+                  onInspectEdge={onInspectEdge}
+                  onOpenObject={onOpenObject}
+                  onAnalyzeObject={onAnalyzeObject}
+                />
+              )
+            }
           />
-          <AnalysisPagination
-            loaded={result.items.length}
-            total={result.count}
-            nextCursor={result.nextCursor}
-            loading={isLoadingMore}
-            error={Boolean(error)}
-            onLoadMore={() => void setSize((current) => current + 1)}
-            onRetry={() => void mutate()}
-          />
-          {selected && (
-            <SelectedPath
-              key={selected.id}
-              path={selected}
-              onClose={() => setSelectedId(undefined)}
-              onInspectObject={onInspectObject}
-              onOpenEvidence={onOpenEvidence}
-              onInspectEdge={onInspectEdge}
-              onOpenObject={onOpenObject}
-              onAnalyzeObject={onAnalyzeObject}
-            />
-          )}
         </div>
       )}
     </section>
@@ -305,21 +315,13 @@ function SelectedPath({
   }
 
   return (
-    <section aria-label="Selected path" className="mt-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-text-secondary">
-          Selected path
-        </h3>
-        <button
-          type="button"
-          onClick={onClose}
-          className="min-h-11 rounded px-2 text-sm underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        >
-          Close
-        </button>
-      </div>
-      <div className="mt-2 grid items-start gap-4 lg:grid-cols-[35%_1fr]">
-        <div className="rounded-lg border bg-surface p-4">
+    <InsightPanel
+      ariaLabel="Selected path"
+      title="Selected path"
+      closeLabel="Close selected path"
+      onClose={onClose}
+      trail={
+        <>
           <DependencyPathTrail
             path={path}
             onOpenObject={onInspectObject}
@@ -364,11 +366,14 @@ function SelectedPath({
           <p aria-live="polite" className="sr-only">
             {copied ? "Qualified name copied to clipboard." : ""}
           </p>
-        </div>
-        <section aria-label="Source evidence" className="min-w-0">
+        </>
+      }
+      evidence={
+        <>
           {selectedEvidence?.sourceFileId ? (
             <SourceBody
               heading="Source evidence"
+              compact
               onOpenFullSource={() => onOpenEvidence(selectedEvidence)}
               request={{
                 kind: "file",
@@ -382,8 +387,8 @@ function SelectedPath({
               No source evidence available for this path.
             </p>
           )}
-        </section>
-      </div>
-    </section>
+        </>
+      }
+    />
   );
 }

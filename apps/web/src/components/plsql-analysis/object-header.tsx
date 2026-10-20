@@ -89,7 +89,7 @@ export function ObjectTabs({
           </TabsTrigger>
         ))}
       </TabsList>
-      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+      <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
         {children}
       </div>
     </Tabs>

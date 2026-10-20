@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Copy, LoaderCircle, X } from "lucide-react";
+import { ArrowRight, Copy, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import useSWRInfinite from "swr/infinite";
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,8 @@ import {
   ObjectKindBadge,
   EVIDENCE_LINK_CLASS,
 } from "./plsql-atoms";
+import { InsightPanel } from "./insight-panel";
+import { ListDetailSplit } from "./list-detail-split";
 import { SourceBody } from "./source-viewer";
 
 type SectionStatus = "loading" | "ready" | "error";
@@ -397,59 +399,77 @@ function OverviewBody({
             <ArrowRight aria-hidden />
           </Button>
         </div>
-        {!loaded ? (
-          <p
-            role="status"
-            className="mt-2 flex items-center gap-2 text-sm text-text-secondary"
-          >
-            <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-            Loading…
-          </p>
-        ) : (
-          <>
-            {truncated && metric.source.kind !== "impact" && (
-              <p className="mt-2 text-xs text-warning">Results truncated</p>
-            )}
-            <div className="mt-2">
-              <DependencyDetailTable
-                ariaLabel={metric.label}
-                columns={columnsFor(metric, (row) => onSelectRowId(row.id))}
-                rows={rows}
-                getRowId={(row) => row.id}
-                selectedId={selectedRowId}
-                onSelectRow={(row) => onSelectRowId(row.id)}
-                emptyMessage={metric.emptyMessage}
-              />
-            </div>
-            {metric.source.kind === "impact" && impact && (
-              <AnalysisPagination
-                loaded={rows.length}
-                total={metricValue(metric, impact, pages, counts)}
-                nextCursor={
-                  rows.length < metricValue(metric, impact, pages, counts)
-                    ? impact.nextCursor
-                    : null
-                }
-                loading={impactLoadingMore}
-                error={impactError}
-                onLoadMore={onLoadMoreImpact}
-                onRetry={onRetryImpact}
-              />
-            )}
-          </>
-        )}
-        {selectedRow && (
-          <RelationshipInsight
-            row={selectedRow}
-            onClose={() => onSelectRowId(selectedRow.id)}
-            onOpenEvidence={onOpenEvidence}
-            onOpenObject={onOpenObject}
-            onInspectObject={onInspectObject}
-            onInspectEdge={onInspectEdge}
-            onInspectPath={onInspectPath}
-            onAnalyzeObject={onAnalyzeObject}
+        <div className="mt-2">
+          <ListDetailSplit
+            list={
+              <>
+                {!loaded ? (
+                  <p
+                    role="status"
+                    className="mt-2 flex items-center gap-2 text-sm text-text-secondary"
+                  >
+                    <LoaderCircle
+                      aria-hidden
+                      className="h-4 w-4 animate-spin"
+                    />
+                    Loading…
+                  </p>
+                ) : (
+                  <>
+                    {truncated && metric.source.kind !== "impact" && (
+                      <p className="mt-2 text-xs text-warning">
+                        Results truncated
+                      </p>
+                    )}
+                    <div className="mt-2">
+                      <DependencyDetailTable
+                        ariaLabel={metric.label}
+                        columns={columnsFor(metric, (row) =>
+                          onSelectRowId(row.id),
+                        )}
+                        rows={rows}
+                        getRowId={(row) => row.id}
+                        selectedId={selectedRowId}
+                        onSelectRow={(row) => onSelectRowId(row.id)}
+                        emptyMessage={metric.emptyMessage}
+                      />
+                    </div>
+                    {metric.source.kind === "impact" && impact && (
+                      <AnalysisPagination
+                        loaded={rows.length}
+                        total={metricValue(metric, impact, pages, counts)}
+                        nextCursor={
+                          rows.length <
+                          metricValue(metric, impact, pages, counts)
+                            ? impact.nextCursor
+                            : null
+                        }
+                        loading={impactLoadingMore}
+                        error={impactError}
+                        onLoadMore={onLoadMoreImpact}
+                        onRetry={onRetryImpact}
+                      />
+                    )}
+                  </>
+                )}
+              </>
+            }
+            detail={
+              selectedRow && (
+                <RelationshipInsight
+                  row={selectedRow}
+                  onClose={() => onSelectRowId(selectedRow.id)}
+                  onOpenEvidence={onOpenEvidence}
+                  onOpenObject={onOpenObject}
+                  onInspectObject={onInspectObject}
+                  onInspectEdge={onInspectEdge}
+                  onInspectPath={onInspectPath}
+                  onAnalyzeObject={onAnalyzeObject}
+                />
+              )
+            }
           />
-        )}
+        </div>
       </section>
     </div>
   );
@@ -646,33 +666,14 @@ function RelationshipInsight({
   }
 
   return (
-    <section
-      aria-label={`Why ${row.subject.name} is related`}
-      className="mt-6 rounded-lg border bg-background"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h4 className="text-sm font-semibold text-text-secondary">
-            Why is this affected?
-          </h4>
-          <span
-            title={row.subject.qualifiedName}
-            className="break-words text-xs text-text-muted"
-          >
-            {row.subject.qualifiedName}
-          </span>
-        </div>
-        <button
-          type="button"
-          aria-label={`Close why ${row.subject.name} is related`}
-          onClick={onClose}
-          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-text-secondary hover:bg-selected hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        >
-          <X aria-hidden className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="grid items-start divide-y lg:grid-cols-[35%_1fr] lg:divide-x lg:divide-y-0">
-        <div className="p-4">
+    <InsightPanel
+      ariaLabel={`Why ${row.subject.name} is related`}
+      title="Why is this affected?"
+      subtitle={row.subject.qualifiedName}
+      closeLabel={`Close why ${row.subject.name} is related`}
+      onClose={onClose}
+      trail={
+        <>
           <DependencyPathTrail
             path={row.path}
             onOpenObject={onInspectObject}
@@ -721,11 +722,14 @@ function RelationshipInsight({
           <p aria-live="polite" className="sr-only">
             {copied ? "Qualified name copied to clipboard." : ""}
           </p>
-        </div>
-        <section aria-label="Source evidence" className="min-w-0 p-4">
+        </>
+      }
+      evidence={
+        <>
           {finalEdge?.evidence?.sourceFileId ? (
             <SourceBody
               heading="Source evidence"
+              compact
               onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
               request={{
                 kind: "file",
@@ -739,8 +743,8 @@ function RelationshipInsight({
               No source evidence available for this relationship.
             </p>
           )}
-        </section>
-      </div>
-    </section>
+        </>
+      }
+    />
   );
 }

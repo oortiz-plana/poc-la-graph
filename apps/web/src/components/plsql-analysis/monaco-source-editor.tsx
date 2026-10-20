@@ -14,6 +14,7 @@ import MonacoEditor, { type EditorDidMount } from "react-monaco-editor";
 // editor. This module is only ever loaded client-side (see source-viewer.tsx),
 // so the heavy import never runs during SSR.
 import * as monaco from "monaco-editor";
+import { cn } from "@/lib/utils";
 import styles from "./monaco-source-editor.module.css";
 
 export type MonacoSourceEditorHandle = {
@@ -25,6 +26,10 @@ export type MonacoSourceEditorProps = {
   language?: string;
   path?: string;
   highlight?: { startLine: number; endLine: number } | null;
+  /** Fill the remaining height of a flex column instead of a viewport height. */
+  fill?: boolean;
+  /** Shorter box for previews that sit beside a list in a sticky card. */
+  compact?: boolean;
 };
 
 const HIGHLIGHT_CLASS = "plsql-source-highlight";
@@ -56,7 +61,14 @@ const VIEW_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
 };
 
 function MonacoSourceEditorBase(
-  { value, language = "sql", path, highlight = null }: MonacoSourceEditorProps,
+  {
+    value,
+    language = "sql",
+    path,
+    highlight = null,
+    fill = false,
+    compact = false,
+  }: MonacoSourceEditorProps,
   ref: React.ForwardedRef<MonacoSourceEditorHandle>,
 ) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -129,7 +141,13 @@ function MonacoSourceEditorBase(
   );
 
   return (
-    <div className={styles.container}>
+    <div
+      className={cn(
+        styles.container,
+        compact && styles.compact,
+        fill && styles.fill,
+      )}
+    >
       <MonacoEditor
         width="100%"
         height="100%"

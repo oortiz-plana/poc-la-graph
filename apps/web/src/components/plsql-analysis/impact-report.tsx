@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, LoaderCircle, X } from "lucide-react";
+import { Copy, LoaderCircle } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -38,6 +38,8 @@ import {
   ObjectKindBadge,
   EVIDENCE_LINK_CLASS,
 } from "./plsql-atoms";
+import { InsightPanel } from "./insight-panel";
+import { ListDetailSplit } from "./list-detail-split";
 import { SourceBody } from "./source-viewer";
 import { StatCard } from "./stat-card";
 import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
@@ -628,64 +630,77 @@ function ImpactBody({
       >
         Affected objects
       </h3>
-      {items.length === 0 ? (
-        <p className="mt-2 rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-          No impacted dependents
-        </p>
-      ) : (
-        <div className="mt-2 overflow-x-auto overflow-y-hidden rounded-lg border bg-surface">
-          <table
-            aria-labelledby="plsql-impact-list-heading"
-            className="w-full text-sm"
-          >
-            <thead>
-              <tr className="text-left text-xs text-text-secondary">
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Object
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Package
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Type
-                </th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">
-                  Distance
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Evidence
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {items.map((item) => (
-                <AffectedObjectRow
-                  key={item.id}
-                  item={item}
-                  selected={selectedId === item.id}
-                  onToggle={onToggle}
-                  onSelect={onSelect}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {selectedItem && (
-        <ImpactDetail
-          item={selectedItem}
-          analyzedId={result.object.id}
-          pathIndex={selectedPathIndex}
-          onPathIndexChange={onPathIndexChange}
-          onClose={() => onToggle(selectedItem.id)}
-          onOpenEvidence={onOpenEvidence}
-          onOpenObject={onOpenObject}
-          onInspectObject={onInspectObject}
-          onInspectEdge={onInspectEdge}
-          onInspectPath={onInspectPath}
-          onFocusInGraph={onFocusInGraph}
+      <div className="mt-2">
+        <ListDetailSplit
+          list={
+            <>
+              {items.length === 0 ? (
+                <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
+                  No impacted dependents
+                </p>
+              ) : (
+                <div className="overflow-x-auto overflow-y-hidden rounded-lg border bg-surface">
+                  <table
+                    aria-labelledby="plsql-impact-list-heading"
+                    className="w-full text-sm"
+                  >
+                    <thead>
+                      <tr className="text-left text-xs text-text-secondary">
+                        <th scope="col" className="px-3 py-2 font-medium">
+                          Object
+                        </th>
+                        <th scope="col" className="px-3 py-2 font-medium">
+                          Package
+                        </th>
+                        <th scope="col" className="px-3 py-2 font-medium">
+                          Type
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-3 py-2 text-right font-medium"
+                        >
+                          Distance
+                        </th>
+                        <th scope="col" className="px-3 py-2 font-medium">
+                          Evidence
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {items.map((item) => (
+                        <AffectedObjectRow
+                          key={item.id}
+                          item={item}
+                          selected={selectedId === item.id}
+                          onToggle={onToggle}
+                          onSelect={onSelect}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          }
+          detail={
+            selectedItem && (
+              <ImpactDetail
+                item={selectedItem}
+                analyzedId={result.object.id}
+                pathIndex={selectedPathIndex}
+                onPathIndexChange={onPathIndexChange}
+                onClose={() => onToggle(selectedItem.id)}
+                onOpenEvidence={onOpenEvidence}
+                onOpenObject={onOpenObject}
+                onInspectObject={onInspectObject}
+                onInspectEdge={onInspectEdge}
+                onInspectPath={onInspectPath}
+                onFocusInGraph={onFocusInGraph}
+              />
+            )
+          }
         />
-      )}
+      </div>
     </div>
   );
 }
@@ -833,33 +848,14 @@ function ImpactDetail({
   }
 
   return (
-    <section
-      aria-label={`Why ${item.dependent.name} is affected`}
-      className="mt-6 rounded-lg border bg-background"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h4 className="text-sm font-semibold text-text-secondary">
-            Why is this affected?
-          </h4>
-          <span
-            title={item.dependent.qualifiedName}
-            className="break-words text-xs text-text-muted"
-          >
-            {item.dependent.qualifiedName}
-          </span>
-        </div>
-        <button
-          type="button"
-          aria-label={`Close why ${item.dependent.name} is affected`}
-          onClick={onClose}
-          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-text-secondary hover:bg-selected hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        >
-          <X aria-hidden className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="grid items-start divide-y lg:grid-cols-[35%_1fr] lg:divide-x lg:divide-y-0">
-        <div className="p-4">
+    <InsightPanel
+      ariaLabel={`Why ${item.dependent.name} is affected`}
+      title="Why is this affected?"
+      subtitle={item.dependent.qualifiedName}
+      closeLabel={`Close why ${item.dependent.name} is affected`}
+      onClose={onClose}
+      trail={
+        <>
           {path ? (
             <DependencyPathTrail
               path={path}
@@ -936,11 +932,14 @@ function ImpactDetail({
           <p aria-live="polite" className="sr-only">
             {copied ? "Qualified name copied to clipboard." : ""}
           </p>
-        </div>
-        <section aria-label="Source evidence" className="min-w-0 p-4">
+        </>
+      }
+      evidence={
+        <>
           {finalEdge?.evidence?.sourceFileId ? (
             <SourceBody
               heading="Source evidence"
+              compact
               onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
               request={{
                 kind: "file",
@@ -954,8 +953,8 @@ function ImpactDetail({
               No source evidence available for this relationship.
             </p>
           )}
-        </section>
-      </div>
-    </section>
+        </>
+      }
+    />
   );
 }

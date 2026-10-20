@@ -49,6 +49,9 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
       >
         {children}
       </div>
+      <footer className="shrink-0 border-t bg-surface px-4 py-1.5 text-center text-[11px] text-[#929292]">
+        © 2026 INXN
+      </footer>
     </div>
   );
 }

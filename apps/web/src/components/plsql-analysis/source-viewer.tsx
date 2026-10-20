@@ -107,7 +107,10 @@ function SourcePanel({
     headingRef.current?.focus();
   }, []);
   return (
-    <section aria-labelledby={headingId} className="mt-10 border-t pt-6">
+    <section
+      aria-labelledby={headingId}
+      className="mt-4 flex min-h-0 flex-1 flex-col border-t pt-4"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2
           id={headingId}
@@ -121,7 +124,7 @@ function SourcePanel({
           Close source
         </Button>
       </div>
-      <SourceBody request={request} />
+      <SourceBody request={request} fill />
     </section>
   );
 }
@@ -130,6 +133,8 @@ export function SourceBody({
   request,
   heading,
   onOpenFullSource,
+  fill = false,
+  compact = false,
 }: {
   request: SourceRequest;
   /** Visible title shown above the location line, e.g. "Source evidence" for
@@ -138,6 +143,10 @@ export function SourceBody({
   heading?: string;
   /** Escalates from an inline evidence preview to the full Source tab. */
   onOpenFullSource?: () => void;
+  /** Stretch the editor to the remaining height of the parent flex column. */
+  fill?: boolean;
+  /** Use a shorter editor, for evidence shown beside a results list. */
+  compact?: boolean;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SourceStatus>("loading");
@@ -232,7 +241,9 @@ export function SourceBody({
   }
 
   return (
-    <div className={cn(!heading && "mt-4")}>
+    <div
+      className={cn(!heading && "mt-4", fill && "flex min-h-0 flex-1 flex-col")}
+    >
       {heading && (
         <h3 className="text-sm font-semibold text-text-secondary">{heading}</h3>
       )}
@@ -282,7 +293,7 @@ export function SourceBody({
           File is empty
         </p>
       ) : (
-        <div className="mt-3">
+        <div className={cn("mt-3", fill && "flex min-h-0 flex-1 flex-col")}>
           {mounted && (
             <Suspense
               fallback={
@@ -301,6 +312,8 @@ export function SourceBody({
                 language="sql"
                 path={file.path}
                 highlight={highlight}
+                fill={fill}
+                compact={compact}
               />
             </Suspense>
           )}

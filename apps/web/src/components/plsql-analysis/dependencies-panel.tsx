@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, LoaderCircle, Minus, Plus, X } from "lucide-react";
+import { Copy, LoaderCircle, Minus, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { getPlsqlDependencies, type PlsqlProblemCode } from "@/lib/api";
@@ -31,6 +31,8 @@ import {
   ResolutionBadge,
   EVIDENCE_LINK_CLASS,
 } from "./plsql-atoms";
+import { InsightPanel } from "./insight-panel";
+import { ListDetailSplit } from "./list-detail-split";
 import { SourceBody } from "./source-viewer";
 import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
 
@@ -428,45 +430,55 @@ export function DependenciesPanel({
         </>
       )}
 
-      {viewMode === "list" && activeSummary && (
-        <section
-          aria-label="Dependency results"
-          className="mt-3 rounded-lg border bg-surface"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-            <h3 className="text-sm font-semibold text-text-secondary">
-              Dependency results
-            </h3>
-            {activeSummary.truncated && (
-              <span className="text-xs text-warning">Results truncated</span>
+      <ListDetailSplit
+        list={
+          <>
+            {viewMode === "list" && activeSummary && (
+              <section
+                aria-label="Dependency results"
+                className="mt-3 rounded-lg border bg-surface"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+                  <h3 className="text-sm font-semibold text-text-secondary">
+                    Dependency results
+                  </h3>
+                  {activeSummary.truncated && (
+                    <span className="text-xs text-warning">
+                      Results truncated
+                    </span>
+                  )}
+                </div>
+                <DependencyDetailTable
+                  ariaLabel={`${activeCategoryLabel ?? "Dependency"} results`}
+                  columns={columns}
+                  rows={rows}
+                  getRowId={(row) => row.id}
+                  selectedId={selectedEdge?.id}
+                  onSelectRow={(row) => selectEdge(row.edge)}
+                  emptyMessage="No matching dependencies"
+                  bordered={false}
+                />
+              </section>
             )}
-          </div>
-          <DependencyDetailTable
-            ariaLabel={`${activeCategoryLabel ?? "Dependency"} results`}
-            columns={columns}
-            rows={rows}
-            getRowId={(row) => row.id}
-            selectedId={selectedEdge?.id}
-            onSelectRow={(row) => selectEdge(row.edge)}
-            emptyMessage="No matching dependencies"
-            bordered={false}
-          />
-        </section>
-      )}
-
-      {status === "ready" && selectedEdge && (
-        <SelectedDependency
-          edge={selectedEdge}
-          objectId={objectId}
-          onClose={() => setSelectedEdge(undefined)}
-          onOpenObject={onOpenObject}
-          onInspectObject={onInspectObject}
-          onInspectEdge={onInspectEdge}
-          onAnalyzeObject={onAnalyzeObject}
-          onInspectPath={onInspectPath}
-          onOpenEvidence={onOpenEvidence}
-        />
-      )}
+          </>
+        }
+        detail={
+          status === "ready" &&
+          selectedEdge && (
+            <SelectedDependency
+              edge={selectedEdge}
+              objectId={objectId}
+              onClose={() => setSelectedEdge(undefined)}
+              onOpenObject={onOpenObject}
+              onInspectObject={onInspectObject}
+              onInspectEdge={onInspectEdge}
+              onAnalyzeObject={onAnalyzeObject}
+              onInspectPath={onInspectPath}
+              onOpenEvidence={onOpenEvidence}
+            />
+          )
+        }
+      />
     </section>
   );
 }
@@ -512,25 +524,13 @@ function SelectedDependency({
   }
 
   return (
-    <section
-      aria-label="Selected dependency"
-      className="mt-6 rounded-lg border bg-background"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-        <h3 className="text-sm font-semibold text-text-secondary">
-          Selected dependency
-        </h3>
-        <button
-          type="button"
-          aria-label="Close selected dependency"
-          onClick={onClose}
-          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-text-secondary hover:bg-selected hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        >
-          <X aria-hidden className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="grid items-start divide-y lg:grid-cols-[35%_1fr] lg:divide-x lg:divide-y-0">
-        <div className="p-4">
+    <InsightPanel
+      ariaLabel="Selected dependency"
+      title="Selected dependency"
+      closeLabel="Close selected dependency"
+      onClose={onClose}
+      trail={
+        <>
           <DependencyPathTrail
             path={path}
             onOpenObject={onInspectObject}
@@ -589,11 +589,14 @@ function SelectedDependency({
           <p aria-live="polite" className="sr-only">
             {copied ? "Qualified name copied to clipboard." : ""}
           </p>
-        </div>
-        <section aria-label="Source evidence" className="min-w-0 p-4">
+        </>
+      }
+      evidence={
+        <>
           {evidence?.sourceFileId ? (
             <SourceBody
               heading="Source evidence"
+              compact
               onOpenFullSource={() => onOpenEvidence(evidence)}
               request={{
                 kind: "file",
@@ -607,8 +610,8 @@ function SelectedDependency({
               No source evidence available for this dependency.
             </p>
           )}
-        </section>
-      </div>
-    </section>
+        </>
+      }
+    />
   );
 }

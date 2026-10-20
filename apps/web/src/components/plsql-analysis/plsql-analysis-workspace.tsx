@@ -283,7 +283,7 @@ export function PlsqlAnalysisWorkspace() {
         >
           {({ openExplorer }) =>
             selected ? (
-              <div className="mx-auto flex min-h-0 w-full max-w-[75rem] flex-1 flex-col p-4 sm:p-6">
+              <div className="flex min-h-0 w-full flex-1 flex-col p-4 sm:p-6">
                 <ObjectHeader
                   object={selected}
                   headingRef={headingRef}
@@ -369,7 +369,10 @@ export function PlsqlAnalysisWorkspace() {
                       onAnalyzeObject={analyzeObject}
                     />
                   </TabsContent>
-                  <TabsContent value="source">
+                  <TabsContent
+                    value="source"
+                    className="flex min-h-0 flex-1 flex-col"
+                  >
                     {sourceRequest ? (
                       <SourceViewer
                         request={sourceRequest}

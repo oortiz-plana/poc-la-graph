@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight, Copy, LoaderCircle } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import useSWRInfinite from "swr/infinite";
 import { Button } from "@/components/ui/button";
@@ -52,11 +53,11 @@ import {
 } from "./overview-metrics";
 import {
   displayPackageOf,
-  evidenceLineLabel,
   evidenceLocation,
-  hopText,
   ObjectKindBadge,
   EVIDENCE_LINK_CLASS,
+  useEvidenceLineLabel,
+  useHopText,
 } from "./plsql-atoms";
 import { InsightPanel } from "./insight-panel";
 import { ListDetailSplit } from "./list-detail-split";
@@ -109,6 +110,7 @@ function OverviewPanelContent({
   onExploreDependencies: (category: PlsqlDependencyCategory) => void;
   onExploreImpact: () => void;
 }) {
+  const t = useTranslations("plsqlOverview.overview");
   const objectId = object.id;
   const objectKind = object.kind;
   const headingId = "plsql-overview-heading";
@@ -258,14 +260,14 @@ function OverviewPanelContent({
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} className="text-xl font-semibold">
-        Potential impact
+        {t("heading")}
       </h2>
       <div className="mt-2 max-w-32">
         <DepthField depth={depth} maxDepth={maxDepth} onChange={setDepth} />
       </div>
       {status === "loading" && (
         <div role="status" className="mt-3">
-          <span className="sr-only">Loading overview…</span>
+          <span className="sr-only">{t("loading")}</span>
           <div
             aria-hidden
             className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
@@ -350,7 +352,9 @@ function OverviewBody({
   onExploreDependencies: (category: PlsqlDependencyCategory) => void;
   onExploreImpact: () => void;
 }) {
+  const t = useTranslations("plsqlOverview");
   const { metrics } = overviewMetricsForKind(object.kind);
+  const columns = useDetailColumns();
   const metric =
     metrics.find((entry) => entry.key === selectedMetricKey) ?? metrics[0];
   const { rows, truncated, loaded } = rowsForMetric(
@@ -366,14 +370,14 @@ function OverviewBody({
     <div className="mt-3">
       <div
         role="group"
-        aria-label="Overview metrics"
+        aria-label={t("overview.metricsGroup")}
         className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
       >
         {metrics.map((entry) => (
           <ImpactMetricCard
             key={entry.key}
             value={metricValue(entry, impact, pages, counts)}
-            label={entry.label}
+            label={t(`metrics.${entry.key}.label`)}
             active={entry.key === metric.key}
             onSelect={() => onSelectMetric(entry)}
           />
@@ -382,7 +386,7 @@ function OverviewBody({
       <section className="mt-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-text-secondary">
-            {metric.label}
+            {t(`metrics.${metric.key}.label`)}
           </h3>
           <Button
             variant="outline"
@@ -394,8 +398,8 @@ function OverviewBody({
             }
           >
             {metric.source.kind === "dependency"
-              ? "View all in Dependencies"
-              : "View all in Impact"}{" "}
+              ? t("overview.viewAllDependencies")
+              : t("overview.viewAllImpact")}{" "}
             <ArrowRight aria-hidden />
           </Button>
         </div>
@@ -412,26 +416,26 @@ function OverviewBody({
                       aria-hidden
                       className="h-4 w-4 animate-spin"
                     />
-                    Loading…
+                    {t("overview.loadingRows")}
                   </p>
                 ) : (
                   <>
                     {truncated && metric.source.kind !== "impact" && (
                       <p className="mt-2 text-xs text-warning">
-                        Results truncated
+                        {t("overview.truncated")}
                       </p>
                     )}
                     <div className="mt-2">
                       <DependencyDetailTable
-                        ariaLabel={metric.label}
-                        columns={columnsFor(metric, (row) =>
+                        ariaLabel={t(`metrics.${metric.key}.label`)}
+                        columns={columns(metric, (row) =>
                           onSelectRowId(row.id),
                         )}
                         rows={rows}
                         getRowId={(row) => row.id}
                         selectedId={selectedRowId}
                         onSelectRow={(row) => onSelectRowId(row.id)}
-                        emptyMessage={metric.emptyMessage}
+                        emptyMessage={t(`metrics.${metric.key}.empty`)}
                       />
                     </div>
                     {metric.source.kind === "impact" && impact && (
@@ -475,12 +479,32 @@ function OverviewBody({
   );
 }
 
-function columnsFor(
+type DetailColumnsFor = (
   metric: OverviewMetricDef,
   onSelectRow: (row: OverviewDetailRow) => void,
+) => DetailTableColumn<OverviewDetailRow>[];
+
+function useDetailColumns(): DetailColumnsFor {
+  const t = useTranslations("plsqlOverview");
+  const hopText = useHopText();
+  const evidenceLineLabel = useEvidenceLineLabel();
+  return (metric, onSelectRow) =>
+    buildColumns(metric, onSelectRow, { t, hopText, evidenceLineLabel });
+}
+
+type ColumnText = {
+  t: ReturnType<typeof useTranslations<"plsqlOverview">>;
+  hopText: (distance: number) => string;
+  evidenceLineLabel: ReturnType<typeof useEvidenceLineLabel>;
+};
+
+function buildColumns(
+  metric: OverviewMetricDef,
+  onSelectRow: (row: OverviewDetailRow) => void,
+  { t, hopText, evidenceLineLabel }: ColumnText,
 ): DetailTableColumn<OverviewDetailRow>[] {
   const subjectColumn: DetailTableColumn<OverviewDetailRow> = {
-    header: metric.subjectColumnHeader,
+    header: t(`metrics.subject.${metric.subjectColumnHeader}`),
     cell: (row) => (
       <span
         title={row.subject.qualifiedName}
@@ -491,29 +515,32 @@ function columnsFor(
     ),
   };
   const packageColumn: DetailTableColumn<OverviewDetailRow> = {
-    header: "Package",
+    header: t("overview.columns.package"),
     cell: (row) =>
       displayPackageOf(row.subject) ?? (
         <span className="text-text-muted">—</span>
       ),
   };
   const typeColumn: DetailTableColumn<OverviewDetailRow> = {
-    header: "Type",
+    header: t("overview.columns.type"),
     cell: (row) => <ObjectKindBadge kind={row.subject.kind} />,
   };
   const lastColumn: DetailTableColumn<OverviewDetailRow> =
     metric.columns === "distance"
       ? {
-          header: "Distance",
+          header: t("overview.columns.distance"),
           align: "right",
           cell: (row) => hopText(row.distance ?? 0),
         }
       : {
-          header: metric.columns === "operation" ? "Operation" : "Relationship",
+          header:
+            metric.columns === "operation"
+              ? t("overview.columns.operation")
+              : t("overview.columns.relationship"),
           cell: (row) => row.relationship ?? "—",
         };
   const evidenceColumn: DetailTableColumn<OverviewDetailRow> = {
-    header: "Evidence",
+    header: t("overview.columns.evidence"),
     cell: (row) => {
       const finalEdge =
         row.path.relationships[row.path.relationships.length - 1];
@@ -650,6 +677,10 @@ function RelationshipInsight({
   onInspectPath: (path: PlsqlPath) => void;
   onAnalyzeObject: (reference: PlsqlObjectReference) => void;
 }) {
+  const t = useTranslations("plsqlOverview.overview.why");
+  const tInsight = useTranslations("plsqlOverview.insight");
+  const hopText = useHopText();
+  const evidenceLineLabel = useEvidenceLineLabel();
   const finalEdge = row.path.relationships[row.path.relationships.length - 1];
   const lineLabel = evidenceLineLabel(finalEdge?.evidence);
   const [copied, setCopied] = useState(false);
@@ -667,10 +698,10 @@ function RelationshipInsight({
 
   return (
     <InsightPanel
-      ariaLabel={`Why ${row.subject.name} is related`}
-      title="Why is this affected?"
+      ariaLabel={t("region", { name: row.subject.name })}
+      title={t("title")}
       subtitle={row.subject.qualifiedName}
-      closeLabel={`Close why ${row.subject.name} is related`}
+      closeLabel={t("close", { name: row.subject.name })}
       onClose={onClose}
       trail={
         <>
@@ -694,33 +725,33 @@ function RelationshipInsight({
               variant="outline"
               onClick={() => onOpenObject(row.subject)}
             >
-              Open object
+              {t("openObject")}
             </Button>
             <Button
               size="sm"
               variant="outline"
-              aria-label={`Analyze impact for ${row.subject.name}`}
+              aria-label={t("analyzeLabel", { name: row.subject.name })}
               onClick={() => onAnalyzeObject(row.subject)}
             >
-              Analyze impact
+              {t("analyze")}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => onInspectPath(row.fullPath)}
             >
-              View path
+              {t("viewPath")}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => void copyQualifiedName()}
             >
-              <Copy aria-hidden /> {copied ? "Copied" : "Copy qualified name"}
+              <Copy aria-hidden /> {copied ? t("copied") : t("copy")}
             </Button>
           </div>
           <p aria-live="polite" className="sr-only">
-            {copied ? "Qualified name copied to clipboard." : ""}
+            {copied ? t("copiedAnnouncement") : ""}
           </p>
         </>
       }
@@ -728,7 +759,7 @@ function RelationshipInsight({
         <>
           {finalEdge?.evidence?.sourceFileId ? (
             <SourceBody
-              heading="Source evidence"
+              heading={tInsight("sourceEvidence")}
               compact
               onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
               request={{
@@ -740,7 +771,7 @@ function RelationshipInsight({
             />
           ) : (
             <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-              No source evidence available for this relationship.
+              {t("noEvidence")}
             </p>
           )}
         </>

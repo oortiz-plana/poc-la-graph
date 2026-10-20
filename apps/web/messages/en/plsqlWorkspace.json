@@ -1,0 +1,95 @@
+{
+  "pageTitle": "PL/SQL analysis",
+  "workspace": {
+    "title": "PL/SQL analysis",
+    "notConfigured": "Analysis is not configured",
+    "intro": "Choose an object in the Object Explorer to inspect its dependencies, impact, paths, and source.",
+    "back": "Back",
+    "forward": "Forward",
+    "loadingObject": "Loading object",
+    "notFound": "The linked object was not found in the analyzed corpus.",
+    "noSelection": "No object selected",
+    "clearSelection": "Clear selection",
+    "browseObjects": "Browse objects",
+    "openSourcePrompt": "Open an object or follow a source location to view it.",
+    "showSourceOf": "Show source of {name}"
+  },
+  "shell": {
+    "objectExplorer": "Object Explorer",
+    "analysisWorkspace": "Analysis workspace",
+    "objects": "Objects",
+    "inspector": "Inspector",
+    "explorerDescription": "PL/SQL object navigation",
+    "inspectorDescription": "Selected object and dependency details",
+    "skipToWorkspace": "Skip to analysis workspace",
+    "show": "Show {label}",
+    "hide": "Hide {label}"
+  },
+  "header": {
+    "qualifiedName": "Qualified name",
+    "objectViews": "Object views",
+    "tabs": {
+      "overview": "Overview",
+      "dependencies": "Dependencies",
+      "impact": "Impact",
+      "paths": "Paths",
+      "source": "Source"
+    }
+  },
+  "explorer": {
+    "searchLabel": "Search objects",
+    "searchPlaceholder": "Search packages, routines and tables...",
+    "showingFirst": "Showing first {limit} results",
+    "searching": "Searching…",
+    "noMatch": "No objects match",
+    "results": "Object search results",
+    "noMatchingAnnouncement": "No matching objects.",
+    "matchingAnnouncement": "{count, plural, one {# matching object.} other {# matching objects.}}"
+  },
+  "filters": {
+    "group": "Object kind",
+    "more": "More",
+    "notSearchable": "not searchable",
+    "all": "All",
+    "packages": "Packages",
+    "routines": "Routines",
+    "tables": "Tables",
+    "views": "Views",
+    "Trigger": "Triggers",
+    "Sequence": "Sequences",
+    "Index": "Indexes",
+    "Synonym": "Synonyms",
+    "Type": "Types",
+    "AnonymousBlock": "Anonymous blocks"
+  },
+  "combobox": {
+    "placeholder": "Name or qualified name",
+    "matches": "{label} matches",
+    "searching": "Searching…",
+    "couldNotSearch": "Could not search objects",
+    "noMatches": "No matching objects",
+    "matchCount": "{count, plural, one {# matching object} other {# matching objects}}",
+    "searchFailed": "Object search failed",
+    "selected": "Selected {kind} {name}."
+  },
+  "viewMode": {
+    "group": "View mode",
+    "graph": "Graph",
+    "list": "List"
+  },
+  "pagination": {
+    "showing": "Showing {loaded} of {total}",
+    "loadError": "Could not load more results. Loaded results are still available.",
+    "loading": "Loading…",
+    "retry": "Retry loading more",
+    "loadMore": "Load more"
+  },
+  "error": {
+    "sourceTooLarge": "This file is too large to preview here.",
+    "analysisTooLarge": "This project is too large to compute this view right now.",
+    "unavailable": "Analysis is unavailable",
+    "sourceLimitDetail": "The source viewer caps how much of a single file it can load, so retrying would fail the same way.",
+    "analysisLimitDetail": "The analysis backend caps how much data this view may compute, so retrying would fail the same way.",
+    "retry": "Retry analysis query"
+  }
+}

@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { renderWithIntl as render } from "@/test/render-with-intl";
 import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MonacoSourceEditor, {

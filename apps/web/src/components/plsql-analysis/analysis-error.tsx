@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -33,6 +34,7 @@ export function AnalysisError({
   onRetry?: () => void;
   context?: "analysis" | "source";
 }) {
+  const t = useTranslations("plsqlWorkspace.error");
   const limitExceeded = code === "analysis_limit_exceeded";
   return (
     <div
@@ -42,20 +44,20 @@ export function AnalysisError({
       <p className="text-sm">
         {limitExceeded
           ? context === "source"
-            ? "This file is too large to preview here."
-            : "This project is too large to compute this view right now."
-          : "Analysis is unavailable"}
+            ? t("sourceTooLarge")
+            : t("analysisTooLarge")
+          : t("unavailable")}
       </p>
       {limitExceeded ? (
         <p className="mt-2 text-xs text-text-secondary">
           {context === "source"
-            ? "The source viewer caps how much of a single file it can load, so retrying would fail the same way."
-            : "The analysis backend caps how much data this view may compute, so retrying would fail the same way."}
+            ? t("sourceLimitDetail")
+            : t("analysisLimitDetail")}
         </p>
       ) : (
         onRetry && (
           <Button variant="outline" className="mt-3" onClick={onRetry}>
-            Retry analysis query
+            {t("retry")}
           </Button>
         )
       )}

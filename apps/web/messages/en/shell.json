@@ -1,0 +1,13 @@
+{
+  "skipToMain": "Skip to main content",
+  "appName": "Graphify Knowledge Agent",
+  "tagline": "Evidence-grounded research workspace",
+  "apiReady": "API ready",
+  "environment": "Local",
+  "logOut": "Log out",
+  "language": "Language",
+  "languageNames": {
+    "en": "English",
+    "es": "Español"
+  }
+}

@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithIntl as render } from "@/test/render-with-intl";
 import { describe, expect, it, vi } from "vitest";
 import { SourceBody } from "./source-viewer";
 

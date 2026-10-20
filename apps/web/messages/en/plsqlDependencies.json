@@ -1,0 +1,78 @@
+{
+  "categories": {
+    "callers": "Callers",
+    "callees": "Callees",
+    "reads": "Reads",
+    "writes": "Writes",
+    "other": "Other"
+  },
+  "panel": {
+    "ariaLabel": "Dependencies",
+    "categoryGroup": "Dependency category",
+    "graphExpansion": "Graph expansion",
+    "oneLevel": "One level",
+    "loading": "Loading dependencies…",
+    "graphLabel": "Dependency graph for {name}",
+    "expandHint": "Expand a category to explore the neighborhood of {name}.",
+    "resultsHeading": "Dependency results",
+    "truncated": "Results truncated",
+    "tableLabel": "{category} results",
+    "fallbackCategory": "Dependency",
+    "empty": "No matching dependencies"
+  },
+  "columns": {
+    "relatedObject": "Related object",
+    "relationship": "Relationship",
+    "resolution": "Resolution",
+    "evidence": "Evidence"
+  },
+  "selected": {
+    "title": "Selected dependency",
+    "close": "Close selected dependency",
+    "openObject": "Open object",
+    "analyzeImpact": "Analyze impact",
+    "analyzeImpactFor": "Analyze impact for {name}",
+    "viewFullPath": "View full path",
+    "copied": "Copied",
+    "copyQualifiedName": "Copy qualified name",
+    "copiedAnnouncement": "Qualified name copied to clipboard.",
+    "sourceEvidence": "Source evidence",
+    "noEvidence": "No source evidence available for this dependency."
+  },
+  "source": {
+    "title": "Source",
+    "description": "Read-only source text from the analyzed corpus.",
+    "close": "Close source",
+    "loading": "Loading source…",
+    "goToEvidence": "Go to evidence",
+    "openFull": "Open full source",
+    "copyLocation": "Copy location",
+    "copied": "Copied",
+    "copiedAnnouncement": "Source location copied to clipboard.",
+    "line": "line {range}",
+    "empty": "File is empty",
+    "loadingEditor": "Loading editor…",
+    "editorLabelWithPath": "{path} source",
+    "editorLabel": "Source code"
+  },
+  "inspector": {
+    "empty": "Select an object, dependency, or path to inspect its details.",
+    "objectDetails": "Object details",
+    "schema": "Schema",
+    "qualifiedName": "Qualified name",
+    "package": "Package",
+    "file": "File",
+    "startLine": "Start line",
+    "endOffset": "End offset",
+    "dependencyEdge": "Dependency edge",
+    "from": "From",
+    "to": "To",
+    "relationship": "Relationship",
+    "evidence": "Evidence",
+    "none": "None",
+    "dependencyPath": "Dependency path",
+    "hops": "Hops",
+    "hopCount": "{count, plural, one {# hop} other {# hops}}",
+    "fullPath": "Full path"
+  }
+}

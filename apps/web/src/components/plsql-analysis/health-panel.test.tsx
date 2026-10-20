@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import { renderWithIntl as render } from "@/test/render-with-intl";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlsqlDependency, PlsqlHealth } from "@/lib/contracts";
@@ -100,12 +101,17 @@ describe("HealthPanel", () => {
   it("scopes the fetch to an object and offers the repository-wide toggle", async () => {
     getPlsqlHealth.mockResolvedValue(healthFixture());
     const user = userEvent.setup();
-    render(<HealthPanel objectId="plsql://sample/HR/FUNCTION/DOCU_FIDE" onOpenEvidence={vi.fn()} />);
-    await screen.findByRole("button", { name: /Unresolved references/ });
-    expect(getPlsqlHealth).toHaveBeenCalledWith("plsql://sample/HR/FUNCTION/DOCU_FIDE");
-    await user.click(
-      screen.getByLabelText("Show repository-wide diagnostics"),
+    render(
+      <HealthPanel
+        objectId="plsql://sample/HR/FUNCTION/DOCU_FIDE"
+        onOpenEvidence={vi.fn()}
+      />,
     );
+    await screen.findByRole("button", { name: /Unresolved references/ });
+    expect(getPlsqlHealth).toHaveBeenCalledWith(
+      "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+    );
+    await user.click(screen.getByLabelText("Show repository-wide diagnostics"));
     await waitFor(() => expect(getPlsqlHealth).toHaveBeenCalledWith(undefined));
   });
 
@@ -131,7 +137,9 @@ describe("HealthPanel", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("unavailable"),
     );
-    await user.click(screen.getByRole("button", { name: "Retry analysis query" }));
+    await user.click(
+      screen.getByRole("button", { name: "Retry analysis query" }),
+    );
     expect(
       await screen.findByRole("button", { name: /Unresolved references/ }),
     ).toBeInTheDocument();

@@ -1,6 +1,7 @@
 "use client";
 
 import { LoaderCircle } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { searchPlsqlObjects, type PlsqlProblemCode } from "@/lib/api";
 import type { PlsqlObject, PlsqlObjectKind } from "@/lib/contracts";
@@ -60,6 +61,7 @@ export function ObjectExplorer({
   selectedId?: string;
   onSelect: (object: PlsqlObject) => void;
 }) {
+  const t = useTranslations("plsqlWorkspace.explorer");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ObjectFilter>(DEFAULT_FILTER);
   const [status, setStatus] = useState<
@@ -88,8 +90,8 @@ export function ObjectExplorer({
           setStatus("ready");
           setAnnouncement(
             page.items.length === 0
-              ? "No matching objects."
-              : `${page.items.length} matching object${page.items.length === 1 ? "" : "s"}.`,
+              ? t("noMatchingAnnouncement")
+              : t("matchingAnnouncement", { count: page.items.length }),
           );
         })
         .catch((error: unknown) => {
@@ -102,7 +104,7 @@ export function ObjectExplorer({
       window.clearTimeout(timer);
       requestSeq.current += 1;
     };
-  }, [query, filter, attempt]);
+  }, [query, filter, attempt, t]);
 
   function toggleGroup(key: string) {
     setCollapsed((current) => {
@@ -121,19 +123,19 @@ export function ObjectExplorer({
     <div className="flex h-full min-h-0 flex-col">
       <div className="sticky top-0 z-10 shrink-0 space-y-2 border-b bg-surface p-3">
         <label className="block text-sm font-medium">
-          <span className="sr-only">Search objects</span>
+          <span className="sr-only">{t("searchLabel")}</span>
           <input
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search packages, routines and tables..."
+            placeholder={t("searchPlaceholder")}
             className="min-h-11 w-full rounded-md border bg-surface px-3 text-sm"
           />
         </label>
         <ObjectFilters active={filter} onChange={setFilter} />
         {truncated && status === "ready" && (
           <p className="text-xs text-text-secondary">
-            Showing first {SEARCH_LIMIT} results
+            {t("showingFirst", { limit: SEARCH_LIMIT })}
           </p>
         )}
       </div>
@@ -145,7 +147,7 @@ export function ObjectExplorer({
             className="flex items-center gap-2 text-sm text-text-secondary"
           >
             <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-            Searching…
+            {t("searching")}
           </p>
         )}
         {status === "error" && (
@@ -156,13 +158,13 @@ export function ObjectExplorer({
         )}
         {isEmpty && (
           <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-            No objects match
+            {t("noMatch")}
           </p>
         )}
         {status === "ready" && (groups.length > 0 || ungrouped.length > 0) && (
           <ul
             ref={listRef}
-            aria-label="Object search results"
+            aria-label={t("results")}
             className="space-y-0.5"
             {...listProps}
           >

@@ -1,0 +1,135 @@
+{
+  "kinds": {
+    "Package": "Package",
+    "Procedure": "Procedure",
+    "Function": "Function",
+    "Table": "Table",
+    "View": "View",
+    "Trigger": "Trigger",
+    "Sequence": "Sequence",
+    "Index": "Index",
+    "Synonym": "Synonym",
+    "Type": "Type",
+    "AnonymousBlock": "Anonymous block"
+  },
+  "resolution": {
+    "EXACT": "Resolved",
+    "INFERRED": "Inferred",
+    "AMBIGUOUS": "Unresolved",
+    "UNRESOLVED": "Unresolved",
+    "confidence": "Confidence: {resolution}"
+  },
+  "hop": "{count, plural, one {# hop} other {# hops}}",
+  "line": "line {line}",
+  "insight": {
+    "sourceEvidence": "Source evidence"
+  },
+  "analysisHealth": {
+    "title": "Analysis Health",
+    "description": "Diagnostics computed while projecting the analyzed corpus. They never block navigation.",
+    "scopeObject": "this object",
+    "scopeRepository": "the repository",
+    "triggerLabel": "Analysis Health, {total, plural, one {# diagnostic} other {# diagnostics}} for {scope}"
+  },
+  "health": {
+    "region": "Analysis health",
+    "repositoryWide": "Show repository-wide diagnostics",
+    "loading": "Loading analysis health…",
+    "truncated": "Results truncated",
+    "categoryGroup": "Diagnostic category",
+    "categories": {
+      "unresolved": "Unresolved references",
+      "ambiguous": "Ambiguous references",
+      "dynamicSql": "Dynamic SQL",
+      "parseErrors": "Parse errors",
+      "unsupported": "Unsupported constructs"
+    },
+    "emptyCategory": "No diagnostics in this category",
+    "none": "No diagnostics reported for this scope."
+  },
+  "metrics": {
+    "directDependents": {
+      "label": "Direct dependents",
+      "empty": "No direct dependents"
+    },
+    "indirectDependents": {
+      "label": "Indirect dependents",
+      "empty": "No indirect dependents"
+    },
+    "readers": {
+      "label": "Readers",
+      "empty": "No readers"
+    },
+    "writers": {
+      "label": "Writers",
+      "empty": "No writers"
+    },
+    "triggers": {
+      "label": "Triggers",
+      "empty": "No triggers"
+    },
+    "directCallers": {
+      "label": "Direct callers",
+      "empty": "No direct callers"
+    },
+    "indirectCallers": {
+      "label": "Indirect callers",
+      "empty": "No indirect callers"
+    },
+    "callees": {
+      "label": "Callees",
+      "empty": "No callees"
+    },
+    "tablesRead": {
+      "label": "Tables read",
+      "empty": "No tables read"
+    },
+    "tablesModified": {
+      "label": "Tables modified",
+      "empty": "No tables modified"
+    },
+    "triggeredTable": {
+      "label": "Triggered table",
+      "empty": "No triggered table found"
+    },
+    "calls": {
+      "label": "Calls",
+      "empty": "No calls"
+    },
+    "subject": {
+      "object": "Object",
+      "trigger": "Trigger",
+      "table": "Table"
+    }
+  },
+  "overview": {
+    "heading": "Potential impact",
+    "loading": "Loading overview…",
+    "loadingRows": "Loading…",
+    "truncated": "Results truncated",
+    "metricsGroup": "Overview metrics",
+    "viewAllDependencies": "View all in Dependencies",
+    "viewAllImpact": "View all in Impact",
+    "columns": {
+      "package": "Package",
+      "type": "Type",
+      "distance": "Distance",
+      "operation": "Operation",
+      "relationship": "Relationship",
+      "evidence": "Evidence"
+    },
+    "why": {
+      "region": "Why {name} is related",
+      "title": "Why is this affected?",
+      "close": "Close why {name} is related",
+      "openObject": "Open object",
+      "analyze": "Analyze impact",
+      "analyzeLabel": "Analyze impact for {name}",
+      "viewPath": "View path",
+      "copy": "Copy qualified name",
+      "copied": "Copied",
+      "copiedAnnouncement": "Qualified name copied to clipboard.",
+      "noEvidence": "No source evidence available for this relationship."
+    }
+  }
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, LoaderCircle } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +54,7 @@ export function SourceViewer({
   request: SourceRequest;
   onClose: () => void;
 }) {
+  const t = useTranslations("plsqlDependencies");
   const wide = useWideViewport();
   const titleRef = useRef<HTMLHeadingElement>(null);
   if (wide) {
@@ -79,11 +81,9 @@ export function SourceViewer({
             tabIndex={-1}
             ref={titleRef}
           >
-            Source
+            {t("source.title")}
           </SheetTitle>
-          <SheetDescription>
-            Read-only source text from the analyzed corpus.
-          </SheetDescription>
+          <SheetDescription>{t("source.description")}</SheetDescription>
         </SheetHeader>
         <SourceBody request={request} />
       </SheetContent>
@@ -98,6 +98,7 @@ function SourcePanel({
   request: SourceRequest;
   onClose: () => void;
 }) {
+  const t = useTranslations("plsqlDependencies");
   const headingId = "plsql-source-heading";
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -118,10 +119,10 @@ function SourcePanel({
           tabIndex={-1}
           className="text-xl font-semibold"
         >
-          Source
+          {t("source.title")}
         </h2>
         <Button variant="outline" onClick={onClose}>
-          Close source
+          {t("source.close")}
         </Button>
       </div>
       <SourceBody request={request} fill />
@@ -148,6 +149,7 @@ export function SourceBody({
   /** Use a shorter editor, for evidence shown beside a results list. */
   compact?: boolean;
 }) {
+  const t = useTranslations("plsqlDependencies");
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<SourceStatus>("loading");
   const [content, setContent] = useState<PlsqlSourceContent>();
@@ -202,7 +204,7 @@ export function SourceBody({
         className="flex items-center gap-2 text-sm text-text-secondary"
       >
         <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-        Loading source…
+        {t("source.loading")}
       </p>
     );
   }
@@ -255,7 +257,9 @@ export function SourceBody({
       >
         <p className="min-w-0 break-words text-sm text-text-secondary">
           <span className="break-words">{file.path}</span>
-          {range !== null && <span aria-hidden> · line {range}</span>}
+          {range !== null && (
+            <span aria-hidden> · {t("source.line", { range })}</span>
+          )}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {highlight && (
@@ -264,7 +268,7 @@ export function SourceBody({
               className="min-h-11"
               onClick={() => focusLine(highlight.startLine)}
             >
-              Go to evidence
+              {t("source.goToEvidence")}
             </Button>
           )}
           {onOpenFullSource && (
@@ -273,7 +277,7 @@ export function SourceBody({
               className="min-h-11"
               onClick={onOpenFullSource}
             >
-              Open full source
+              {t("source.openFull")}
             </Button>
           )}
           <Button
@@ -281,16 +285,17 @@ export function SourceBody({
             className="min-h-11"
             onClick={() => void copyLocation()}
           >
-            <Copy aria-hidden /> {copied ? "Copied" : "Copy location"}
+            <Copy aria-hidden />{" "}
+            {copied ? t("source.copied") : t("source.copyLocation")}
           </Button>
         </div>
       </div>
       <p aria-live="polite" className="sr-only">
-        {copied ? "Source location copied to clipboard." : ""}
+        {copied ? t("source.copiedAnnouncement") : ""}
       </p>
       {lines.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-          File is empty
+          {t("source.empty")}
         </p>
       ) : (
         <div className={cn("mt-3", fill && "flex min-h-0 flex-1 flex-col")}>
@@ -302,7 +307,7 @@ export function SourceBody({
                   className="flex items-center gap-2 text-sm text-text-secondary"
                 >
                   <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-                  Loading editor…
+                  {t("source.loadingEditor")}
                 </p>
               }
             >

@@ -1,0 +1,78 @@
+{
+  "categories": {
+    "callers": "Llamadores",
+    "callees": "Llamados",
+    "reads": "Lecturas",
+    "writes": "Escrituras",
+    "other": "Otros"
+  },
+  "panel": {
+    "ariaLabel": "Dependencias",
+    "categoryGroup": "Categoría de dependencia",
+    "graphExpansion": "Expansión del grafo",
+    "oneLevel": "Un nivel",
+    "loading": "Cargando dependencias…",
+    "graphLabel": "Grafo de dependencias de {name}",
+    "expandHint": "Expanda una categoría para explorar el entorno de {name}.",
+    "resultsHeading": "Resultados de dependencias",
+    "truncated": "Resultados truncados",
+    "tableLabel": "Resultados de {category}",
+    "fallbackCategory": "Dependencia",
+    "empty": "No hay dependencias que coincidan"
+  },
+  "columns": {
+    "relatedObject": "Objeto relacionado",
+    "relationship": "Relación",
+    "resolution": "Resolución",
+    "evidence": "Evidencia"
+  },
+  "selected": {
+    "title": "Dependencia seleccionada",
+    "close": "Cerrar dependencia seleccionada",
+    "openObject": "Abrir objeto",
+    "analyzeImpact": "Analizar impacto",
+    "analyzeImpactFor": "Analizar impacto de {name}",
+    "viewFullPath": "Ver ruta completa",
+    "copied": "Copiado",
+    "copyQualifiedName": "Copiar nombre calificado",
+    "copiedAnnouncement": "Nombre calificado copiado al portapapeles.",
+    "sourceEvidence": "Evidencia en el código fuente",
+    "noEvidence": "No hay evidencia en el código fuente para esta dependencia."
+  },
+  "source": {
+    "title": "Código fuente",
+    "description": "Texto fuente de solo lectura del corpus analizado.",
+    "close": "Cerrar código fuente",
+    "loading": "Cargando código fuente…",
+    "goToEvidence": "Ir a la evidencia",
+    "openFull": "Abrir código fuente completo",
+    "copyLocation": "Copiar ubicación",
+    "copied": "Copiado",
+    "copiedAnnouncement": "Ubicación del código fuente copiada al portapapeles.",
+    "line": "línea {range}",
+    "empty": "El archivo está vacío",
+    "loadingEditor": "Cargando editor…",
+    "editorLabelWithPath": "Código fuente de {path}",
+    "editorLabel": "Código fuente"
+  },
+  "inspector": {
+    "empty": "Seleccione un objeto, una dependencia o una ruta para ver sus detalles.",
+    "objectDetails": "Detalles del objeto",
+    "schema": "Esquema",
+    "qualifiedName": "Nombre calificado",
+    "package": "Paquete",
+    "file": "Archivo",
+    "startLine": "Línea de inicio",
+    "endOffset": "Desplazamiento final",
+    "dependencyEdge": "Arista de dependencia",
+    "from": "Desde",
+    "to": "Hasta",
+    "relationship": "Relación",
+    "evidence": "Evidencia",
+    "none": "Ninguna",
+    "dependencyPath": "Ruta de dependencias",
+    "hops": "Saltos",
+    "hopCount": "{count, plural, one {# salto} other {# saltos}}",
+    "fullPath": "Ruta completa"
+  }
+}

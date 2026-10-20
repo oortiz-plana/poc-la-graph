@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, LoaderCircle } from "lucide-react";
+import { useTranslations } from "next-intl";
 import {
   useEffect,
   useState,
@@ -25,7 +26,7 @@ import {
 } from "./dependency-detail-table";
 import { DependencyPathTrail } from "./dependency-path-trail";
 import { PlsqlObjectCombobox } from "./object-combobox";
-import { evidenceLineLabel, hopText } from "./plsql-atoms";
+import { useEvidenceLineLabel, useHopText } from "./plsql-atoms";
 import { InsightPanel } from "./insight-panel";
 import { ListDetailSplit } from "./list-detail-split";
 import { SourceBody } from "./source-viewer";
@@ -69,6 +70,8 @@ function DependencyPathsContent({
   onOpenObject?: (reference: PlsqlObjectReference) => void;
   onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
 }) {
+  const t = useTranslations("plsqlImpact.paths");
+  const hopText = useHopText();
   const [from, setFrom] = useState<PlsqlObject>();
   const [to, setTo] = useState<PlsqlObject>();
   const [submitted, setSubmitted] = useState<{
@@ -168,7 +171,7 @@ function DependencyPathsContent({
   }));
   const columns: DetailTableColumn<PathListRow>[] = [
     {
-      header: "Route",
+      header: t("columnRoute"),
       cell: (row) => (
         <span
           title={row.path.nodes.map((node) => node.qualifiedName).join(" → ")}
@@ -179,7 +182,7 @@ function DependencyPathsContent({
       ),
     },
     {
-      header: "Hops",
+      header: t("columnHops"),
       align: "right",
       cell: (row) => hopText(row.path.hopCount),
     },
@@ -189,30 +192,28 @@ function DependencyPathsContent({
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} className="text-xl font-semibold">
-        Dependency paths
+        {t("heading")}
       </h2>
       <form onSubmit={tracePaths} className="mt-3 max-w-3xl">
         <div className="grid gap-4 sm:grid-cols-2">
           <PlsqlObjectCombobox
             id="plsql-path-from"
-            label="From object"
+            label={t("fromObject")}
             selected={from}
             onSelect={setFrom}
           />
           <PlsqlObjectCombobox
             id="plsql-path-to"
-            label="To object"
+            label={t("toObject")}
             selected={to}
             onSelect={setTo}
           />
         </div>
         <Button type="submit" disabled={!canTrace} className="mt-3">
-          Find paths
+          {t("findPaths")}
         </Button>
         {!canTrace && (
-          <p className="mt-2 text-xs text-text-secondary">
-            Choose two different searched objects to trace paths between them.
-          </p>
+          <p className="mt-2 text-xs text-text-secondary">{t("chooseTwo")}</p>
         )}
       </form>
 
@@ -222,7 +223,7 @@ function DependencyPathsContent({
           className="flex items-center gap-2 text-sm text-text-secondary"
         >
           <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-          Loading dependency paths…
+          {t("loading")}
         </p>
       )}
       {status === "error" && (
@@ -236,13 +237,13 @@ function DependencyPathsContent({
             list={
               <>
                 <DependencyDetailTable
-                  ariaLabel="Dependency paths between the selected objects"
+                  ariaLabel={t("tableLabel")}
                   columns={columns}
                   rows={rows}
                   getRowId={(row) => row.id}
                   selectedId={selectedId}
                   onSelectRow={(row) => selectPath(row.path)}
-                  emptyMessage="No dependency paths found"
+                  emptyMessage={t("empty")}
                 />
                 <AnalysisPagination
                   loaded={result.items.length}
@@ -293,6 +294,9 @@ function SelectedPath({
   onOpenObject?: (reference: PlsqlObjectReference) => void;
   onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
 }) {
+  const t = useTranslations("plsqlImpact.paths");
+  const evidenceLineLabel = useEvidenceLineLabel();
+  const hopText = useHopText();
   const destination = path.nodes[path.nodes.length - 1];
   const finalEdge = path.relationships[path.relationships.length - 1];
   // Which hop's evidence the "Source evidence" pane shows: the final hop by
@@ -316,9 +320,9 @@ function SelectedPath({
 
   return (
     <InsightPanel
-      ariaLabel="Selected path"
-      title="Selected path"
-      closeLabel="Close selected path"
+      ariaLabel={t("selectedPath")}
+      title={t("selectedPath")}
+      closeLabel={t("closeSelectedPath")}
       onClose={onClose}
       trail={
         <>
@@ -342,17 +346,17 @@ function SelectedPath({
                 variant="outline"
                 onClick={() => onOpenObject(destination)}
               >
-                Open object
+                {t("openObject")}
               </Button>
             )}
             {onAnalyzeObject && (
               <Button
                 size="sm"
                 variant="outline"
-                aria-label={`Analyze impact for ${destination.name}`}
+                aria-label={t("analyzeImpactFor", { name: destination.name })}
                 onClick={() => onAnalyzeObject(destination)}
               >
-                Analyze impact
+                {t("analyzeImpact")}
               </Button>
             )}
             <Button
@@ -360,11 +364,12 @@ function SelectedPath({
               variant="ghost"
               onClick={() => void copyQualifiedName()}
             >
-              <Copy aria-hidden /> {copied ? "Copied" : "Copy qualified name"}
+              <Copy aria-hidden />{" "}
+              {copied ? t("copied") : t("copyQualifiedName")}
             </Button>
           </div>
           <p aria-live="polite" className="sr-only">
-            {copied ? "Qualified name copied to clipboard." : ""}
+            {copied ? t("copiedAnnouncement") : ""}
           </p>
         </>
       }
@@ -372,7 +377,7 @@ function SelectedPath({
         <>
           {selectedEvidence?.sourceFileId ? (
             <SourceBody
-              heading="Source evidence"
+              heading={t("sourceEvidence")}
               compact
               onOpenFullSource={() => onOpenEvidence(selectedEvidence)}
               request={{
@@ -384,7 +389,7 @@ function SelectedPath({
             />
           ) : (
             <p className="rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-              No source evidence available for this path.
+              {t("noEvidence")}
             </p>
           )}
         </>

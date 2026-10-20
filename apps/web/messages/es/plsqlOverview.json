@@ -1,0 +1,135 @@
+{
+  "kinds": {
+    "Package": "Paquete",
+    "Procedure": "Procedimiento",
+    "Function": "Función",
+    "Table": "Tabla",
+    "View": "Vista",
+    "Trigger": "Disparador",
+    "Sequence": "Secuencia",
+    "Index": "Índice",
+    "Synonym": "Sinónimo",
+    "Type": "Tipo",
+    "AnonymousBlock": "Bloque anónimo"
+  },
+  "resolution": {
+    "EXACT": "Resuelto",
+    "INFERRED": "Inferido",
+    "AMBIGUOUS": "Sin resolver",
+    "UNRESOLVED": "Sin resolver",
+    "confidence": "Confianza: {resolution}"
+  },
+  "hop": "{count, plural, one {# salto} other {# saltos}}",
+  "line": "línea {line}",
+  "insight": {
+    "sourceEvidence": "Evidencia en el código fuente"
+  },
+  "analysisHealth": {
+    "title": "Salud del análisis",
+    "description": "Diagnósticos calculados al proyectar el corpus analizado. Nunca bloquean la navegación.",
+    "scopeObject": "este objeto",
+    "scopeRepository": "el repositorio",
+    "triggerLabel": "Salud del análisis, {total, plural, one {# diagnóstico} other {# diagnósticos}} para {scope}"
+  },
+  "health": {
+    "region": "Salud del análisis",
+    "repositoryWide": "Mostrar diagnósticos de todo el repositorio",
+    "loading": "Cargando la salud del análisis…",
+    "truncated": "Resultados truncados",
+    "categoryGroup": "Categoría de diagnóstico",
+    "categories": {
+      "unresolved": "Referencias sin resolver",
+      "ambiguous": "Referencias ambiguas",
+      "dynamicSql": "SQL dinámico",
+      "parseErrors": "Errores de análisis sintáctico",
+      "unsupported": "Construcciones no compatibles"
+    },
+    "emptyCategory": "No hay diagnósticos en esta categoría",
+    "none": "No se reportaron diagnósticos para este alcance."
+  },
+  "metrics": {
+    "directDependents": {
+      "label": "Dependientes directos",
+      "empty": "No hay dependientes directos"
+    },
+    "indirectDependents": {
+      "label": "Dependientes indirectos",
+      "empty": "No hay dependientes indirectos"
+    },
+    "readers": {
+      "label": "Lectores",
+      "empty": "No hay lectores"
+    },
+    "writers": {
+      "label": "Escritores",
+      "empty": "No hay escritores"
+    },
+    "triggers": {
+      "label": "Disparadores",
+      "empty": "No hay disparadores"
+    },
+    "directCallers": {
+      "label": "Llamadores directos",
+      "empty": "No hay llamadores directos"
+    },
+    "indirectCallers": {
+      "label": "Llamadores indirectos",
+      "empty": "No hay llamadores indirectos"
+    },
+    "callees": {
+      "label": "Llamados",
+      "empty": "No hay llamados"
+    },
+    "tablesRead": {
+      "label": "Tablas leídas",
+      "empty": "No hay tablas leídas"
+    },
+    "tablesModified": {
+      "label": "Tablas modificadas",
+      "empty": "No hay tablas modificadas"
+    },
+    "triggeredTable": {
+      "label": "Tabla del disparador",
+      "empty": "No se encontró la tabla del disparador"
+    },
+    "calls": {
+      "label": "Llamadas",
+      "empty": "No hay llamadas"
+    },
+    "subject": {
+      "object": "Objeto",
+      "trigger": "Disparador",
+      "table": "Tabla"
+    }
+  },
+  "overview": {
+    "heading": "Impacto potencial",
+    "loading": "Cargando el resumen…",
+    "loadingRows": "Cargando…",
+    "truncated": "Resultados truncados",
+    "metricsGroup": "Métricas del resumen",
+    "viewAllDependencies": "Ver todo en Dependencias",
+    "viewAllImpact": "Ver todo en Impacto",
+    "columns": {
+      "package": "Paquete",
+      "type": "Tipo",
+      "distance": "Distancia",
+      "operation": "Operación",
+      "relationship": "Relación",
+      "evidence": "Evidencia"
+    },
+    "why": {
+      "region": "Por qué {name} está relacionado",
+      "title": "¿Por qué se ve afectado?",
+      "close": "Cerrar por qué {name} está relacionado",
+      "openObject": "Abrir objeto",
+      "analyze": "Analizar impacto",
+      "analyzeLabel": "Analizar el impacto de {name}",
+      "viewPath": "Ver ruta",
+      "copy": "Copiar nombre calificado",
+      "copied": "Copiado",
+      "copiedAnnouncement": "Nombre calificado copiado al portapapeles.",
+      "noEvidence": "No hay evidencia en el código fuente para esta relación."
+    }
+  }
+}

@@ -1,16 +1,17 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { ReactNode, RefObject } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { PlsqlObject } from "@/lib/contracts";
 import { ObjectKindBadge } from "./plsql-atoms";
 
 export const OBJECT_TABS = [
-  { value: "overview", label: "Overview" },
-  { value: "dependencies", label: "Dependencies" },
-  { value: "impact", label: "Impact" },
-  { value: "paths", label: "Paths" },
-  { value: "source", label: "Source" },
+  { value: "overview" },
+  { value: "dependencies" },
+  { value: "impact" },
+  { value: "paths" },
+  { value: "source" },
 ] as const;
 
 export type PlsqlTab = (typeof OBJECT_TABS)[number]["value"];
@@ -24,10 +25,11 @@ export function ObjectHeader({
   headingRef: RefObject<HTMLHeadingElement | null>;
   actions?: ReactNode;
 }) {
+  const t = useTranslations("plsqlWorkspace.header");
   const segments = object.qualifiedName.split(".");
   return (
     <header className="shrink-0">
-      <nav aria-label="Qualified name">
+      <nav aria-label={t("qualifiedName")}>
         <ol className="flex flex-wrap items-center gap-1 text-xs text-text-muted">
           {segments.map((segment, index) => (
             <li
@@ -69,6 +71,7 @@ export function ObjectTabs({
   onChange: (tab: PlsqlTab) => void;
   children: ReactNode;
 }) {
+  const t = useTranslations("plsqlWorkspace.header");
   return (
     <Tabs
       value={value}
@@ -76,7 +79,7 @@ export function ObjectTabs({
       className="flex min-h-0 flex-1 flex-col"
     >
       <TabsList
-        aria-label="Object views"
+        aria-label={t("objectViews")}
         className="mt-3 h-auto max-w-full shrink-0 self-start overflow-x-auto overflow-y-hidden"
       >
         {OBJECT_TABS.map((tab) => (
@@ -85,7 +88,7 @@ export function ObjectTabs({
             value={tab.value}
             className="px-1.5 text-[13px] max-md:min-h-11 sm:px-3 sm:text-sm"
           >
-            {tab.label}
+            {t(`tabs.${tab.value}`)}
           </TabsTrigger>
         ))}
       </TabsList>

@@ -1,6 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithIntl as render } from "@/test/render-with-intl";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DependencyGraph, type GraphEdge, type GraphNode } from "./dependency-graph";
+import {
+  DependencyGraph,
+  type GraphEdge,
+  type GraphNode,
+} from "./dependency-graph";
 import { ViewModeToggle } from "./view-mode-toggle";
 
 const cyMock = vi.hoisted(() => ({
@@ -36,9 +41,16 @@ describe("DependencyGraph", () => {
 
   it("initializes cytoscape once and adds elements with focus markers", () => {
     render(
-      <DependencyGraph nodes={nodes} edges={edges} onSelectNode={vi.fn()} onSelectEdge={vi.fn()} />,
+      <DependencyGraph
+        nodes={nodes}
+        edges={edges}
+        onSelectNode={vi.fn()}
+        onSelectEdge={vi.fn()}
+      />,
     );
-    expect(screen.getByRole("img", { name: "Dependency graph" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Dependency graph" }),
+    ).toBeInTheDocument();
     expect(cytoscape).toHaveBeenCalledTimes(1);
     expect(cyMock.on).toHaveBeenCalledWith("tap", "node", expect.any(Function));
     expect(cyMock.on).toHaveBeenCalledWith("tap", "edge", expect.any(Function));
@@ -49,14 +61,24 @@ describe("DependencyGraph", () => {
       label: "HR.DOCU_FIDE",
       focused: "true",
     });
-    expect(added[2].data).toMatchObject({ id: "e1", source: "n2", target: "n1", label: "CALLS" });
+    expect(added[2].data).toMatchObject({
+      id: "e1",
+      source: "n2",
+      target: "n1",
+      label: "CALLS",
+    });
   });
 
   it("forwards node and edge taps to callbacks", () => {
     const onSelectNode = vi.fn();
     const onSelectEdge = vi.fn();
     render(
-      <DependencyGraph nodes={nodes} edges={edges} onSelectNode={onSelectNode} onSelectEdge={onSelectEdge} />,
+      <DependencyGraph
+        nodes={nodes}
+        edges={edges}
+        onSelectNode={onSelectNode}
+        onSelectEdge={onSelectEdge}
+      />,
     );
     const nodeHandler = (cyMock.on as ReturnType<typeof vi.fn>).mock.calls.find(
       (call) => call[1] === "node",
@@ -75,8 +97,14 @@ describe("ViewModeToggle", () => {
   it("toggles between graph and list modes", () => {
     const onChange = vi.fn();
     render(<ViewModeToggle mode="list" onChange={onChange} />);
-    expect(screen.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Graph" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "List" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Graph" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
     screen.getByRole("button", { name: "Graph" }).click();
     expect(onChange).toHaveBeenCalledWith("graph");
   });

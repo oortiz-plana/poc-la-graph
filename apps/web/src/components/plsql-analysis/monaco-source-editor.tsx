@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
 } from "react";
+import { useTranslations } from "next-intl";
 import MonacoEditor, { type EditorDidMount } from "react-monaco-editor";
 // Importing the full runtime registers the shared editor singleton and the
 // built-in SQL (Monarch) language before react-monaco-editor creates the
@@ -71,6 +72,7 @@ function MonacoSourceEditorBase(
   }: MonacoSourceEditorProps,
   ref: React.ForwardedRef<MonacoSourceEditorHandle>,
 ) {
+  const t = useTranslations("plsqlDependencies");
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const decorationsRef =
     useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -135,9 +137,11 @@ function MonacoSourceEditorBase(
   const options = useMemo(
     () => ({
       ...VIEW_OPTIONS,
-      ariaLabel: path ? `${path} source` : "Source code",
+      ariaLabel: path
+        ? t("source.editorLabelWithPath", { path })
+        : t("source.editorLabel"),
     }),
-    [path],
+    [path, t],
   );
 
   return (

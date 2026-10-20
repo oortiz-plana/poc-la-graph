@@ -1,6 +1,7 @@
 "use client";
 
 import cytoscape, { type Core } from "cytoscape";
+import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 import type { PlsqlObjectKind, PlsqlRelationship } from "@/lib/contracts";
 
@@ -20,7 +21,10 @@ export type GraphEdge = {
 
 function cssVar(name: string, fallback: string): string {
   if (typeof window === "undefined") return fallback;
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
+    fallback
+  );
 }
 
 function toElements(nodes: GraphNode[], edges: GraphEdge[]) {
@@ -34,7 +38,12 @@ function toElements(nodes: GraphNode[], edges: GraphEdge[]) {
       },
     })),
     ...edges.map((edge) => ({
-      data: { id: edge.id, source: edge.source, target: edge.target, label: edge.label },
+      data: {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+      },
     })),
   ];
 }
@@ -49,7 +58,7 @@ export function DependencyGraph({
   edges,
   onSelectNode,
   onSelectEdge,
-  ariaLabel = "Dependency graph",
+  ariaLabel,
 }: {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -57,6 +66,7 @@ export function DependencyGraph({
   onSelectEdge?: (edgeId: string) => void;
   ariaLabel?: string;
 }) {
+  const t = useTranslations("plsqlImpact.graph");
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | undefined>(undefined);
   const selectNodeRef = useRef(onSelectNode);
@@ -90,7 +100,11 @@ export function DependencyGraph({
         },
         {
           selector: "node[focused]",
-          style: { "background-color": primary, width: "0.9rem", height: "0.9rem" },
+          style: {
+            "background-color": primary,
+            width: "0.9rem",
+            height: "0.9rem",
+          },
         },
         {
           selector: "edge",
@@ -141,7 +155,7 @@ export function DependencyGraph({
     <div
       ref={containerRef}
       role="img"
-      aria-label={ariaLabel}
+      aria-label={ariaLabel ?? t("defaultLabel")}
       className="h-[26rem] w-full rounded-lg border bg-background"
     />
   );

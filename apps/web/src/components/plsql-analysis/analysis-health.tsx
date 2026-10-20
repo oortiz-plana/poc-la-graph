@@ -1,6 +1,7 @@
 "use client";
 
 import { TriangleAlert } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +27,7 @@ export function AnalysisHealth({
   objectId?: string;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
 }) {
+  const t = useTranslations("plsqlOverview.analysisHealth");
   const [open, setOpen] = useState(false);
   const [total, setTotal] = useState<number>();
 
@@ -44,7 +46,7 @@ export function AnalysisHealth({
     };
   }, [objectId]);
 
-  const scope = objectId ? "this object" : "the repository";
+  const scope = objectId ? t("scopeObject") : t("scopeRepository");
 
   return (
     <>
@@ -53,12 +55,12 @@ export function AnalysisHealth({
         size="sm"
         aria-label={
           total !== undefined && total > 0
-            ? `Analysis Health, ${total} ${total === 1 ? "diagnostic" : "diagnostics"} for ${scope}`
+            ? t("triggerLabel", { total, scope })
             : undefined
         }
         onClick={() => setOpen(true)}
       >
-        <TriangleAlert aria-hidden /> Analysis Health
+        <TriangleAlert aria-hidden /> {t("title")}
         {total !== undefined && total > 0 && (
           <span
             aria-hidden
@@ -71,11 +73,8 @@ export function AnalysisHealth({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Analysis Health</DialogTitle>
-            <DialogDescription>
-              Diagnostics computed while projecting the analyzed corpus. They
-              never block navigation.
-            </DialogDescription>
+            <DialogTitle>{t("title")}</DialogTitle>
+            <DialogDescription>{t("description")}</DialogDescription>
           </DialogHeader>
           <HealthPanel objectId={objectId} onOpenEvidence={onOpenEvidence} />
         </DialogContent>

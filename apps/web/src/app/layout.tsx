@@ -1,25 +1,29 @@
 import type { Metadata } from "next";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getTranslations } from "next-intl/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: {
-    default: "Graphify Knowledge Agent",
-    template: "%s · Graphify Knowledge Agent",
-  },
-  description:
-    "Enterprise evidence-grounded research across connected knowledge and source documents.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("metadata");
+  return {
+    title: { default: t("title"), template: `%s · ${t("title")}` },
+    description: t("description"),
+  };
+}
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const locale = await getLocale();
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body>
-        <TooltipProvider delayDuration={500} skipDelayDuration={250}>
-          {children}
-        </TooltipProvider>
+        <NextIntlClientProvider>
+          <TooltipProvider delayDuration={500} skipDelayDuration={250}>
+            {children}
+          </TooltipProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

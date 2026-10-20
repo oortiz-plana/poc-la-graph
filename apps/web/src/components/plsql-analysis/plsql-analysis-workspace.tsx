@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ type Restore =
 
 export function PlsqlAnalysisWorkspace() {
   const auth = useAuth();
+  const t = useTranslations("plsqlWorkspace.workspace");
   const [selected, setSelected] = useState<PlsqlObject>();
   const [tab, setTab] = useState<PlsqlTab>("overview");
   const [sourceRequest, setSourceRequest] = useState<SourceRequest>();
@@ -257,9 +259,9 @@ export function PlsqlAnalysisWorkspace() {
     <ApplicationShell>
       {!auth.config.plsqlEnabled ? (
         <div className="p-4 sm:p-6 lg:p-8">
-          <h1 className="text-2xl font-semibold">PL/SQL analysis</h1>
+          <h1 className="text-2xl font-semibold">{t("title")}</h1>
           <p className="mt-6 rounded-lg border border-dashed p-6 text-sm text-text-secondary">
-            Analysis is not configured
+            {t("notConfigured")}
           </p>
         </div>
       ) : (
@@ -292,7 +294,7 @@ export function PlsqlAnalysisWorkspace() {
                       <Button
                         variant="outline"
                         size="icon"
-                        aria-label="Back"
+                        aria-label={t("back")}
                         disabled={!urlHistory.canGoBack}
                         onClick={urlHistory.back}
                       >
@@ -301,7 +303,7 @@ export function PlsqlAnalysisWorkspace() {
                       <Button
                         variant="outline"
                         size="icon"
-                        aria-label="Forward"
+                        aria-label={t("forward")}
                         disabled={!urlHistory.canGoForward}
                         onClick={urlHistory.forward}
                       >
@@ -380,9 +382,7 @@ export function PlsqlAnalysisWorkspace() {
                       />
                     ) : (
                       <div className="mt-3 rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-                        <p>
-                          Open an object or follow a source location to view it.
-                        </p>
+                        <p>{t("openSourcePrompt")}</p>
                         <Button
                           className="mt-3"
                           variant="outline"
@@ -391,7 +391,7 @@ export function PlsqlAnalysisWorkspace() {
                             setSourceRequest(objectSourceRequest(selected.id))
                           }
                         >
-                          Show source of {selected.name}
+                          {t("showSourceOf", { name: selected.name })}
                         </Button>
                       </div>
                     )}
@@ -401,12 +401,11 @@ export function PlsqlAnalysisWorkspace() {
             ) : (
               <div className="mx-auto min-h-0 w-full max-w-[75rem] flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h1 className="text-2xl font-semibold">PL/SQL analysis</h1>
+                  <h1 className="text-2xl font-semibold">{t("title")}</h1>
                   <AnalysisHealth onOpenEvidence={openEvidence} />
                 </div>
                 <p className="mt-2 max-w-3xl text-sm text-text-secondary">
-                  Choose an object in the Object Explorer to inspect its
-                  dependencies, impact, paths, and source.
+                  {t("intro")}
                 </p>
                 <EmptyState
                   restore={restore}
@@ -434,9 +433,14 @@ function EmptyState({
   onRetry: () => void;
   onClear: () => void;
 }) {
+  const t = useTranslations("plsqlWorkspace.workspace");
   if (restore.status === "loading") {
     return (
-      <div role="status" aria-label="Loading object" className="mt-6 space-y-3">
+      <div
+        role="status"
+        aria-label={t("loadingObject")}
+        className="mt-6 space-y-3"
+      >
         <Skeleton className="h-6 w-56" />
         <Skeleton className="h-24 w-full" />
       </div>
@@ -451,18 +455,16 @@ function EmptyState({
   }
   return (
     <div className="mt-6 rounded-lg border border-dashed p-6 text-sm text-text-secondary">
-      <p>
-        {restore.status === "notFound"
-          ? "The linked object was not found in the analyzed corpus."
-          : "No object selected"}
-      </p>
+      <p>{restore.status === "notFound" ? t("notFound") : t("noSelection")}</p>
       <Button
         className="mt-4"
         variant={restore.status === "notFound" ? "outline" : "default"}
         onClick={restore.status === "notFound" ? onClear : onBrowse}
       >
         <Search aria-hidden />
-        {restore.status === "notFound" ? "Clear selection" : "Browse objects"}
+        {restore.status === "notFound"
+          ? t("clearSelection")
+          : t("browseObjects")}
       </Button>
     </div>
   );

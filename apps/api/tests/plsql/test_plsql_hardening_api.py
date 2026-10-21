@@ -76,7 +76,7 @@ def test_settings_reject_out_of_bounds_configuration(tmp_path: Path) -> None:
     for override in (
         {"plsql_max_rows": 201},
         {"plsql_max_rows": 0},
-        {"plsql_max_hops": 51},
+        {"plsql_max_hops": 101},
         {"plsql_max_hops": 0},
         {"plsql_max_source_bytes": 10_485_761},
         {"plsql_max_source_bytes": 1023},
@@ -91,12 +91,12 @@ def test_settings_accept_cap_edge_values(tmp_path: Path) -> None:
     settings = _settings(
         tmp_path,
         plsql_max_rows=200,
-        plsql_max_hops=50,
+        plsql_max_hops=100,
         plsql_max_source_bytes=10_485_760,
         plsql_query_timeout_seconds=300.0,
     )
     assert settings.plsql_max_rows == 200
-    assert settings.plsql_max_hops == 50
+    assert settings.plsql_max_hops == 100
     assert settings.plsql_max_source_bytes == 10_485_760
     assert settings.plsql_query_timeout_seconds == 300.0
 
@@ -134,7 +134,9 @@ async def test_readiness_matrix_connected_and_unavailable(
         client,
     ):
         response = await client.get("/ready")
-        assert response.status_code == 200
+        # A configured but unreachable analysis graph makes the API not ready.
+        assert response.status_code == 503
+        assert response.json()["ready"] is False
         assert response.json()["components"]["analysis"]["status"] == "unavailable"
 
 
@@ -220,7 +222,10 @@ async def test_caller_callee_row_caps(tmp_path: Path) -> None:
         assert len(payload["items"]) == 2
         assert payload["truncated"] is True
         assert payload["count"] == 3
-        assert payload["items"][0]["target"]["qualifiedName"] == ("HR.COUNT_EMPLOYEES")
+        # Alphabetical by the called object's name.
+        assert payload["items"][0]["target"]["qualifiedName"] == (
+            "HR.PKG_EMPLOYEE.CALCULATE_BONUS"
+        )
 
         # CREATE_EMPLOYEE has exactly one caller, so no truncation and the
         # configured cap is not confused with an error.

@@ -216,3 +216,31 @@ async def test_disabled_adapter_returns_not_configured(
     )
     assert detail.status_code == 503
     assert detail.json()["code"] == "analysis_not_configured"
+
+
+async def test_search_offset_reads_consecutive_pages(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    everything = (await plsql_client.get("/api/v1/plsql/objects")).json()
+    total = everything["count"]
+    assert total >= 5
+
+    names: list[str] = []
+    for offset in range(0, total, 3):
+        page = (
+            await plsql_client.get(
+                "/api/v1/plsql/objects", params={"limit": 3, "offset": offset}
+            )
+        ).json()
+        assert page["count"] == total
+        assert page["truncated"] is (offset + 3 < total)
+        names.extend(item["id"] for item in page["items"])
+
+    assert names == [item["id"] for item in everything["items"]]
+
+
+async def test_search_rejects_a_negative_offset(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    response = await plsql_client.get("/api/v1/plsql/objects", params={"offset": -1})
+    assert response.status_code == 422

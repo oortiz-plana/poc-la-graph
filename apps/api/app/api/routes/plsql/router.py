@@ -19,6 +19,7 @@ from app.integrations.plsql import (
     PlsqlNotConfigured,
     PlsqlObjectNotFound,
 )
+from app.integrations.plsql.catalog import TABLE_ACCESS_BY_CATEGORY
 from app.integrations.plsql.models import (
     PlsqlDependencyRecord,
     PlsqlEvidence,
@@ -30,6 +31,7 @@ from app.integrations.plsql.models import (
 from app.models import (
     ImpactDirection,
     ImpactRelationship,
+    ImpactScope,
     ObjectKind,
     PlsqlDependency,
     PlsqlDependencyCategory,
@@ -40,6 +42,7 @@ from app.models import (
     PlsqlImpactItem,
     PlsqlImpactResult,
     PlsqlImpactSummary,
+    PlsqlImpactSummaryResult,
     PlsqlObject,
     PlsqlObjectReference,
     PlsqlObjectSearchResult,
@@ -51,6 +54,7 @@ from app.models import (
     PlsqlSourceFile,
     PlsqlSourceHighlight,
 )
+from app.models.plsql import ListOrder, PlsqlHealthCategoryName, PlsqlRelationship
 
 router = APIRouter(prefix="/api/v1/plsql", tags=["plsql"])
 
@@ -68,26 +72,26 @@ def _coordinate(evidence: PlsqlEvidence | None) -> PlsqlSourceCoordinate | None:
     if evidence is None:
         return None
     return PlsqlSourceCoordinate(
-        sourceFileId=evidence.source_file_id,
+        source_file_id=evidence.source_file_id,
         path=evidence.path,
-        startLine=evidence.start_line,
-        startColumn=evidence.start_column,
-        startOffset=evidence.start_offset,
-        endOffset=evidence.end_offset,
+        start_line=evidence.start_line,
+        start_column=evidence.start_column,
+        start_offset=evidence.start_offset,
+        end_offset=evidence.end_offset,
     )
 
 
 def _source(record: PlsqlSourceRecord) -> PlsqlSourceContent:
     highlight = (
         PlsqlSourceHighlight(
-            startLine=record.highlight.start_line,
-            endLine=record.highlight.end_line,
+            start_line=record.highlight.start_line,
+            end_line=record.highlight.end_line,
         )
         if record.highlight is not None
         else None
     )
     return PlsqlSourceContent(
-        file=PlsqlSourceFile(fileId=record.file.file_id, path=record.file.path),
+        file=PlsqlSourceFile(file_id=record.file.file_id, path=record.file.path),
         lines=record.lines,
         highlight=highlight,
     )
@@ -103,11 +107,11 @@ def _object(record: PlsqlObjectRecord) -> PlsqlObject:
         kind=record.kind,
         name=record.name,
         schema_name=record.schema_name,
-        qualifiedName=record.qualified_name,
-        projectId=record.project_id,
+        qualified_name=record.qualified_name,
+        project_id=record.project_id,
         owner=record.owner,
         signature=record.signature,
-        returnType=record.return_type,
+        return_type=record.return_type,
         declaration=_coordinate(record.evidence),
     )
 
@@ -124,7 +128,7 @@ def _reference(
         kind=kind,
         name=name,
         schema_name=_schema_of(qualified_name),
-        qualifiedName=qualified_name,
+        qualified_name=qualified_name,
     )
 
 
@@ -159,10 +163,16 @@ def _dependency(edge: PlsqlDependencyRecord) -> PlsqlDependency:
         ),
         resolution=edge.resolution,
         evidence=_coordinate(edge.evidence),
-        evidenceKind=edge.evidence_kind,
+        occurrences=[
+            coordinate
+            for evidence in edge.occurrences
+            if (coordinate := _coordinate(evidence)) is not None
+        ],
+        occurrence_count=edge.occurrence_count,
+        evidence_kind=edge.evidence_kind,
         derived=edge.derived,
         events=edge.events,
-        viaTable=via_table,
+        via_table=via_table,
     )
 
 
@@ -196,7 +206,7 @@ def _path(record: PlsqlPathRecord) -> PlsqlPath:
         id=record.id,
         nodes=nodes,
         relationships=[_dependency(step) for step in record.steps],
-        hopCount=record.hop_count,
+        hop_count=record.hop_count,
     )
 
 
@@ -245,6 +255,13 @@ def _decode_page_cursor(cursor: str | None, scope: str) -> int:
         raise InvalidRequest("Invalid pagination cursor") from exc
 
 
+def _page_start(cursor: str | None, offset: int, scope: str) -> int:
+    """First row of a page, addressed by the previous page's cursor or by offset."""
+    if cursor is not None and offset:
+        raise InvalidRequest("Use either cursor or offset, not both")
+    return offset if cursor is None else _decode_page_cursor(cursor, scope)
+
+
 async def _require_object(
     analysis: AnalysisGraphClient, object_id: str
 ) -> PlsqlObjectRecord:
@@ -262,6 +279,7 @@ async def search_objects(
     q: Annotated[str, Query(max_length=200)] = "",
     kinds: Annotated[list[ObjectKind] | None, Query()] = None,
     limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> PlsqlObjectSearchResult:
     """Deterministically search analyzed PL/SQL objects (bounded).
 
@@ -273,6 +291,7 @@ async def search_objects(
         query=q,
         kinds=kinds,
         limit=_effective_limit(settings, limit),
+        offset=offset,
     )
     return PlsqlObjectSearchResult(
         items=[_object(record) for record in page.items],
@@ -310,17 +329,26 @@ async def get_health(
         str | None, Query(alias="objectId", min_length=1, max_length=512)
     ] = None,
     limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    category: Annotated[PlsqlHealthCategoryName | None, Query()] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> PlsqlHealth:
     """Return analysis-quality diagnostics grouped by category.
 
     ``objectId`` scopes the report to one object; without it the report
-    covers the whole repository.
+    covers the whole repository. Every category reports its exact ``count``.
+    Without ``category`` each lists its first page; with one, only that
+    category lists items, starting at ``offset`` (page navigation).
     """
     del principal
+    if offset and category is None:
+        raise InvalidRequest("offset needs a category")
     if object_id is not None:
         await _require_object(analysis, object_id)
     record = await analysis.health(
-        object_id=object_id, limit=_effective_limit(settings, limit)
+        object_id=object_id,
+        limit=_effective_limit(settings, limit),
+        category=category,
+        offset=offset,
     )
 
     return PlsqlHealth(
@@ -357,14 +385,34 @@ async def get_dependencies(
     object_id: ObjectIdentifier,
     category: Annotated[PlsqlDependencyCategory, Query()] = "callers",
     limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    relationship: Annotated[PlsqlRelationship | None, Query()] = None,
+    order: Annotated[ListOrder, Query()] = "name",
 ) -> PlsqlDependencySummary:
-    """Return per-category dependency counts plus the selected category page."""
+    """Return per-category dependency counts plus the selected category page.
+
+    ``offset`` skips that many rows of the selected category, so a client can
+    read any page of it (page navigation) without walking the ones before.
+    ``relationship`` narrows that page and its ``total`` to one edge type of
+    ``reads``/``writes``/``other`` (e.g. only ``TRIGGER_ON``); ``counts`` keep
+    describing whole categories. ``order`` is the object name or, for a view
+    grouped by package, the package first.
+    """
     del principal
+    if relationship is not None and relationship not in TABLE_ACCESS_BY_CATEGORY.get(
+        category, frozenset()
+    ):
+        raise InvalidRequest(
+            f"Relationship {relationship} does not belong to category {category}"
+        )
     await _require_object(analysis, object_id)
     page = await analysis.dependencies_of(
         object_id=object_id,
         category=category,
         limit=_effective_limit(settings, limit),
+        offset=offset,
+        relationship=relationship,
+        order=order,
     )
     return PlsqlDependencySummary(
         counts=page.counts,
@@ -492,13 +540,15 @@ async def find_paths(
     to_id: Annotated[str, Query(alias="to", min_length=1, max_length=512)],
     limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_PAGE_SIZE,
     cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+    page_offset: Annotated[int, Query(alias="offset", ge=0)] = 0,
 ) -> PlsqlPathResult:
     """Return bounded dependency paths from one object to another.
 
     Paths traverse typed dependency relationships (``CALLS | READS | WRITES |
     VIEW_DEPENDS_ON | TRIGGERS | FOREIGN_KEY``) within ``plsql_max_hops``,
     ordered by hop count then lexicographic node ids, with duplicates collapsed
-    and truncation reported when the row cap is hit.
+    and truncation reported when the row cap is hit. A page is addressed either
+    by the previous page's ``cursor`` or directly by ``offset``, never both.
     """
     del principal
     await _require_object(analysis, from_id)
@@ -506,7 +556,7 @@ async def find_paths(
     scope = _pagination_scope(
         "paths", from_id=from_id, to_id=to_id, max_hops=settings.plsql_max_hops
     )
-    offset = _decode_page_cursor(cursor, scope)
+    offset = _page_start(cursor, page_offset, scope)
     page = await analysis.find_paths(
         from_id=from_id,
         to_id=to_id,
@@ -627,30 +677,15 @@ def _impact_item(record: PlsqlImpactItemRecord) -> PlsqlImpactItem:
     )
 
 
-@router.get("/impact", response_model=PlsqlImpactResult)
-async def get_impact(
-    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
-    settings: Annotated[Settings, Depends(get_app_settings)],
-    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
-    object_id: ObjectIdentifier,
-    limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_PAGE_SIZE,
-    direction: Annotated[ImpactDirection, Query()] = "upstream",
-    depth: Annotated[int | None, Query(ge=1)] = None,
-    relationship: Annotated[ImpactRelationship | None, Query()] = None,
-    direct_only: Annotated[bool, Query(alias="directOnly")] = False,
-    writes_only: Annotated[bool, Query(alias="writesOnly")] = False,
-    cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
-) -> PlsqlImpactResult:
-    """Return bounded transitive impact with filters and a blast-radius summary.
-
-    ``direction`` selects dependents (upstream) or dependencies (downstream);
-    ``relationship``/``writesOnly`` restrict the traversed edge types;
-    ``directOnly`` caps the walk at one hop and ``depth`` bounds hops within
-    ``plsql_max_hops``. The summary reports direct and indirect affected
-    objects, distinct packages, and tables modified on the traversed paths.
-    """
-    del principal
-    record = await _require_object(analysis, object_id)
+def _impact_traversal(
+    settings: Settings,
+    *,
+    depth: int | None,
+    relationship: ImpactRelationship | None,
+    direct_only: bool,
+    writes_only: bool,
+) -> tuple[int, frozenset[str] | None]:
+    """Translate the shared impact filters into (max hops, relationship types)."""
     relationships: frozenset[str] | None
     if writes_only:
         relationships = frozenset({"WRITES"})
@@ -663,14 +698,106 @@ async def get_impact(
         if direct_only
         else min(depth or settings.plsql_max_hops, settings.plsql_max_hops)
     )
+    return max_hops, relationships
+
+
+@router.get("/impact/summary", response_model=PlsqlImpactSummaryResult)
+async def get_impact_summary(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    object_id: ObjectIdentifier,
+    direction: Annotated[ImpactDirection, Query()] = "upstream",
+    depth: Annotated[int | None, Query(ge=1)] = None,
+    relationship: Annotated[ImpactRelationship | None, Query()] = None,
+    direct_only: Annotated[bool, Query(alias="directOnly")] = False,
+    writes_only: Annotated[bool, Query(alias="writesOnly")] = False,
+) -> PlsqlImpactSummaryResult:
+    """Return the blast-radius counts of an impact traversal.
+
+    Takes the same traversal filters as ``/impact`` but no paging: it reports
+    direct and indirect affected objects, distinct packages, and tables
+    modified on the traversed paths for the whole traversal, so the totals
+    never depend on loading (or failing to load) any page of rows.
+    """
+    del principal
+    record = await _require_object(analysis, object_id)
+    max_hops, relationships = _impact_traversal(
+        settings,
+        depth=depth,
+        relationship=relationship,
+        direct_only=direct_only,
+        writes_only=writes_only,
+    )
+    summary = await analysis.impact_summary_of(
+        object_id=object_id,
+        max_hops=max_hops,
+        direction=direction,
+        relationships=relationships,
+    )
+    return PlsqlImpactSummaryResult(
+        object=_reference(
+            object_id=record.id,
+            kind=record.kind,
+            name=record.name,
+            qualified_name=record.qualified_name,
+        ),
+        summary=PlsqlImpactSummary(
+            direct=summary.direct,
+            indirect=summary.indirect,
+            packages=summary.packages,
+            tables_modified=summary.tables_modified,
+        ),
+    )
+
+
+@router.get("/impact", response_model=PlsqlImpactResult)
+async def get_impact(
+    principal: Annotated[AuthPrincipal, Depends(require_viewer)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    analysis: Annotated[AnalysisGraphClient, Depends(analysis)],
+    object_id: ObjectIdentifier,
+    limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_PAGE_SIZE,
+    direction: Annotated[ImpactDirection, Query()] = "upstream",
+    depth: Annotated[int | None, Query(ge=1)] = None,
+    relationship: Annotated[ImpactRelationship | None, Query()] = None,
+    direct_only: Annotated[bool, Query(alias="directOnly")] = False,
+    writes_only: Annotated[bool, Query(alias="writesOnly")] = False,
+    impact_scope: Annotated[ImpactScope, Query(alias="scope")] = "all",
+    cursor: Annotated[str | None, Query(min_length=1, max_length=1024)] = None,
+    page_offset: Annotated[int, Query(alias="offset", ge=0)] = 0,
+    order: Annotated[ListOrder, Query()] = "name",
+) -> PlsqlImpactResult:
+    """Return one page of transitive impact with filters.
+
+    ``direction`` selects dependents (upstream) or dependencies (downstream);
+    ``relationship``/``writesOnly`` restrict the traversed edge types;
+    ``directOnly`` caps the walk at one hop and ``depth`` bounds hops within
+    ``plsql_max_hops``. ``scope`` narrows ``items``/``count`` to one summary
+    card before paging. The blast-radius totals are a separate service,
+    ``/impact/summary``. A page is addressed either by the ``cursor`` of the
+    previous one (load more) or directly by ``offset`` (page navigation), never
+    both.
+    """
+    del principal
+    record = await _require_object(analysis, object_id)
+    max_hops, relationships = _impact_traversal(
+        settings,
+        depth=depth,
+        relationship=relationship,
+        direct_only=direct_only,
+        writes_only=writes_only,
+    )
     scope = _pagination_scope(
         "impact",
         object_id=object_id,
         max_hops=max_hops,
         direction=direction,
         relationships=sorted(relationships) if relationships is not None else None,
+        item_scope=impact_scope,
+        order=order,
     )
-    offset = _decode_page_cursor(cursor, scope)
+    offset = _page_start(cursor, page_offset, scope)
     page = await analysis.impact_of(
         object_id=object_id,
         max_hops=max_hops,
@@ -678,6 +805,8 @@ async def get_impact(
         direction=direction,
         relationships=relationships,
         offset=offset,
+        scope=impact_scope,
+        order=order,
     )
     next_cursor = (
         _encode_page_cursor(scope, offset + len(page.items)) if page.truncated else None
@@ -692,11 +821,5 @@ async def get_impact(
         items=[_impact_item(item) for item in page.items],
         truncated=page.truncated,
         count=page.total,
-        summary=PlsqlImpactSummary(
-            direct=page.summary.direct,
-            indirect=page.summary.indirect,
-            packages=page.summary.packages,
-            tables_modified=page.summary.tables_modified,
-        ),
         next_cursor=next_cursor,
     )

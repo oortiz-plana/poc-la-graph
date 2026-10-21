@@ -20,7 +20,9 @@ async def plsql_client(tmp_path: Path) -> AsyncIterator[httpx.AsyncClient]:
         graphify_runtime_mode="synthetic",
         plsql_adapter="synthetic",
         plsql_project_id="sample",
-        conversation_database_url=f"sqlite+aiosqlite:///{tmp_path / 'plsql-deps-summary.db'}",
+        conversation_database_url=(
+            f"sqlite+aiosqlite:///{tmp_path / 'plsql-deps-summary.db'}"
+        ),
         project_storage_root=str(tmp_path / "projects-deps-summary"),
         knowledge_ingest_on_startup=False,
     )
@@ -38,7 +40,9 @@ async def disabled_client(tmp_path: Path) -> AsyncIterator[httpx.AsyncClient]:
         llm_adapter="mock",
         graphify_adapter="mock",
         graphify_runtime_mode="synthetic",
-        conversation_database_url=f"sqlite+aiosqlite:///{tmp_path / 'plsql-deps-summary-disabled.db'}",
+        conversation_database_url=(
+            f"sqlite+aiosqlite:///{tmp_path / 'plsql-deps-summary-disabled.db'}"
+        ),
         project_storage_root=str(tmp_path / "projects-deps-summary-disabled"),
         knowledge_ingest_on_startup=False,
     )
@@ -130,9 +134,7 @@ async def test_dependencies_other_category_collects_view_and_trigger_edges(
     payload = response.json()
     assert payload["counts"]["other"] == 2
     assert payload["total"] == 2
-    assert {edge["relationship"] for edge in payload["items"]} == {
-        "VIEW_DEPENDS_ON"
-    }
+    assert {edge["relationship"] for edge in payload["items"]} == {"VIEW_DEPENDS_ON"}
 
 
 async def test_dependencies_rejects_unknown_category(
@@ -166,3 +168,136 @@ async def test_dependencies_disabled_adapter_returns_not_configured(
     )
     assert response.status_code == 503
     assert response.json()["code"] == "analysis_not_configured"
+
+
+async def test_dependencies_offset_reads_any_page_without_changing_counts(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    object_id = await _object_id(plsql_client, "EMPLOYEES")
+    params = {"objectId": object_id, "category": "reads"}
+    full = (await plsql_client.get("/api/v1/plsql/dependencies", params=params)).json()
+    assert full["total"] >= 3
+
+    pages = []
+    for offset in range(0, full["total"], 2):
+        response = await plsql_client.get(
+            "/api/v1/plsql/dependencies",
+            params={**params, "limit": 2, "offset": offset},
+        )
+        assert response.status_code == 200
+        page = response.json()
+        assert page["counts"] == full["counts"]
+        assert page["total"] == full["total"]
+        assert page["truncated"] is (offset + 2 < full["total"])
+        pages.extend(edge["id"] for edge in page["items"])
+
+    assert pages == [edge["id"] for edge in full["items"]]
+
+
+async def test_dependencies_offset_past_the_end_is_an_empty_page(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    object_id = await _object_id(plsql_client, "EMPLOYEES")
+    response = await plsql_client.get(
+        "/api/v1/plsql/dependencies",
+        params={"objectId": object_id, "category": "reads", "offset": 500},
+    )
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.json()["truncated"] is False
+
+
+async def test_dependencies_reject_a_negative_offset(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    object_id = await _object_id(plsql_client, "EMPLOYEES")
+    response = await plsql_client.get(
+        "/api/v1/plsql/dependencies", params={"objectId": object_id, "offset": -1}
+    )
+    assert response.status_code == 422
+
+
+async def test_dependencies_relationship_narrows_the_page_but_not_the_counts(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    object_id = await _object_id(plsql_client, "EMPLOYEES")
+    params = {"objectId": object_id, "category": "other"}
+    whole = (await plsql_client.get("/api/v1/plsql/dependencies", params=params)).json()
+    narrowed = (
+        await plsql_client.get(
+            "/api/v1/plsql/dependencies",
+            params={**params, "relationship": "TRIGGER_ON"},
+        )
+    ).json()
+
+    assert narrowed["counts"] == whole["counts"]
+    expected = [e for e in whole["items"] if e["relationship"] == "TRIGGER_ON"]
+    assert narrowed["total"] == len(expected)
+    assert [e["id"] for e in narrowed["items"]] == [e["id"] for e in expected]
+
+
+async def test_dependencies_reject_a_relationship_outside_the_category(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    object_id = await _object_id(plsql_client, "EMPLOYEES")
+    for category in ("reads", "callers"):
+        response = await plsql_client.get(
+            "/api/v1/plsql/dependencies",
+            params={
+                "objectId": object_id,
+                "category": category,
+                "relationship": "TRIGGER_ON",
+            },
+        )
+        assert response.status_code == 422
+
+
+async def test_dependency_lists_are_alphabetical_by_the_other_objects_name(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    for name, category in (("EMPLOYEES", "reads"), ("EMPLOYEES", "other")):
+        object_id = await _object_id(plsql_client, name)
+        response = await plsql_client.get(
+            "/api/v1/plsql/dependencies",
+            params={"objectId": object_id, "category": category},
+        )
+        others = [
+            (
+                edge["source"]["name"]
+                if edge["target"]["id"] == object_id
+                else edge["target"]["name"]
+            ).casefold()
+            for edge in response.json()["items"]
+        ]
+        assert others == sorted(others)
+
+
+async def test_search_lists_packages_with_their_members_alphabetically(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    items = (await plsql_client.get("/api/v1/plsql/objects")).json()["items"]
+    heads = [(item["owner"] or item["name"]).casefold() for item in items]
+    assert heads == sorted(heads)
+
+
+async def test_dependency_lists_order_by_package_when_asked(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    object_id = await _object_id(plsql_client, "EMPLOYEES")
+    response = await plsql_client.get(
+        "/api/v1/plsql/dependencies",
+        params={"objectId": object_id, "category": "reads", "order": "package"},
+    )
+    assert response.status_code == 200
+    packages = []
+    for edge in response.json()["items"]:
+        other = edge["source"] if edge["target"]["id"] == object_id else edge["target"]
+        qualified = other["qualifiedName"]
+        packages.append(
+            qualified.split(".")[1]
+            if qualified.count(".") >= 2
+            else (other["name"] if other["kind"] == "Package" else None)
+        )
+    filed = [pkg for pkg in packages if pkg is not None]
+    assert filed == sorted(filed, key=str.casefold)
+    assert packages == filed + [None] * (len(packages) - len(filed))

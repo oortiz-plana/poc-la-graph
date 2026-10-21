@@ -101,17 +101,17 @@ async def test_impact_groups_transitive_dependents_with_explaining_paths(
     assert payload["object"]["qualifiedName"] == "HR.EMPLOYEES"
 
     items = payload["items"]
-    # Grouped by distance (1 hop, then 2 hops), then lexicographic ids.
-    assert [item["distance"] for item in items] == [1, 1, 1, 1, 1, 2, 2]
-    assert [item["dependent"]["qualifiedName"] for item in items] == [
-        "HR.COUNT_EMPLOYEES",
-        "HR.EMPLOYEE_DETAILS",
-        "HR.PKG_EMPLOYEE.CALCULATE_BONUS",
-        "HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
-        "HR.PKG_PAYROLL.CALCULATE_MORA",
-        "HR.ARCHIVE_EMPLOYEE",
-        "HR.PKG_PAYROLL.RUN_PAYROLL",
+    # Alphabetical by object name; the distance is a column, not the order.
+    assert [item["dependent"]["name"] for item in items] == [
+        "ARCHIVE_EMPLOYEE",
+        "CALCULATE_BONUS",
+        "CALCULATE_MORA",
+        "COUNT_EMPLOYEES",
+        "CREATE_EMPLOYEE",
+        "EMPLOYEE_DETAILS",
+        "RUN_PAYROLL",
     ]
+    assert [item["distance"] for item in items] == [2, 1, 1, 1, 1, 1, 2]
 
     for item in items:
         # Every item carries at least one shortest explaining path whose hop
@@ -128,7 +128,7 @@ async def test_impact_groups_transitive_dependents_with_explaining_paths(
 
     # ARCHIVE_EMPLOYEE depends on EMPLOYEES via two shortest 2-hop routes:
     # through CREATE_EMPLOYEE's WRITES and through the EMPLOYEE_DETAILS view.
-    archive = items[5]
+    archive = items[0]
     assert archive["dependent"]["qualifiedName"] == "HR.ARCHIVE_EMPLOYEE"
     assert len(archive["paths"]) == 2
     final_hops = {
@@ -211,8 +211,12 @@ async def test_impact_truncates_at_row_limit(
     assert payload["truncated"] is True
     assert payload["count"] == 7
     assert payload["nextCursor"]
-    # Truncation keeps the deterministic head (all direct dependents).
-    assert all(item["distance"] == 1 for item in payload["items"])
+    # Truncation keeps the alphabetical head.
+    assert [item["dependent"]["name"] for item in payload["items"]] == [
+        "ARCHIVE_EMPLOYEE",
+        "CALCULATE_BONUS",
+        "CALCULATE_MORA",
+    ]
 
     second = await plsql_client.get(
         "/api/v1/plsql/impact",
@@ -225,7 +229,6 @@ async def test_impact_truncates_at_row_limit(
     assert second.status_code == 200
     second_payload = second.json()
     assert second_payload["count"] == 7
-    assert second_payload["summary"] == payload["summary"]
     assert not (
         {item["id"] for item in payload["items"]}
         & {item["id"] for item in second_payload["items"]}

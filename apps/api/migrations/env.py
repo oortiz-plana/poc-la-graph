@@ -15,7 +15,9 @@ from app.store.sqlalchemy import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep the loggers the application already created: the default would
+    # silently disable them for the rest of the process once a migration ran.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 database_url = os.getenv("CONVERSATION_DATABASE_URL")
 if database_url:

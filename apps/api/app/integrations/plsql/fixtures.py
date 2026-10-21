@@ -277,6 +277,23 @@ def build_edges(
             "hr/pkg_payroll.pkb",
             13,
         ),
+        # Second call sites of pairs above: one dependency, two occurrences.
+        _EdgeSpec(
+            "HR.PKG_PAYROLL.CALCULATE_MORA",
+            "HR.EMPLOYEES",
+            "READS",
+            "EXACT",
+            "hr/pkg_payroll.pkb",
+            21,
+        ),
+        _EdgeSpec(
+            "HR.PKG_PAYROLL.CALCULATE_MORA",
+            "HR.PKG_EMPLOYEE.CALCULATE_BONUS",
+            "CALLS",
+            "INFERRED",
+            "hr/pkg_payroll.pkb",
+            29,
+        ),
         _EdgeSpec(
             "HR.PKG_PAYROLL.CALCULATE_MORA",
             "HR.COUNT_EMPLOYEES",

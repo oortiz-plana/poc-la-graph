@@ -39,7 +39,12 @@ from __future__ import annotations
 
 from typing import Final, get_args
 
-from app.models.plsql import ObjectKind, PlsqlRelationship, PlsqlResolution
+from app.models.plsql import (
+    ObjectKind,
+    PlsqlDependencyCategory,
+    PlsqlRelationship,
+    PlsqlResolution,
+)
 
 PROJECT_LABEL: Final = "Project"
 OBJECT_LABEL: Final = "DatabaseObject"
@@ -100,6 +105,21 @@ PATH_TRAVERSAL_RELATIONSHIPS: Final[frozenset[str]] = PATH_RELATIONSHIPS | {"CON
 TABLE_ACCESS_RELATIONSHIPS: Final[frozenset[str]] = frozenset(
     {"READS", "WRITES", "TRIGGER_ON", "VIEW_DEPENDS_ON", "FOREIGN_KEY"}
 )
+# The dependency categories of the console, and which table-access types each of
+# the table categories covers. Each category is queried on its own so its count
+# and rows stay exact however many edges another category has.
+DEPENDENCY_CATEGORIES: Final[tuple[PlsqlDependencyCategory, ...]] = (
+    "callers",
+    "callees",
+    "reads",
+    "writes",
+    "other",
+)
+TABLE_ACCESS_BY_CATEGORY: Final[dict[str, frozenset[str]]] = {
+    "reads": frozenset({"READS"}),
+    "writes": frozenset({"WRITES"}),
+    "other": TABLE_ACCESS_RELATIONSHIPS - {"READS", "WRITES"},
+}
 UNRESOLVED_RESOLUTIONS: Final[frozenset[str]] = frozenset({"AMBIGUOUS", "UNRESOLVED"})
 
 # The maximum number of typed edges a project may expose through the gateway
@@ -154,6 +174,22 @@ def _kind_constraint(alias: str) -> str:
     )
 
 
+# The Explorer is a tree: a package heads its members, so results are ordered
+# alphabetically by the top-level name (the owning package of a member, else
+# the object's own name), then package before members, then by name.
+_MEMBER_OWNER: Final = (
+    f"CASE WHEN size(split(n.{SCHEMA_NODE_QUALIFIED_NAME}, '.')) >= 3 "
+    f"THEN split(n.{SCHEMA_NODE_QUALIFIED_NAME}, '.')[1] "
+    f"ELSE coalesce(n.{SCHEMA_NODE_NAME}, '') END"
+)
+SEARCH_TREE_ORDER: Final = (
+    f"toLower({_MEMBER_OWNER}), "
+    f"CASE WHEN size(split(n.{SCHEMA_NODE_QUALIFIED_NAME}, '.')) >= 3 "
+    f"THEN 1 ELSE 0 END, "
+    f"toLower(coalesce(n.{SCHEMA_NODE_NAME}, '')), "
+    f"toLower(coalesce(n.{SCHEMA_NODE_QUALIFIED_NAME}, ''))"
+)
+
 SEARCH_OBJECTS: Final = f"""
 MATCH (n:{OBJECT_LABEL})
 WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
@@ -162,8 +198,8 @@ WHERE n.{SCHEMA_NODE_PROJECT} = $projectId
   AND {_name_search_clause()}
   AND {_kind_filter("kinds")}
 RETURN n, labels(n) AS nodeLabels
-ORDER BY toLower(coalesce(n.{SCHEMA_NODE_QUALIFIED_NAME}, '')),
-         coalesce(n.{SCHEMA_NODE_NAME}, '')
+ORDER BY {SEARCH_TREE_ORDER}
+SKIP $offset
 LIMIT $limit
 """
 
@@ -229,6 +265,12 @@ LIMIT 1
 # / ``EDGE_INCOMING``) expand one bounded frontier per round instead of
 # loading the project's edges.
 
+_EDGE_PAIR_KEY: Final = (
+    f"[s.{SCHEMA_NODE_QUALIFIED_NAME}, t.{SCHEMA_NODE_QUALIFIED_NAME}, type(r)]"
+)
+
+# Edges are stored per call site; the COUNT_EDGE_* twins count distinct
+# (relationship, source, target) pairs to match the grouped dependencies.
 EDGE_COLUMNS: Final = f"""
 RETURN s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
        s.{SCHEMA_NODE_NAME} AS sourceName,
@@ -259,6 +301,64 @@ ORDER BY type(r),
 """
 
 
+def _package_expr(alias: str) -> str:
+    """Package an object is filed under (itself, or its owner), else null."""
+    qualified = f"{alias}.{SCHEMA_NODE_QUALIFIED_NAME}"
+    return (
+        f"CASE WHEN 'Package' IN labels({alias}) THEN {alias}.{SCHEMA_NODE_NAME} "
+        f"WHEN size(split({qualified}, '.')) >= 3 THEN split({qualified}, '.')[1] "
+        f"ELSE null END"
+    )
+
+
+def _object_order(alias: str, by_package: bool) -> str:
+    """Sort keys of one node: its name, or its package first when requested."""
+    name = (
+        f"toLower(coalesce({alias}.{SCHEMA_NODE_NAME}, '')), "
+        f"toLower(coalesce({alias}.{SCHEMA_NODE_QUALIFIED_NAME}, ''))"
+    )
+    if not by_package:
+        return name
+    package = _package_expr(alias)
+    return f"({package}) IS NULL, toLower(coalesce({package}, '')), {name}"
+
+
+def _order_by(*aliases: str, by_package: bool = False) -> str:
+    keys = ", ".join(_object_order(alias, by_package) for alias in aliases)
+    return f"ORDER BY {keys}, type(r)"
+
+
+def _table_access_order(by_package: bool) -> str:
+    """Order by the other end: the target when this object is the source."""
+    in_scope = (
+        f"(s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName "
+        f"OR s.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)"
+    )
+
+    def other(expression_for: str) -> str:
+        return (
+            f"CASE WHEN {in_scope} THEN {expression_for.replace('@', 't')} "
+            f"ELSE {expression_for.replace('@', 's')} END"
+        )
+
+    name = f"toLower(coalesce(@.{SCHEMA_NODE_NAME}, ''))"
+    qualified = f"toLower(coalesce(@.{SCHEMA_NODE_QUALIFIED_NAME}, ''))"
+    keys = [other(name), other(qualified)]
+    if by_package:
+        package = _package_expr("@")
+        keys = [
+            other(f"({package}) IS NULL"),
+            other(f"toLower(coalesce({package}, ''))"),
+            *keys,
+        ]
+    return "ORDER BY " + ", ".join(keys) + ", type(r)"
+
+
+# Dependency lists are read in alphabetical order of the *other* object (the
+# caller, the callee, the table…), or package-first when the view groups by
+# package, so every page and every row cap sees the order the console shows.
+
+
 def _edge_validity_clause() -> str:
     """Constraints that keep returned rows exactly mappable by the client."""
     return (
@@ -268,47 +368,80 @@ def _edge_validity_clause() -> str:
     )
 
 
-EDGE_CALLERS: Final = f"""
+# A package's callers/callees span its members. The queried object is returned
+# as the fixed end ($qualifiedName/$objectName/$objectLabels), so every member
+# call between the same two objects groups into ONE dependency with all its
+# call sites, and the count is of distinct callers/callees, matching Overview.
+_CALLERS_COLUMNS: Final = (
+    EDGE_COLUMNS.replace(
+        f"t.{SCHEMA_NODE_QUALIFIED_NAME} AS targetQualifiedName",
+        "$qualifiedName AS targetQualifiedName",
+    )
+    .replace(f"t.{SCHEMA_NODE_NAME} AS targetName", "$objectName AS targetName")
+    .replace("labels(t) AS targetLabels", "$objectLabels AS targetLabels")
+)
+_CALLEES_COLUMNS: Final = (
+    EDGE_COLUMNS.replace(
+        f"s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName",
+        "$qualifiedName AS sourceQualifiedName",
+    )
+    .replace(f"s.{SCHEMA_NODE_NAME} AS sourceName", "$objectName AS sourceName")
+    .replace("labels(s) AS sourceLabels", "$objectLabels AS sourceLabels")
+)
+
+
+def _callers_query(order: str) -> str:
+    return f"""
 MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
 WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   AND type(r) = 'CALLS'
-  AND t.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+  AND (t.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+       OR t.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
   AND {_edge_validity_clause()}
-{EDGE_COLUMNS}
-{EDGE_ORDER}
+{_CALLERS_COLUMNS}
+{order}
 LIMIT $limit
 """
+
 
 COUNT_EDGE_CALLERS: Final = f"""
 MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
 WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   AND type(r) = 'CALLS'
-  AND t.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+  AND (t.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+       OR t.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
   AND {_edge_validity_clause()}
-RETURN count(*) AS total
+RETURN count(DISTINCT s.{SCHEMA_NODE_QUALIFIED_NAME}) AS total
 """
 
-EDGE_CALLEES: Final = f"""
+
+def _callees_query(order: str) -> str:
+    return f"""
 MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
 WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   AND type(r) = 'CALLS'
-  AND s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+  AND (s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+       OR s.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
   AND {_edge_validity_clause()}
-{EDGE_COLUMNS}
-{EDGE_ORDER}
+{_CALLEES_COLUMNS}
+{order}
 LIMIT $limit
 """
+
 
 COUNT_EDGE_CALLEES: Final = f"""
 MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
 WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   AND type(r) = 'CALLS'
-  AND s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+  AND (s.{SCHEMA_NODE_QUALIFIED_NAME} = $qualifiedName
+       OR s.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
   AND {_edge_validity_clause()}
-RETURN count(*) AS total
+RETURN count(DISTINCT t.{SCHEMA_NODE_QUALIFIED_NAME}) AS total
 """
 
-EDGE_TABLE_ACCESS: Final = f"""
+
+def _table_access_query(order: str) -> str:
+    return f"""
 MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
 WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   AND type(r) IN $relationships
@@ -323,9 +456,10 @@ WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   )
   AND {_edge_validity_clause()}
 {EDGE_COLUMNS}
-{EDGE_ORDER}
+{order}
 LIMIT $limit
 """
+
 
 COUNT_EDGE_TABLE_ACCESS: Final = f"""
 MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
@@ -341,17 +475,48 @@ WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
         OR t.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
   )
   AND {_edge_validity_clause()}
-RETURN count(*) AS total
+RETURN count(DISTINCT {_EDGE_PAIR_KEY}) AS total
 """
+
+EDGE_CALLERS: Final = _callers_query(_order_by("s", "t"))
+EDGE_CALLERS_BY_PACKAGE: Final = _callers_query(_order_by("s", "t", by_package=True))
+EDGE_CALLEES: Final = _callees_query(_order_by("t", "s"))
+EDGE_CALLEES_BY_PACKAGE: Final = _callees_query(_order_by("t", "s", by_package=True))
+EDGE_TABLE_ACCESS: Final = _table_access_query(_table_access_order(False))
+EDGE_TABLE_ACCESS_BY_PACKAGE: Final = _table_access_query(_table_access_order(True))
+
+# Unresolved/ambiguous call targets are placeholder nodes (labels ``Routine``,
+# ``AmbiguousRoutine``, or a ``Table`` with no ``qualifiedName``) that carry
+# only ``name`` and ``id``, so these queries cannot require a qualified name or
+# a kind label on the target the way every other edge query does: doing so hid
+# every unresolved edge of a real graph. The source stays a real object. The
+# optional scope keeps one object's (or package's members') edges, applied in
+# the query so a row cap never truncates before the filter.
+_UNRESOLVED_SCOPE_CLAUSE: Final = (
+    f"($scopeQn IS NULL OR s.{SCHEMA_NODE_QUALIFIED_NAME} = $scopeQn "
+    f"OR ($scopePrefix IS NOT NULL "
+    f"AND s.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $scopePrefix))"
+)
+_UNRESOLVED_PAIR_KEY: Final = (
+    f"[s.{SCHEMA_NODE_QUALIFIED_NAME}, "
+    f"coalesce(t.{SCHEMA_NODE_QUALIFIED_NAME}, t.{SCHEMA_NODE_NAME}), type(r)]"
+)
 
 EDGE_UNRESOLVED: Final = f"""
 MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
 WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   AND type(r) IN $relationships
   AND coalesce(r.{SCHEMA_EDGE_RESOLUTION}, 'EXACT') IN $unresolvedResolutions
-  AND {_edge_validity_clause()}
-{EDGE_COLUMNS}
-{EDGE_ORDER}
+  AND coalesce(r.{SCHEMA_EDGE_RESOLUTION}, 'EXACT') IN $resolutions
+  AND {_kind_constraint("s")}
+  AND t.{SCHEMA_NODE_NAME} IS NOT NULL
+  AND {_UNRESOLVED_SCOPE_CLAUSE}
+{EDGE_COLUMNS.rstrip()},
+       t.id AS targetNodeId
+ORDER BY toLower(coalesce(s.{SCHEMA_NODE_NAME}, '')),
+         toLower(coalesce(s.{SCHEMA_NODE_QUALIFIED_NAME}, '')),
+         toLower(coalesce(t.{SCHEMA_NODE_NAME}, '')),
+         type(r)
 LIMIT $limit
 """
 
@@ -360,8 +525,11 @@ MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
 WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   AND type(r) IN $relationships
   AND coalesce(r.{SCHEMA_EDGE_RESOLUTION}, 'EXACT') IN $unresolvedResolutions
-  AND {_edge_validity_clause()}
-RETURN count(*) AS total
+  AND coalesce(r.{SCHEMA_EDGE_RESOLUTION}, 'EXACT') IN $resolutions
+  AND {_kind_constraint("s")}
+  AND t.{SCHEMA_NODE_NAME} IS NOT NULL
+  AND {_UNRESOLVED_SCOPE_CLAUSE}
+RETURN count(DISTINCT {_UNRESOLVED_PAIR_KEY}) AS total
 """
 
 EDGE_BY_TRIPLE: Final = f"""
@@ -394,13 +562,53 @@ WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
 LIMIT $limit
 """
 
+# Impact walks objects, not call sites: one row per distinct hop, no evidence.
+_EDGE_HOP_COLUMNS: Final = f"""
+RETURN DISTINCT s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
+       labels(s) AS sourceLabels,
+       t.{SCHEMA_NODE_QUALIFIED_NAME} AS targetQualifiedName,
+       labels(t) AS targetLabels,
+       type(r) AS relationship,
+       coalesce(r.{SCHEMA_EDGE_RESOLUTION}, 'EXACT') AS resolution
+LIMIT $limit
+"""
+
+EDGE_HOPS_INCOMING: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND t.{SCHEMA_NODE_QUALIFIED_NAME} IN $targets
+{_EDGE_HOP_COLUMNS}
+"""
+
+EDGE_HOPS_OUTGOING: Final = f"""
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND type(r) IN $relationships
+  AND s.{SCHEMA_NODE_QUALIFIED_NAME} IN $sources
+{_EDGE_HOP_COLUMNS}
+"""
+
+# Evidence for the hops of the routes on one page: $hops is a list of
+# [relationship, source, target] triples.
+EDGE_BY_HOPS: Final = f"""
+UNWIND $hops AS hop
+MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
+WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
+  AND s.{SCHEMA_NODE_QUALIFIED_NAME} = hop[1]
+  AND t.{SCHEMA_NODE_QUALIFIED_NAME} = hop[2]
+  AND type(r) = hop[0]
+{EDGE_COLUMNS}
+LIMIT $limit
+"""
+
 EDGE_MEMBER_ENDPOINTS: Final = f"""
 MATCH (s:{OBJECT_LABEL})-[r]->(t:{OBJECT_LABEL})
 WHERE s.{SCHEMA_NODE_PROJECT} = $projectId
   AND type(r) IN $relationships
   AND (s.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix
        OR t.{SCHEMA_NODE_QUALIFIED_NAME} STARTS WITH $memberPrefix)
-RETURN s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
+RETURN DISTINCT s.{SCHEMA_NODE_QUALIFIED_NAME} AS sourceQualifiedName,
        t.{SCHEMA_NODE_QUALIFIED_NAME} AS targetQualifiedName
 LIMIT $limit
 """

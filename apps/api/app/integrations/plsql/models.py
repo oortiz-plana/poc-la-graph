@@ -8,7 +8,7 @@ to the gateway; the public camelCase boundary models live in
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.plsql import (
     ObjectKind,
@@ -135,6 +135,10 @@ class PlsqlDependencyRecord(BaseModel):
     via_table_kind: ObjectKind | None = None
     via_table_name: str | None = None
     via_table_qualified_name: str | None = None
+    # Every distinct source location of this (relationship, source, target)
+    # triple, ordered by file and line. ``evidence`` is the first of them.
+    occurrences: list[PlsqlEvidence] = Field(default_factory=list)
+    occurrence_count: int = 1
 
 
 class PlsqlDependencyPage(BaseModel):
@@ -234,4 +238,3 @@ class PlsqlImpactPage(BaseModel):
     items: list[PlsqlImpactItemRecord]
     truncated: bool
     total: int
-    summary: PlsqlImpactSummaryRecord

@@ -329,3 +329,45 @@ async def test_unresolved_truncates_and_disabled(
     disabled = await disabled_client.get("/api/v1/plsql/unresolved")
     assert disabled.status_code == 503
     assert disabled.json()["code"] == "analysis_not_configured"
+
+
+async def test_paths_offset_addresses_pages_directly(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    from_id = await _object_id(plsql_client, "RUN_PAYROLL")
+    to_id = await _object_id(plsql_client, "EMPLOYEES")
+    params = {"from": from_id, "to": to_id, "limit": 1}
+
+    first = (await plsql_client.get("/api/v1/plsql/paths", params=params)).json()
+    by_cursor = (
+        await plsql_client.get(
+            "/api/v1/plsql/paths", params={**params, "cursor": first["nextCursor"]}
+        )
+    ).json()
+    by_offset = (
+        await plsql_client.get("/api/v1/plsql/paths", params={**params, "offset": 1})
+    ).json()
+
+    assert [i["id"] for i in by_offset["items"]] == [
+        i["id"] for i in by_cursor["items"]
+    ]
+    assert by_offset["count"] == first["count"] == 3
+    last = (
+        await plsql_client.get("/api/v1/plsql/paths", params={**params, "offset": 2})
+    ).json()
+    assert len(last["items"]) == 1
+    assert last["nextCursor"] is None
+
+
+async def test_paths_reject_cursor_together_with_offset(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    from_id = await _object_id(plsql_client, "RUN_PAYROLL")
+    to_id = await _object_id(plsql_client, "EMPLOYEES")
+    params = {"from": from_id, "to": to_id, "limit": 1}
+    first = (await plsql_client.get("/api/v1/plsql/paths", params=params)).json()
+    response = await plsql_client.get(
+        "/api/v1/plsql/paths",
+        params={**params, "cursor": first["nextCursor"], "offset": 1},
+    )
+    assert response.status_code == 422

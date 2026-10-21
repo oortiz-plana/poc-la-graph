@@ -107,7 +107,8 @@ async def test_impact_follows_fk_direction(
     assert [n["id"] for n in item["paths"][0]["nodes"]] == [EMPLOYEES, DEPARTMENTS]
     if explicit:
         assert payload["count"] == 1
-        assert payload["summary"]["tablesModified"] == 0
+        summary = await client.get("/api/v1/plsql/impact/summary", params=params)
+        assert summary.json()["summary"]["tablesModified"] == 0
 
 
 @pytest.mark.parametrize("relationship", [None, "FOREIGN_KEY"])
@@ -170,18 +171,15 @@ async def test_fk_paths_are_directed_and_paginated(client: httpx.AsyncClient) ->
     )
 
 
-async def test_fk_impact_pagination_preserves_full_summary(
+async def test_fk_impact_pagination_is_complete_and_disjoint(
     client: httpx.AsyncClient,
 ) -> None:
     params = {"objectId": DEPARTMENTS, "limit": "1"}
     items = []
-    summary = None
     while True:
         response = await client.get("/api/v1/plsql/impact", params=params)
         assert response.status_code == 200
         payload = response.json()
-        summary = summary or payload["summary"]
-        assert payload["summary"] == summary
         items.extend(payload["items"])
         if not payload["nextCursor"]:
             break

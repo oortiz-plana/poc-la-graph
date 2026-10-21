@@ -38,7 +38,9 @@ async def disabled_client(tmp_path: Path) -> AsyncIterator[httpx.AsyncClient]:
         llm_adapter="mock",
         graphify_adapter="mock",
         graphify_runtime_mode="synthetic",
-        conversation_database_url=f"sqlite+aiosqlite:///{tmp_path / 'plsql-health-disabled.db'}",
+        conversation_database_url=(
+            f"sqlite+aiosqlite:///{tmp_path / 'plsql-health-disabled.db'}"
+        ),
         project_storage_root=str(tmp_path / "projects-health-disabled"),
         knowledge_ingest_on_startup=False,
     )
@@ -124,3 +126,40 @@ async def test_health_disabled_adapter_returns_not_configured(
     response = await disabled_client.get("/api/v1/plsql/health")
     assert response.status_code == 503
     assert response.json()["code"] == "analysis_not_configured"
+
+
+async def test_health_category_pages_list_only_that_category(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    whole = (await plsql_client.get("/api/v1/plsql/health")).json()
+    unresolved = whole["unresolved"]["count"]
+    assert unresolved >= 1
+
+    first = (
+        await plsql_client.get(
+            "/api/v1/plsql/health", params={"category": "unresolved", "limit": 1}
+        )
+    ).json()
+    assert first["total"] == whole["total"]
+    assert first["unresolved"]["count"] == unresolved
+    assert first["ambiguous"]["count"] == whole["ambiguous"]["count"]
+    assert first["ambiguous"]["items"] == []
+    assert len(first["unresolved"]["items"]) == 1
+
+    ids = [first["unresolved"]["items"][0]["id"]]
+    for offset in range(1, unresolved):
+        page = (
+            await plsql_client.get(
+                "/api/v1/plsql/health",
+                params={"category": "unresolved", "limit": 1, "offset": offset},
+            )
+        ).json()
+        ids.append(page["unresolved"]["items"][0]["id"])
+    assert ids == [edge["id"] for edge in whole["unresolved"]["items"]]
+
+
+async def test_health_offset_requires_a_category(
+    plsql_client: httpx.AsyncClient,
+) -> None:
+    response = await plsql_client.get("/api/v1/plsql/health", params={"offset": 1})
+    assert response.status_code == 422

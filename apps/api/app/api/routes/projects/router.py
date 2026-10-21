@@ -84,10 +84,10 @@ async def governance_projects(
             id=row.id,
             name=row.name,
             state=cast(Any, row.state),
-            ownerCount=sum(
+            owner_count=sum(
                 membership.role == "owner" for membership in row.memberships
             ),
-            updatedAt=aware(row.updated_at) or row.updated_at,
+            updated_at=aware(row.updated_at) or row.updated_at,
         )
         for row in await projects.list_tenant_projects(principal.tenant_id)
     ]
@@ -197,10 +197,10 @@ async def access_request_context(
         else "available"
     )
     return AccessRequestContext(
-        projectId=row.id,
-        projectName=row.name,
+        project_id=row.id,
+        project_name=row.name,
         status=cast(Any, status_value),
-        requestId=requests[0].id if requests and latest == "pending" else None,
+        request_id=requests[0].id if requests and latest == "pending" else None,
     )
 
 
@@ -575,10 +575,10 @@ async def access_activity(
     return [
         AccessActivity(
             id=row.id,
-            actorId=row.actor_subject,
+            actor_id=row.actor_subject,
             action=row.action,
-            targetName=row.details.get("targetName"),
-            occurredAt=aware(row.occurred_at) or row.occurred_at,
+            target_name=row.details.get("targetName"),
+            occurred_at=aware(row.occurred_at) or row.occurred_at,
         )
         for row in await projects.access_activity(project_id, principal.tenant_id)
     ]
@@ -600,8 +600,8 @@ async def search_directory(
         DirectoryPrincipal(
             id=item.id,
             type=item.type,
-            displayName=item.display_name,
-            secondaryText=item.secondary_text,
+            display_name=item.display_name,
+            secondary_text=item.secondary_text,
         )
         for item in configured
     ]
@@ -610,16 +610,16 @@ async def search_directory(
             DirectoryPrincipal(
                 id=principal.subject,
                 type="user",
-                displayName=principal.username,
-                secondaryText="Current user",
+                display_name=principal.username,
+                secondary_text="Current user",
             )
         ]
         candidates.extend(
             DirectoryPrincipal(
                 id=group_id,
                 type="group",
-                displayName=group_id,
-                secondaryText="Directory group",
+                display_name=group_id,
+                secondary_text="Directory group",
             )
             for group_id in sorted(principal.group_ids)
         )
@@ -630,7 +630,7 @@ async def search_directory(
             for item in candidates
             if not folded or folded in item.display_name.casefold()
         ],
-        nextCursor=None,
+        next_cursor=None,
     )
 
 
@@ -705,25 +705,25 @@ def _build(row: BuildJobRow) -> BuildSummary:
 def _membership(row: ProjectMembershipRow) -> ProjectMembership:
     return ProjectMembership(
         id=row.id,
-        principalType=cast(Any, row.principal_type),
-        principalId=row.principal_id,
-        displayName=row.display_name,
+        principal_type=cast(Any, row.principal_type),
+        principal_id=row.principal_id,
+        display_name=row.display_name,
         role=cast(Any, row.role),
-        accessOrigin="group" if row.principal_type == "group" else "direct",
-        createdAt=aware(row.created_at) or row.created_at,
+        access_origin="group" if row.principal_type == "group" else "direct",
+        created_at=aware(row.created_at) or row.created_at,
     )
 
 
 def _access_request(row: AccessRequestRow) -> ProjectAccessRequest:
     return ProjectAccessRequest(
         id=row.id,
-        requesterId=row.requester_id,
-        requesterName=row.requester_name,
+        requester_id=row.requester_id,
+        requester_name=row.requester_name,
         note=row.note,
         status=cast(Any, row.status),
-        decidedRole=cast(Any, row.decided_role),
-        createdAt=aware(row.created_at) or row.created_at,
-        decidedAt=aware(row.decided_at),
+        decided_role=cast(Any, row.decided_role),
+        created_at=aware(row.created_at) or row.created_at,
+        decided_at=aware(row.decided_at),
     )
 
 
@@ -765,8 +765,8 @@ def _project(
             "currentBuild": _build(current) if current else None,
             "lastBuild": _build(last) if last else None,
             "allowedActions": AllowedActions(
-                createConversation=row.state == "ready",
-                editDraft=is_editor and row.state not in {"queued", "building"},
+                create_conversation=row.state == "ready",
+                edit_draft=is_editor and row.state not in {"queued", "building"},
                 build=is_editor
                 and row.state not in {"queued", "building"}
                 and bool(draft and draft.files),
@@ -774,18 +774,18 @@ def _project(
                 and row.state not in {"archived", "queued", "building"},
                 restore=(is_owner or is_admin) and row.state == "archived",
                 purge=is_admin and row.state == "archived",
-                manageAccess=is_manager,
-                viewAccessActivity=is_manager,
-                requestAccess=False,
+                manage_access=is_manager,
+                view_access_activity=is_manager,
+                request_access=False,
             ),
             "currentAccess": CurrentAccess(
-                effectiveRole=cast(Any, access.effective_role),
+                effective_role=cast(Any, access.effective_role),
                 origins=[
                     AccessOrigin(
-                        membershipId=origin.id,
-                        principalType=cast(Any, origin.principal_type),
-                        principalId=origin.principal_id,
-                        displayName=origin.display_name,
+                        membership_id=origin.id,
+                        principal_type=cast(Any, origin.principal_type),
+                        principal_id=origin.principal_id,
+                        display_name=origin.display_name,
                         role=cast(Any, origin.role),
                     )
                     for origin in access.origins

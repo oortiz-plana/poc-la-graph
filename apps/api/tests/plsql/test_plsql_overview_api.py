@@ -20,7 +20,9 @@ async def plsql_client(tmp_path: Path) -> AsyncIterator[httpx.AsyncClient]:
         graphify_runtime_mode="synthetic",
         plsql_adapter="synthetic",
         plsql_project_id="sample",
-        conversation_database_url=f"sqlite+aiosqlite:///{tmp_path / 'plsql-overview.db'}",
+        conversation_database_url=(
+            f"sqlite+aiosqlite:///{tmp_path / 'plsql-overview.db'}"
+        ),
         project_storage_root=str(tmp_path / "projects-overview"),
         knowledge_ingest_on_startup=False,
     )
@@ -38,7 +40,9 @@ async def disabled_client(tmp_path: Path) -> AsyncIterator[httpx.AsyncClient]:
         llm_adapter="mock",
         graphify_adapter="mock",
         graphify_runtime_mode="synthetic",
-        conversation_database_url=f"sqlite+aiosqlite:///{tmp_path / 'plsql-overview-disabled.db'}",
+        conversation_database_url=(
+            f"sqlite+aiosqlite:///{tmp_path / 'plsql-overview-disabled.db'}"
+        ),
         project_storage_root=str(tmp_path / "projects-overview-disabled"),
         knowledge_ingest_on_startup=False,
     )

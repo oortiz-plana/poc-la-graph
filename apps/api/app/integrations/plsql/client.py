@@ -16,6 +16,7 @@ from app.integrations.plsql.models import (
     PlsqlDependencySummaryRecord,
     PlsqlHealthRecord,
     PlsqlImpactPage,
+    PlsqlImpactSummaryRecord,
     PlsqlObjectRecord,
     PlsqlOverviewRecord,
     PlsqlPathPage,
@@ -24,8 +25,11 @@ from app.integrations.plsql.models import (
 )
 from app.models.plsql import (
     ImpactDirection,
+    ImpactScope,
+    ListOrder,
     ObjectKind,
     PlsqlDependencyCategory,
+    PlsqlHealthCategoryName,
 )
 
 
@@ -43,8 +47,13 @@ class AnalysisGraphClient(Protocol):
         query: str,
         kinds: Sequence[ObjectKind] | None,
         limit: int,
+        offset: int = 0,
     ) -> PlsqlSearchPage:
-        """Deterministically search objects by name/qualified name."""
+        """Deterministically search objects by name/qualified name.
+
+        ``offset`` skips that many matches, so any page of the ordered result
+        can be read directly.
+        """
         ...
 
     async def get_object(self, object_id: str) -> PlsqlObjectRecord | None:
@@ -56,11 +65,16 @@ class AnalysisGraphClient(Protocol):
         *,
         object_id: str | None,
         limit: int,
+        category: PlsqlHealthCategoryName | None = None,
+        offset: int = 0,
     ) -> PlsqlHealthRecord:
         """Return analysis-quality diagnostics grouped by category.
 
         ``object_id`` scopes the report to one routine or package; None
-        reports repository-wide diagnostics.
+        reports repository-wide diagnostics. Every category reports its exact
+        ``count``. Without ``category`` each lists its first page; with one,
+        only that category lists items, starting at ``offset`` (page
+        navigation), and the others report counts alone.
         """
         ...
 
@@ -70,12 +84,17 @@ class AnalysisGraphClient(Protocol):
         object_id: str,
         category: PlsqlDependencyCategory,
         limit: int,
+        offset: int = 0,
+        relationship: str | None = None,
+        order: ListOrder = "name",
     ) -> PlsqlDependencySummaryRecord:
         """Return per-category dependency counts plus the selected page.
 
         Categories are ``callers``/``callees`` (CALLS in/out), ``reads`` and
         ``writes`` (table edges), and ``other`` (remaining typed edges such
-        as TRIGGER_ON and VIEW_DEPENDS_ON).
+        as TRIGGER_ON and VIEW_DEPENDS_ON). ``offset`` skips that many rows of
+        the selected category, so any page of it can be read directly;
+        ``relationship`` narrows that page and its total to one edge type.
         """
         ...
 
@@ -95,6 +114,8 @@ class AnalysisGraphClient(Protocol):
         *,
         object_id: str,
         limit: int,
+        offset: int = 0,
+        order: ListOrder = "name",
     ) -> PlsqlDependencyPage:
         """Return routines that call the given routine (incoming CALLS)."""
         ...
@@ -104,6 +125,8 @@ class AnalysisGraphClient(Protocol):
         *,
         object_id: str,
         limit: int,
+        offset: int = 0,
+        order: ListOrder = "name",
     ) -> PlsqlDependencyPage:
         """Return routines called by the given routine (outgoing CALLS)."""
         ...
@@ -113,8 +136,15 @@ class AnalysisGraphClient(Protocol):
         *,
         object_id: str,
         limit: int,
+        relationships: frozenset[str] | None = None,
+        offset: int = 0,
+        order: ListOrder = "name",
     ) -> PlsqlDependencyPage:
-        """Return READS/WRITES/TRIGGER_ON/VIEW_DEPENDS_ON edges of an object."""
+        """Return READS/WRITES/TRIGGER_ON/VIEW_DEPENDS_ON edges of an object.
+
+        ``relationships`` narrows the page (and its ``total``) to some of those
+        types, so one type is never starved by another filling the page first.
+        """
         ...
 
     async def find_paths(
@@ -152,16 +182,33 @@ class AnalysisGraphClient(Protocol):
         direction: ImpactDirection = "upstream",
         relationships: frozenset[str] | None = None,
         offset: int = 0,
+        scope: ImpactScope = "all",
+        order: ListOrder = "name",
     ) -> PlsqlImpactPage:
-        """Return bounded transitive impact with a blast-radius summary.
+        """Return one bounded page of transitive impact.
 
         ``direction`` selects dependents (upstream: who is affected when this
         object changes) or dependencies (downstream: what this object affects).
         ``relationships`` restricts the traversed edge types; each item carries
-        its shortest explaining path(s) with per-hop evidence, and ``summary``
-        reports direct/indirect counts, distinct packages, and tables modified
-        on the traversed paths. Scope is computed from paths and relationship
-        types, never a stored severity.
+        its shortest explaining path(s) with per-hop evidence. Scope is computed
+        from paths and relationship types, never a stored severity. ``scope``
+        narrows the returned items (and ``total``) to one summary card before
+        paging.
+        """
+        ...
+
+    async def impact_summary_of(
+        self,
+        *,
+        object_id: str,
+        max_hops: int,
+        direction: ImpactDirection = "upstream",
+        relationships: frozenset[str] | None = None,
+    ) -> PlsqlImpactSummaryRecord:
+        """Return direct/indirect counts, distinct packages and tables modified.
+
+        Independent of paging: it needs the traversal's objects, never the
+        evidence of any route.
         """
         ...
 

@@ -6,7 +6,10 @@ import asyncio
 import hashlib
 from collections.abc import Sequence
 
+from app.integrations.plsql.dependency_summary import summarize_dependencies
 from app.integrations.plsql.fixtures import build_corpus, build_edges
+from app.integrations.plsql.grouping import group_dependency_edges
+from app.integrations.plsql.impact_scope import filter_impact_items
 from app.integrations.plsql.models import (
     PlsqlDependencyPage,
     PlsqlDependencyRecord,
@@ -25,6 +28,12 @@ from app.integrations.plsql.models import (
     PlsqlSourceHighlight,
     PlsqlSourceRecord,
 )
+from app.integrations.plsql.ordering import (
+    callee_order,
+    caller_order,
+    object_key,
+    object_tree_key,
+)
 from app.integrations.plsql.source import (
     read_source_lines,
     resolve_source_file,
@@ -32,8 +41,11 @@ from app.integrations.plsql.source import (
 )
 from app.models.plsql import (
     ImpactDirection,
+    ImpactScope,
+    ListOrder,
     ObjectKind,
     PlsqlDependencyCategory,
+    PlsqlHealthCategoryName,
     PlsqlRelationship,
     PlsqlResolution,
 )
@@ -95,13 +107,13 @@ class SyntheticPlsqlAnalysisClient:
         self._corpus: tuple[PlsqlObjectRecord, ...] = tuple(
             sorted(
                 build_corpus(project_id),
-                key=lambda item: (item.qualified_name.casefold(), item.id),
+                key=lambda item: (*object_tree_key(item), item.id),
             )
         )
         self._by_id = {record.id: record for record in self._corpus}
         self._edges: tuple[PlsqlDependencyRecord, ...] = tuple(
             sorted(
-                build_edges(project_id, list(self._corpus)),
+                group_dependency_edges(build_edges(project_id, list(self._corpus))),
                 key=lambda edge: (
                     edge.relationship,
                     edge.source_qualified_name.casefold(),
@@ -149,14 +161,16 @@ class SyntheticPlsqlAnalysisClient:
         query: str,
         kinds: Sequence[ObjectKind] | None,
         limit: int,
+        offset: int = 0,
     ) -> PlsqlSearchPage:
         bounded_limit = max(1, min(limit, self._max_rows))
+        start = max(0, offset)
         matches = [
             record for record in self._corpus if self._matches(record, query, kinds)
         ]
         return PlsqlSearchPage(
-            items=matches[:bounded_limit],
-            truncated=len(matches) > bounded_limit,
+            items=matches[start : start + bounded_limit],
+            truncated=len(matches) > start + bounded_limit,
             total=len(matches),
         )
 
@@ -168,6 +182,8 @@ class SyntheticPlsqlAnalysisClient:
         *,
         object_id: str | None,
         limit: int,
+        category: PlsqlHealthCategoryName | None = None,
+        offset: int = 0,
     ) -> PlsqlHealthRecord:
         """Return analysis-quality diagnostics grouped by category."""
         edges = await self.unresolved_references(limit=self._max_rows)
@@ -189,17 +205,20 @@ class SyntheticPlsqlAnalysisClient:
             if edge.resolution == "AMBIGUOUS" and in_scope(edge)
         ]
 
-        def category(
-            items: list[PlsqlDependencyRecord],
+        def summarize(
+            name: PlsqlHealthCategoryName, items: list[PlsqlDependencyRecord]
         ) -> tuple[PlsqlHealthCategoryRecord, bool]:
             bounded = max(1, min(limit, self._max_rows))
+            start = max(0, offset) if category == name else 0
+            listed = category in (None, name)
+            page = items[start : start + bounded] if listed else []
             return (
-                PlsqlHealthCategoryRecord(count=len(items), items=items[:bounded]),
-                len(items) > bounded,
+                PlsqlHealthCategoryRecord(count=len(items), items=page),
+                len(items) > start + bounded,
             )
 
-        unresolved_record, unresolved_truncated = category(unresolved)
-        ambiguous_record, ambiguous_truncated = category(ambiguous)
+        unresolved_record, unresolved_truncated = summarize("unresolved", unresolved)
+        ambiguous_record, ambiguous_truncated = summarize("ambiguous", ambiguous)
         empty = PlsqlHealthCategoryRecord(count=0, items=[])
         return PlsqlHealthRecord(
             total=len(unresolved) + len(ambiguous),
@@ -217,34 +236,19 @@ class SyntheticPlsqlAnalysisClient:
         object_id: str,
         category: PlsqlDependencyCategory,
         limit: int,
+        offset: int = 0,
+        relationship: str | None = None,
+        order: ListOrder = "name",
     ) -> PlsqlDependencySummaryRecord:
         """Return per-category counts plus the selected category's page."""
-        callers = await self.callers_of(object_id=object_id, limit=self._max_rows)
-        callees = await self.callees_of(object_id=object_id, limit=self._max_rows)
-        access = await self.table_access_of(object_id=object_id, limit=self._max_rows)
-        buckets: dict[str, list[PlsqlDependencyRecord]] = {
-            "callers": list(callers.items),
-            "callees": list(callees.items),
-            "reads": [edge for edge in access.items if edge.relationship == "READS"],
-            "writes": [edge for edge in access.items if edge.relationship == "WRITES"],
-            "other": [
-                edge
-                for edge in access.items
-                if edge.relationship not in ("READS", "WRITES")
-            ],
-        }
-        page = self._dependency_page(buckets[category], limit)
-        return PlsqlDependencySummaryRecord(
-            counts={
-                "callers": callers.total,
-                "callees": callees.total,
-                "reads": len(buckets["reads"]),
-                "writes": len(buckets["writes"]),
-                "other": len(buckets["other"]),
-            },
-            items=list(page.items),
-            truncated=page.truncated,
-            total=page.total,
+        return await summarize_dependencies(
+            self,
+            object_id=object_id,
+            category=category,
+            limit=max(1, min(limit, self._max_rows)),
+            offset=offset,
+            relationship=relationship,
+            order=order,
         )
 
     async def overview_of(
@@ -311,11 +315,13 @@ class SyntheticPlsqlAnalysisClient:
         self,
         edges: Sequence[PlsqlDependencyRecord],
         limit: int,
+        offset: int = 0,
     ) -> PlsqlDependencyPage:
         bounded_limit = max(1, min(limit, self._max_rows))
+        start = max(0, offset)
         return PlsqlDependencyPage(
-            items=list(edges[:bounded_limit]),
-            truncated=len(edges) > bounded_limit,
+            items=list(edges[start : start + bounded_limit]),
+            truncated=len(edges) > start + bounded_limit,
             total=len(edges),
         )
 
@@ -338,36 +344,50 @@ class SyntheticPlsqlAnalysisClient:
         *,
         object_id: str,
         limit: int,
+        offset: int = 0,
+        order: ListOrder = "name",
     ) -> PlsqlDependencyPage:
         matches = [
             edge
             for edge in self._edges
             if edge.relationship == "CALLS" and edge.target_id == object_id
         ]
-        return self._dependency_page(matches, limit)
+        matches.sort(key=lambda edge: caller_order(edge, order))
+        return self._dependency_page(matches, limit, offset)
 
     async def callees_of(
         self,
         *,
         object_id: str,
         limit: int,
+        offset: int = 0,
+        order: ListOrder = "name",
     ) -> PlsqlDependencyPage:
         matches = [
             edge
             for edge in self._edges
             if edge.relationship == "CALLS" and edge.source_id == object_id
         ]
-        return self._dependency_page(matches, limit)
+        matches.sort(key=lambda edge: callee_order(edge, order))
+        return self._dependency_page(matches, limit, offset)
 
     async def table_access_of(
         self,
         *,
         object_id: str,
         limit: int,
+        relationships: frozenset[str] | None = None,
+        offset: int = 0,
+        order: ListOrder = "name",
     ) -> PlsqlDependencyPage:
+        wanted = (
+            TABLE_ACCESS_RELATIONSHIPS
+            if relationships is None
+            else TABLE_ACCESS_RELATIONSHIPS & relationships
+        )
         matches: list[PlsqlDependencyRecord] = []
         for edge in self._edges:
-            if edge.relationship not in TABLE_ACCESS_RELATIONSHIPS:
+            if edge.relationship not in wanted:
                 continue
             source = self._by_id.get(edge.source_id)
             target = self._by_id.get(edge.target_id)
@@ -379,16 +399,25 @@ class SyntheticPlsqlAnalysisClient:
                 matches.append(edge)
             elif target_is_ours:
                 matches.append(edge)
-        return self._dependency_page(matches, limit)
+        # The other object is the target unless this object is the target.
+        matches.sort(
+            key=lambda edge: (
+                callee_order(edge, order)
+                if self._container_belongs(self._by_id[edge.source_id], object_id)
+                else caller_order(edge, order)
+            )
+        )
+        return self._dependency_page(matches, limit, offset)
 
     async def unresolved_references(
         self,
         *,
         limit: int,
     ) -> PlsqlDependencyPage:
-        matches = [
-            edge for edge in self._edges if edge.resolution in UNRESOLVED_RESOLUTIONS
-        ]
+        matches = sorted(
+            (edge for edge in self._edges if edge.resolution in UNRESOLVED_RESOLUTIONS),
+            key=caller_order,
+        )
         return self._dependency_page(matches, limit)
 
     async def find_paths(
@@ -654,6 +683,8 @@ class SyntheticPlsqlAnalysisClient:
         direction: ImpactDirection = "upstream",
         relationships: frozenset[str] | None = None,
         offset: int = 0,
+        scope: ImpactScope = "all",
+        order: ListOrder = "name",
     ) -> PlsqlImpactPage:
         """Return bounded transitive impact with a blast-radius summary."""
         rels = (
@@ -688,11 +719,16 @@ class SyntheticPlsqlAnalysisClient:
             )
         items.sort(
             key=lambda item: (
-                item.distance,
-                item.dependent.qualified_name.casefold(),
+                *object_key(
+                    item.dependent.name,
+                    item.dependent.qualified_name,
+                    item.dependent.kind,
+                    order,
+                ),
                 item.dependent.id,
             )
         )
+        items = filter_impact_items(items, scope)
         bounded_limit = max(1, min(limit, self._max_rows))
         bounded_offset = max(0, offset)
         page_end = bounded_offset + bounded_limit
@@ -700,5 +736,21 @@ class SyntheticPlsqlAnalysisClient:
             items=items[bounded_offset:page_end],
             truncated=len(items) > page_end,
             total=len(items),
-            summary=self._impact_summary(trails, edge_by_id),
         )
+
+    async def impact_summary_of(
+        self,
+        *,
+        object_id: str,
+        max_hops: int,
+        direction: ImpactDirection = "upstream",
+        relationships: frozenset[str] | None = None,
+    ) -> PlsqlImpactSummaryRecord:
+        """Return the blast-radius counts of the whole traversal."""
+        rels = (
+            frozenset(relationships)
+            if relationships is not None
+            else PATH_RELATIONSHIPS
+        )
+        trails, edge_by_id = self._impact_trails(object_id, max_hops, rels, direction)
+        return self._impact_summary(trails, edge_by_id)

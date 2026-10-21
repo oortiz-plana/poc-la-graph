@@ -40,6 +40,17 @@ PlsqlDependencyCategory = Literal["callers", "callees", "reads", "writes", "othe
 
 ImpactDirection = Literal["upstream", "downstream"]
 
+# Blast-radius card narrowing the impact item list (the summary stays whole).
+ImpactScope = Literal["all", "direct", "indirect", "packages", "tablesModified"]
+
+# How a list is ordered: by object name, or by package (then name) so that a
+# view grouped by package pages through the packages alphabetically.
+ListOrder = Literal["name", "package"]
+
+PlsqlHealthCategoryName = Literal[
+    "unresolved", "ambiguous", "dynamicSql", "parseErrors", "unsupported"
+]
+
 ImpactRelationship = Literal[
     "CALLS", "READS", "WRITES", "VIEW_DEPENDS_ON", "FOREIGN_KEY", "TRIGGERS"
 ]
@@ -141,6 +152,11 @@ class PlsqlDependency(ApiModel):
     ``evidenceKind``/``derived``/``events``/``viaTable`` are populated only
     for derived edges (e.g. ``TRIGGERS``, a trigger-mediated invocation); a
     literal ``CALLS``/``READS``/``WRITES`` edge leaves them ``null``.
+
+    One dependency stands for an object pair however many times it is
+    referenced: ``occurrences`` lists every distinct source location (ordered
+    by file and line), ``occurrenceCount`` how many, and ``evidence`` is the
+    first of them.
     """
 
     id: str = Field(min_length=1, max_length=512)
@@ -153,6 +169,8 @@ class PlsqlDependency(ApiModel):
     derived: bool | None = None
     events: str | None = None
     via_table: PlsqlObjectReference | None = Field(default=None, alias="viaTable")
+    occurrences: list[PlsqlSourceCoordinate] = Field(default_factory=list)
+    occurrence_count: int = Field(default=1, ge=1, alias="occurrenceCount")
 
 
 class PlsqlDependencyResult(ApiModel):
@@ -235,16 +253,23 @@ class PlsqlImpactSummary(ApiModel):
     tables_modified: int = Field(alias="tablesModified", ge=0)
 
 
+class PlsqlImpactSummaryResult(ApiModel):
+    """Blast-radius counts of one impact traversal, independent of paging."""
+
+    object: PlsqlObjectReference
+    summary: PlsqlImpactSummary
+
+
 class PlsqlImpactResult(ApiModel):
     """Deterministic, bounded impact report for one changed object.
 
     ``object`` identifies the analyzed object; ``items`` are its transitive
-    dependents ordered by distance and then lexicographic ids.
+    dependents in alphabetical order of their object name (the distance is a
+    column, not the order).
     """
 
     object: PlsqlObjectReference
     items: list[PlsqlImpactItem]
     truncated: bool
     count: int = Field(ge=0)
-    summary: PlsqlImpactSummary
     next_cursor: str | None = Field(alias="nextCursor")

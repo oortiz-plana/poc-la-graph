@@ -25,11 +25,15 @@ from app.config.settings import Settings
 from app.integrations.plsql import PlsqlConfigurationError
 from app.integrations.plsql import neo4j_client as neo4j_client_module
 from app.integrations.plsql.catalog import (
+    COUNT_EDGE_CALLEES,
     COUNT_EDGE_CALLERS,
     COUNT_EDGE_TABLE_ACCESS,
     COUNT_EDGE_UNRESOLVED,
+    EDGE_BY_HOPS,
     EDGE_BY_TRIPLE,
     EDGE_CALLERS,
+    EDGE_HOPS_INCOMING,
+    EDGE_HOPS_OUTGOING,
     EDGE_INCOMING,
     EDGE_MEMBER_ENDPOINTS,
     EDGE_OUTGOING,
@@ -40,6 +44,7 @@ from app.integrations.plsql.catalog import (
     SOURCE_FILES,
 )
 from app.integrations.plsql.errors import PlsqlLimitExceeded
+from app.integrations.plsql.impact_graph import schema_of
 from app.integrations.plsql.models import (
     PlsqlFileRecord,
     PlsqlObjectRecord,
@@ -50,13 +55,12 @@ from app.integrations.plsql.neo4j_client import (
     Neo4jPlsqlAnalysisClient,
     _edge_parts,
     _kind_from_labels,
-    _owner_of,
-    _schema_of,
     _via_table_reference,
     edge_id,
     object_id,
     qualified_name_from_object_id,
 )
+from app.integrations.plsql.ordering import owner_of
 from app.main import create_app
 from app.models.plsql import ObjectKind
 
@@ -110,9 +114,9 @@ def test_edge_id_round_trip() -> None:
 
 
 def test_qualified_name_helpers() -> None:
-    assert _schema_of("HR.PKG_EMPLOYEE.CALCULATE_BONUS") == "HR"
-    assert _owner_of("HR.PKG_EMPLOYEE.CALCULATE_BONUS") == "PKG_EMPLOYEE"
-    assert _owner_of("HR.EMPLOYEES") is None
+    assert schema_of("HR.PKG_EMPLOYEE.CALCULATE_BONUS") == "HR"
+    assert owner_of("HR.PKG_EMPLOYEE.CALCULATE_BONUS") == "PKG_EMPLOYEE"
+    assert owner_of("HR.EMPLOYEES") is None
     assert _kind_from_labels(("DatabaseObject", "Table")) == "Table"
     assert _kind_from_labels(("DatabaseObject", "ExecutableUnit")) is None
     assert _kind_from_labels(("Procedure", "DatabaseObject")) == "Procedure"
@@ -338,7 +342,9 @@ async def test_readiness_reports_unavailable_when_neo4j_not_composed(
         client,
     ):
         response = await client.get("/ready")
-        assert response.status_code == 200
+        # Selecting the neo4j adapter without a server makes the API not ready.
+        assert response.status_code == 503
+        assert response.json()["ready"] is False
         assert response.json()["components"]["analysis"]["status"] == "unavailable"
 
 
@@ -379,7 +385,7 @@ def _object_record(
         id=object_id("sample", qualified_name),
         kind=kind,
         name=name or qualified_name.rsplit(".", 1)[-1],
-        schema_name=_schema_of(qualified_name),
+        schema_name=schema_of(qualified_name),
         qualified_name=qualified_name,
         project_id="sample",
     )
@@ -441,8 +447,53 @@ async def test_callers_of_uses_targeted_select_and_count_twins(
     assert page.total == 2
     assert [query for query, _ in calls] == [EDGE_CALLERS, COUNT_EDGE_CALLERS]
     assert calls[0][1]["qualifiedName"] == "HR.GET_SALARY"
-    assert calls[0][1]["limit"] == 2  # page size + 1 to detect truncation
+    # A package's callers include calls to its members.
+    assert calls[0][1]["memberPrefix"] == "HR.GET_SALARY."
+    # The queried object is the fixed end, so member calls group into one edge.
+    assert calls[0][1]["objectName"] == target.name
+    assert calls[0][1]["objectLabels"] == ["DatabaseObject", target.kind]
+    # Every call site is read (up to the traversal bound) so they can be
+    # grouped into one dependency per object pair before paging.
+    assert calls[0][1]["limit"] == client._max_traversal_edges + 1
     assert "limit" not in calls[1][1]
+
+
+async def test_callers_of_groups_call_sites_into_one_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = _object_record("HR.GET_SALARY")
+    rows = [
+        _edge_row(startLine=40),
+        _edge_row(startLine=12),
+        _edge_row(startLine=12),
+        _edge_row(
+            sourceQualifiedName="HR.PKG_EMPLOYEE.CREATE_EMPLOYEE",
+            sourceName="CREATE_EMPLOYEE",
+            sourceLabels=["DatabaseObject", "Procedure"],
+        ),
+    ]
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        if query == EDGE_CALLERS:
+            return rows
+        if query == COUNT_EDGE_CALLERS:
+            return [{"total": 2}]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache[target.id] = target
+    try:
+        page = await client.callers_of(object_id=target.id, limit=10)
+    finally:
+        client.close()
+
+    assert page.total == 2
+    assert page.truncated is False
+    payroll, employee = page.items
+    assert payroll.occurrence_count == 2
+    assert [occurrence.start_line for occurrence in payroll.occurrences] == [12, 40]
+    assert payroll.evidence is not None and payroll.evidence.start_line == 12
+    assert employee.occurrence_count == 1
 
 
 async def test_table_access_of_filters_by_member_prefix_and_table_kinds(
@@ -487,6 +538,198 @@ async def test_table_access_of_filters_by_member_prefix_and_table_kinds(
         "FOREIGN_KEY",
     }
     assert calls[0][1]["tableKinds"] == ["Table", "View"]
+
+
+async def test_dependencies_of_queries_each_table_category_separately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hub table has far more READS than the row cap; WRITES must still show.
+
+    The combined table-access page is ordered by relationship type, so a single
+    capped page filled up with READS and view dependencies and the writers (last
+    in that order) never reached the console: its Writers card read 0.
+    """
+    table = _object_record("HR.EMPLOYEES", kind="Table", name="EMPLOYEES")
+
+    def access(relationship: str, source: str) -> dict[str, object]:
+        return _edge_row(
+            relationship=relationship,
+            sourceQualifiedName=f"HR.{source}",
+            sourceName=source,
+            sourceLabels=["DatabaseObject", "Procedure"],
+            targetQualifiedName="HR.EMPLOYEES",
+            targetName="EMPLOYEES",
+            targetLabels=["DatabaseObject", "Table"],
+        )
+
+    rows_by_relationships = {
+        ("READS",): [access("READS", "RDR_A"), access("READS", "RDR_B")],
+        ("WRITES",): [access("WRITES", "WRITER")],
+        ("FOREIGN_KEY", "TRIGGER_ON", "VIEW_DEPENDS_ON"): [],
+    }
+    totals = {("READS",): 482, ("WRITES",): 74}
+    asked: list[tuple[str, ...]] = []
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        if query in (EDGE_TABLE_ACCESS, COUNT_EDGE_TABLE_ACCESS):
+            key = tuple(sorted(params["relationships"]))  # type: ignore[arg-type]
+            if query == EDGE_TABLE_ACCESS:
+                asked.append(key)
+                return rows_by_relationships[key]
+            return [{"total": totals.get(key, 0)}]
+        if query in (COUNT_EDGE_CALLERS, COUNT_EDGE_CALLEES):
+            return [{"total": 0}]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache[table.id] = table
+    try:
+        summary = await client.dependencies_of(
+            object_id=table.id, category="writes", limit=200
+        )
+    finally:
+        client.close()
+
+    assert summary.counts == {
+        "callers": 0,
+        "callees": 0,
+        "reads": 482,
+        "writes": 74,
+        "other": 0,
+    }
+    assert [edge.relationship for edge in summary.items] == ["WRITES"]
+    assert summary.total == 74
+    # One query per table category, each restricted to its own relationship types.
+    assert sorted(asked) == sorted(rows_by_relationships)
+
+
+def _placeholder_row(
+    *, kind_label: str, name: str, node_id: str, resolution: str = "UNRESOLVED"
+) -> dict[str, object]:
+    """An edge to a placeholder target: no qualified name, only a name and an id."""
+    return _edge_row(
+        resolution=resolution,
+        targetQualifiedName=None,
+        targetName=name,
+        targetLabels=["DatabaseObject", kind_label],
+        targetNodeId=node_id,
+    )
+
+
+async def test_unresolved_edges_to_placeholder_targets_are_mapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In a real graph every unresolved edge ends at a nameless placeholder node.
+
+    Requiring a qualified name on the target hid all of them, so the Analysis
+    Health panel read zero while the graph held thousands of unresolved calls.
+    """
+    rows = [
+        _placeholder_row(
+            kind_label="Routine",
+            name="NVL",
+            node_id="plsql://sample/HR/PROCEDURE/NVL",
+        ),
+        _placeholder_row(
+            kind_label="AmbiguousRoutine",
+            name="SALDO",
+            node_id="plsql://sample/HR/AMBIGUOUS_CALLS/SALDO#72198",
+            resolution="AMBIGUOUS",
+        ),
+        _placeholder_row(
+            kind_label="Table",
+            name="FA_TPRGC",
+            node_id="plsql://sample/HR/TABLE/FA_TPRGC",
+        ),
+    ]
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        if query == EDGE_UNRESOLVED:
+            return rows
+        if query == COUNT_EDGE_UNRESOLVED:
+            return [{"total": 3}]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    try:
+        page = await client.unresolved_references(limit=10)
+    finally:
+        client.close()
+
+    by_name = {edge.target_name: edge for edge in page.items}
+    assert set(by_name) == {"NVL", "SALDO", "FA_TPRGC"}
+    assert by_name["NVL"].target_qualified_name == "HR.NVL"
+    assert by_name["NVL"].target_kind == "Procedure"
+    assert by_name["SALDO"].target_qualified_name == "HR.SALDO"
+    assert by_name["SALDO"].resolution == "AMBIGUOUS"
+    assert by_name["FA_TPRGC"].target_kind == "Table"
+
+
+async def test_health_counts_are_exact_and_scoped_inside_the_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = _object_record("HR.PKG_EMPLOYEE", kind="Package", name="PKG_EMPLOYEE")
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        calls.append((query, params))
+        resolution = params.get("unresolvedResolutions")
+        if query == EDGE_UNRESOLVED:
+            return [
+                _placeholder_row(
+                    kind_label="Routine",
+                    name="NVL",
+                    node_id="plsql://sample/HR/PROCEDURE/NVL",
+                    resolution=str(resolution[0]),  # type: ignore[index]
+                )
+            ]
+        if query == COUNT_EDGE_UNRESOLVED:
+            return [{"total": 16350 if resolution == ["UNRESOLVED"] else 502}]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache[package.id] = package
+    try:
+        health = await client.health(object_id=package.id, limit=200)
+    finally:
+        client.close()
+
+    # Totals come from the count queries, not from the (capped) rows returned.
+    assert health.unresolved.count == 16350
+    assert health.ambiguous.count == 502
+    assert health.total == 16852
+    assert len(health.unresolved.items) == 1
+    # The package scope is part of each query, so a row cap cannot cut it first.
+    issued = [params for query, params in calls if query == EDGE_UNRESOLVED]
+    assert [params["unresolvedResolutions"] for params in issued] == [
+        ["UNRESOLVED"],
+        ["AMBIGUOUS"],
+    ]
+    for params in issued:
+        assert params["scopeQn"] == "HR.PKG_EMPLOYEE"
+        assert params["scopePrefix"] == "HR.PKG_EMPLOYEE."
+
+
+async def test_health_without_object_is_not_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[dict[str, object]] = []
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        if query == EDGE_UNRESOLVED:
+            seen.append(params)
+            return []
+        if query == COUNT_EDGE_UNRESOLVED:
+            return [{"total": 0}]
+        return []
+
+    client = _stubbed_client(monkeypatch, execute)
+    try:
+        await client.health(object_id=None, limit=50)
+    finally:
+        client.close()
+
+    assert all(p["scopeQn"] is None and p["scopePrefix"] is None for p in seen)
 
 
 async def test_unresolved_references_filters_by_resolution(
@@ -735,6 +978,32 @@ async def test_relationship_evidence_rejects_foreign_ids_without_querying(
     assert calls == []
 
 
+def _serve_hops(
+    query: str,
+    params: dict[str, object],
+    edges: list[dict[str, object]],
+) -> list[dict[str, object]] | None:
+    """Answer the impact walk's hop and evidence queries from scripted edges."""
+    if query in (EDGE_HOPS_INCOMING, EDGE_HOPS_OUTGOING):
+        incoming = query == EDGE_HOPS_INCOMING
+        keys = params["targets" if incoming else "sources"]
+        end = "targetQualifiedName" if incoming else "sourceQualifiedName"
+        return [edge for edge in edges if edge[end] in keys]  # type: ignore[operator]
+    if query == EDGE_BY_HOPS:
+        hops = {tuple(hop) for hop in params["hops"]}  # type: ignore[attr-defined]
+        return [
+            edge
+            for edge in edges
+            if (
+                edge["relationship"],
+                edge["sourceQualifiedName"],
+                edge["targetQualifiedName"],
+            )
+            in hops
+        ]
+    return None
+
+
 async def test_impact_of_expands_reverse_frontiers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -753,9 +1022,7 @@ async def test_impact_of_expands_reverse_frontiers(
 
     async def execute(query: str, **params: object) -> list[dict[str, object]]:
         calls.append((query, params))
-        if query == EDGE_INCOMING and params["targets"] == ["HR.EMPLOYEES"]:
-            return [reads]
-        return []
+        return _serve_hops(query, params, [reads]) or []
 
     client = _stubbed_client(monkeypatch, execute)
     client._object_cache[changed.id] = changed
@@ -779,7 +1046,7 @@ async def test_impact_of_expands_reverse_frontiers(
     assert offset_page.truncated is False
     # The reverse search keeps expanding past the first dependent: round one
     # fetches edges into EMPLOYEES, round two edges into COUNT_EMPLOYEES.
-    incoming_calls = [call for call in first_calls if call[0] == EDGE_INCOMING]
+    incoming_calls = [call for call in first_calls if call[0] == EDGE_HOPS_INCOMING]
     assert [call[1]["targets"] for call in incoming_calls] == [
         ["HR.EMPLOYEES"],
         ["HR.COUNT_EMPLOYEES"],
@@ -807,8 +1074,8 @@ async def test_impact_of_resolves_all_dependents_in_one_batched_query(
 
     async def execute(query: str, **params: object) -> list[dict[str, object]]:
         calls.append((query, params))
-        if query == EDGE_INCOMING and params["targets"] == ["HR.EMPLOYEES"]:
-            return edges
+        if (served := _serve_hops(query, params, edges)) is not None:
+            return served
         if query == OBJECTS_BY_QUALIFIED_NAMES:
             return [
                 {
@@ -865,10 +1132,9 @@ async def test_impact_pages_reuse_one_traversal_until_the_cache_expires(
 
     async def execute(query: str, **params: object) -> list[dict[str, object]]:
         nonlocal incoming
-        if query == EDGE_INCOMING:
+        if query == EDGE_HOPS_INCOMING:
             incoming += 1
-            return edges if params["targets"] == ["HR.EMPLOYEES"] else []
-        return []
+        return _serve_hops(query, params, edges) or []
 
     client = _stubbed_client(monkeypatch, execute)
     client._object_cache[changed.id] = changed
@@ -898,7 +1164,6 @@ async def test_impact_pages_reuse_one_traversal_until_the_cache_expires(
         client.close()
 
     assert [len(page.items) for page in (first, second, third)] == [2, 2, 1]
-    assert first.summary == second.summary == third.summary
     assert first.items[0].dependent.qualified_name == "HR.FN_00"
     assert second.items[0].dependent.qualified_name == "HR.FN_02"
     assert deeper_queries > traversal_queries
@@ -911,10 +1176,9 @@ async def test_impact_cache_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> 
 
     async def execute(query: str, **params: object) -> list[dict[str, object]]:
         nonlocal incoming
-        if query != EDGE_INCOMING:
-            return []
-        incoming += 1
-        return edges if params["targets"] == ["HR.EMPLOYEES"] else []
+        if query == EDGE_HOPS_INCOMING:
+            incoming += 1
+        return _serve_hops(query, params, edges) or []
 
     client = _stubbed_client(monkeypatch, execute)
     client._impact_cache_ttl = 0.0
@@ -956,13 +1220,14 @@ async def test_impact_of_caps_routes_and_never_refetches_an_object_in_a_dense_gr
                         targetLabels=["DatabaseObject", "Function"],
                     )
                 )
+    every_edge = [row for rows in incoming.values() for row in rows]
     fetched: list[str] = []
 
     async def execute(query: str, **params: object) -> list[dict[str, object]]:
-        if query == EDGE_INCOMING:
-            targets = params["targets"]
-            fetched.extend(targets)  # type: ignore[arg-type]
-            return [row for target in targets for row in incoming.get(target, [])]  # type: ignore[attr-defined]
+        if query == EDGE_HOPS_INCOMING:
+            fetched.extend(params["targets"])  # type: ignore[arg-type]
+        if (served := _serve_hops(query, params, every_edge)) is not None:
+            return served
         if query == OBJECTS_BY_QUALIFIED_NAMES:
             return [
                 {
@@ -995,6 +1260,79 @@ async def test_impact_of_caps_routes_and_never_refetches_an_object_in_a_dense_gr
         assert 1 <= len(item.paths) <= 5
         assert all(path.hop_count == layers for path in item.paths)
         assert len({path.id for path in item.paths}) == len(item.paths)
+
+
+async def test_impact_summary_needs_no_route_evidence_or_object_lookups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    changed, _, edges = _impact_fixture()
+    queries: list[str] = []
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        queries.append(query)
+        return _serve_hops(query, params, edges) or []
+
+    client = _stubbed_client(monkeypatch, execute)
+    client._object_cache[changed.id] = changed
+    try:
+        summary = await client.impact_summary_of(object_id=changed.id, max_hops=3)
+    finally:
+        client.close()
+
+    assert (summary.direct, summary.indirect) == (5, 0)
+    assert EDGE_BY_HOPS not in queries
+    assert OBJECTS_BY_QUALIFIED_NAMES not in queries
+
+
+async def test_impact_walk_is_not_bounded_by_its_total_edge_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Three layers of 40 dependents each exceed a 50-edge bound in total, yet
+    # no single hop query does, so the walk must complete.
+    changed = _object_record("HR.T", kind="Table", name="T")
+    layers = [[f"HR.L{layer}_{index:02d}" for index in range(40)] for layer in range(3)]
+    edges = [
+        _edge_row(
+            relationship="READS" if layer == 0 else "CALLS",
+            sourceQualifiedName=name,
+            sourceName=name.split(".")[1],
+            sourceLabels=["DatabaseObject", "Function"],
+            targetQualifiedName="HR.T" if layer == 0 else layers[layer - 1][index],
+            targetName="T" if layer == 0 else layers[layer - 1][index].split(".")[1],
+            targetLabels=["DatabaseObject", "Table" if layer == 0 else "Function"],
+        )
+        for layer, names in enumerate(layers)
+        for index, name in enumerate(names)
+    ]
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        return _serve_hops(query, params, edges) or []
+
+    client = _stubbed_client(monkeypatch, execute, max_traversal_edges=50)
+    client._object_cache[changed.id] = changed
+    try:
+        summary = await client.impact_summary_of(object_id=changed.id, max_hops=5)
+    finally:
+        client.close()
+
+    assert (summary.direct, summary.indirect) == (40, 80)
+
+
+async def test_impact_walk_fails_when_one_hop_query_exceeds_the_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    changed, _, edges = _impact_fixture()
+
+    async def execute(query: str, **params: object) -> list[dict[str, object]]:
+        return _serve_hops(query, params, edges) or []
+
+    client = _stubbed_client(monkeypatch, execute, max_traversal_edges=2)
+    client._object_cache[changed.id] = changed
+    try:
+        with pytest.raises(PlsqlLimitExceeded):
+            await client.impact_summary_of(object_id=changed.id, max_hops=3)
+    finally:
+        client.close()
 
 
 async def test_impact_of_anchors_package_members_from_prefix_query(
@@ -1149,7 +1487,7 @@ async def test_foreign_key_queries_mapping_and_traversal(
             return [row]
         if query == EDGE_INCOMING and params["targets"] == [target.qualified_name]:
             return [row]
-        return []
+        return _serve_hops(query, params, [row]) or []
 
     client = _stubbed_client(monkeypatch, execute)
     client._object_cache.update({source.id: source, target.id: target})
@@ -1184,7 +1522,14 @@ async def test_foreign_key_queries_mapping_and_traversal(
                 )
                 assert impact.total == 1
                 assert impact.items[0].dependent.id == peer.id
-                assert impact.summary.tables_modified == 0
+                assert (
+                    await client.impact_summary_of(
+                        object_id=anchor.id,
+                        direction=direction,
+                        relationships=relationships,
+                        max_hops=5,
+                    )
+                ).tables_modified == 0
         writes = await client.impact_of(
             object_id=target.id,
             relationships=frozenset({"WRITES"}),

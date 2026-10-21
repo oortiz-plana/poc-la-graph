@@ -1313,19 +1313,109 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
 
+  /api/v1/plsql/impact/summary:
+    get:
+      tags:
+      - plsql
+      summary: Get Impact Summary
+      description: |-
+        Return the blast-radius counts of an impact traversal.
+
+        Takes the same traversal filters as ``/impact`` but no paging: it reports
+        direct and indirect affected objects, distinct packages, and tables
+        modified on the traversed paths for the whole traversal, so the totals
+        never depend on loading (or failing to load) any page of rows.
+      operationId: get_impact_summary_api_v1_plsql_impact_summary_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: objectId
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Objectid
+      - name: direction
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - upstream
+          - downstream
+          default: upstream
+          title: Direction
+      - name: depth
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Depth
+      - name: relationship
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            enum:
+            - CALLS
+            - READS
+            - WRITES
+            - VIEW_DEPENDS_ON
+            - FOREIGN_KEY
+            - TRIGGERS
+          - type: 'null'
+          title: Relationship
+      - name: directOnly
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Directonly
+      - name: writesOnly
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Writesonly
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlImpactSummaryResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
   /api/v1/plsql/impact:
     get:
       tags:
       - plsql
       summary: Get Impact
       description: |-
-        Return bounded transitive impact with filters and a blast-radius summary.
+        Return one page of transitive impact with filters.
 
         ``direction`` selects dependents (upstream) or dependencies (downstream);
         ``relationship``/``writesOnly`` restrict the traversed edge types;
         ``directOnly`` caps the walk at one hop and ``depth`` bounds hops within
-        ``plsql_max_hops``. The summary reports direct and indirect affected
-        objects, distinct packages, and tables modified on the traversed paths.
+        ``plsql_max_hops``. ``scope`` narrows ``items``/``count`` to one summary
+        card before paging. The blast-radius totals are a separate service,
+        ``/impact/summary``. A page is addressed either by the ``cursor`` of the
+        previous one (load more) or directly by ``offset`` (page navigation), never
+        both. ``order`` is the dependent's name or, for a view grouped by package,
+        the package first.
       operationId: get_impact_api_v1_plsql_impact_get
       security:
       - HTTPBearer: []
@@ -1395,6 +1485,19 @@ paths:
           type: boolean
           default: false
           title: Writesonly
+      - name: scope
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - all
+          - direct
+          - indirect
+          - packages
+          - tablesModified
+          default: all
+          title: Scope
       - name: cursor
         in: query
         required: false
@@ -1405,6 +1508,24 @@ paths:
             maxLength: 1024
           - type: 'null'
           title: Cursor
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: order
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - name
+          - package
+          default: name
+          title: Order
       responses:
         '200':
           description: Successful Response
@@ -1508,6 +1629,14 @@ paths:
             minimum: 1
           - type: 'null'
           title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
       responses:
         '200':
           description: Successful Response
@@ -1533,7 +1662,8 @@ paths:
         Paths traverse typed dependency relationships (``CALLS | READS | WRITES |
         VIEW_DEPENDS_ON | TRIGGERS | FOREIGN_KEY``) within ``plsql_max_hops``,
         ordered by hop count then lexicographic node ids, with duplicates collapsed
-        and truncation reported when the row cap is hit.
+        and truncation reported when the row cap is hit. A page is addressed either
+        by the previous page's ``cursor`` or directly by ``offset``, never both.
       operationId: find_paths_api_v1_plsql_paths_get
       security:
       - HTTPBearer: []
@@ -1573,6 +1703,14 @@ paths:
             maxLength: 1024
           - type: 'null'
           title: Cursor
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
       responses:
         '200':
           description: Successful Response
@@ -3105,6 +3243,16 @@ components:
           anyOf:
           - $ref: '#/components/schemas/PlsqlObjectReference'
           - type: 'null'
+        occurrences:
+          items:
+            $ref: '#/components/schemas/PlsqlSourceCoordinate'
+          type: array
+          title: Occurrences
+        occurrenceCount:
+          type: integer
+          minimum: 1
+          title: Occurrencecount
+          default: 1
       additionalProperties: false
       type: object
       required:
@@ -3114,7 +3262,23 @@ components:
       - target
       - resolution
       title: PlsqlDependency
-      description: One typed dependency edge with resolution and source evidence.
+      description: 'One typed dependency edge with resolution and source evidence.
+
+
+        ``evidenceKind``/``derived``/``events``/``viaTable`` are populated only
+
+        for derived edges (e.g. ``TRIGGERS``, a trigger-mediated invocation); a
+
+        literal ``CALLS``/``READS``/``WRITES`` edge leaves them ``null``.
+
+
+        One dependency stands for an object pair however many times it is
+
+        referenced: ``occurrences`` lists every distinct source location (ordered
+
+        by file and line), ``occurrenceCount`` how many, and ``evidence`` is the
+
+        first of them.'
 
     PlsqlDependencyResult:
       properties:
@@ -3188,8 +3352,6 @@ components:
           type: integer
           minimum: 0.0
           title: Count
-        summary:
-          $ref: '#/components/schemas/PlsqlImpactSummary'
         nextCursor:
           anyOf:
           - type: string
@@ -3202,14 +3364,14 @@ components:
       - items
       - truncated
       - count
-      - summary
       - nextCursor
       title: PlsqlImpactResult
       description: |-
         Deterministic, bounded impact report for one changed object.
 
         ``object`` identifies the analyzed object; ``items`` are its transitive
-        dependents ordered by distance and then lexicographic ids.
+        dependents in alphabetical order of their object name (the distance is a
+        column, not the order).
 
     PlsqlImpactSummary:
       properties:
@@ -3238,6 +3400,20 @@ components:
       - tablesModified
       title: PlsqlImpactSummary
       description: Blast-radius summary for an impact scope.
+
+    PlsqlImpactSummaryResult:
+      properties:
+        object:
+          $ref: '#/components/schemas/PlsqlObjectReference'
+        summary:
+          $ref: '#/components/schemas/PlsqlImpactSummary'
+      additionalProperties: false
+      type: object
+      required:
+      - object
+      - summary
+      title: PlsqlImpactSummaryResult
+      description: Blast-radius counts of one impact traversal, independent of paging.
 
     PlsqlObject:
       properties:

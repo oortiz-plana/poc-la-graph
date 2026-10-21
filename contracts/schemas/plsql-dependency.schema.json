@@ -75,7 +75,9 @@
         "evidenceKind",
         "derived",
         "events",
-        "viaTable"
+        "viaTable",
+        "occurrences",
+        "occurrenceCount"
       ],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
@@ -97,7 +99,13 @@
             { "$ref": "#/$defs/objectReference" },
             { "type": "null" }
           ]
-        }
+        },
+        "occurrences": {
+          "description": "Every distinct source location of this object pair, ordered by file and line; `evidence` is the first.",
+          "type": "array",
+          "items": { "$ref": "plsql-object.schema.json#/$defs/sourceCoordinate" }
+        },
+        "occurrenceCount": { "type": "integer", "minimum": 1 }
       }
     }
   }

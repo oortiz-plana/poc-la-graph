@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 /**
  * Lays a results list beside its selected-row detail when the pane is wide
@@ -10,15 +11,20 @@ import type { ReactNode } from "react";
 export function ListDetailSplit({
   list,
   detail,
+  stickyTop = "top-0",
 }: {
   list: ReactNode;
   detail?: ReactNode;
+  /** Tailwind `top-*` class the detail pins to; leave room for a sticky bar above it. */
+  stickyTop?: string;
 }) {
   return (
     <div className="flex flex-wrap items-start gap-4">
       <div className="min-w-0 flex-[3_1_34rem]">{list}</div>
       {detail && (
-        <div className="sticky top-0 min-w-0 flex-[2_1_26rem]">{detail}</div>
+        <div className={cn("sticky min-w-0 flex-[2_1_26rem]", stickyTop)}>
+          {detail}
+        </div>
       )}
     </div>
   );

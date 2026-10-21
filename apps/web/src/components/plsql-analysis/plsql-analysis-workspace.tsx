@@ -23,8 +23,19 @@ import { DependenciesPanel } from "./dependencies-panel";
 import { ImpactReport } from "./impact-report";
 import { InspectorPanel, type Inspection } from "./inspector-panel";
 import { ObjectExplorer } from "./object-explorer";
+import {
+  primaryFilter,
+  type ObjectFilter,
+  type ObjectFilterKey,
+} from "./object-filters";
+import { WorkspaceLanding } from "./workspace-landing";
 import { OverviewPanel } from "./overview-panel";
 import { ObjectHeader, ObjectTabs, type PlsqlTab } from "./object-header";
+import { InspectedObjectProvider } from "./inspected-object";
+import {
+  GroupExpansionProvider,
+  type GroupExpansion,
+} from "./package-grouping";
 import type { PlsqlLocation } from "./plsql-location";
 import { SourceViewer, type SourceRequest } from "./source-viewer";
 import { usePlsqlHistory } from "./use-plsql-history";
@@ -62,6 +73,20 @@ export function PlsqlAnalysisWorkspace() {
   const t = useTranslations("plsqlWorkspace.workspace");
   const [selected, setSelected] = useState<PlsqlObject>();
   const [tab, setTab] = useState<PlsqlTab>("overview");
+  // Workspace-wide: one indicator files the rows of Overview, Dependencies and
+  // Impact under package headers, and it stays on while moving between them.
+  // Bumped to make the Explorer forget its search, filter and open packages.
+  const [explorerReset, setExplorerReset] = useState(0);
+  const [filterRequest, setFilterRequest] = useState<
+    { id: number; filter: ObjectFilter } | undefined
+  >();
+  const [groupByPackage, setGroupByPackage] = useState(false);
+  const [groupExpansion, setGroupExpansion] = useState<GroupExpansion>({
+    mode: "expanded",
+    epoch: 0,
+  });
+  const commandGroups = (mode: GroupExpansion["mode"]) =>
+    setGroupExpansion((current) => ({ mode, epoch: current.epoch + 1 }));
   const [sourceRequest, setSourceRequest] = useState<SourceRequest>();
   const [inspection, setInspection] = useState<Inspection>();
   const [restore, setRestore] = useState<Restore>({ status: "idle" });
@@ -77,7 +102,7 @@ export function PlsqlAnalysisWorkspace() {
   // The workspace scrolls per pane (Explorer, main, Inspector) inside a
   // fixed-height shell; a document-level scrollbar on top of that means two
   // competing scroll containers, which throws off sticky headers and
-  // canvas-sized panels (Monaco, Cytoscape) that size themselves against the
+  // canvas-sized panels (Monaco) that size themselves against the
   // viewport at mount. Suppress it for as long as this view is mounted.
   useEffect(() => {
     const { documentElement, body } = document;
@@ -103,6 +128,20 @@ export function PlsqlAnalysisWorkspace() {
 
   function focusHeading() {
     window.setTimeout(() => headingRef.current?.focus(), 0);
+  }
+
+  /**
+   * "Browse objects": back to how the console looks right after signing in,
+   * with no object selected and an empty Explorer search. It is a history
+   * entry of its own, so Back returns to the object that was open.
+   */
+  function startOver() {
+    setExplorerReset((current) => current + 1);
+    urlHistory.commit(
+      { tab: "overview" },
+      selectedRef.current ? "push" : "replace",
+    );
+    void applyLocation({ tab: "overview" });
   }
 
   function showObject(
@@ -191,15 +230,11 @@ export function PlsqlAnalysisWorkspace() {
     showObject(object, nextTab, { focus: true });
   }
 
-  function openReference(reference: PlsqlObjectReference) {
-    navigate(referenceToObject(reference));
-  }
-
   /**
    * Shows an object's details in the Inspector without navigating the
    * primary view. Used where clicking a node is exploratory (e.g. a route's
    * intermediate hops) and switching the analyzed object would discard
-   * in-progress state, unlike `openReference`'s full navigation.
+   * in-progress state, unlike a full navigation.
    */
   function inspectReference(reference: PlsqlObjectReference) {
     setInspection({ kind: "object", object: referenceToObject(reference) });
@@ -267,19 +302,33 @@ export function PlsqlAnalysisWorkspace() {
       ) : (
         <WorkspaceShell
           hasInspection={inspection !== undefined}
-          explorer={({ closeDrawer }) => (
+          explorer={({ closeDrawer, collapseDocked }) => (
             <ObjectExplorer
               selectedId={selected?.id}
+              resetSignal={explorerReset}
+              filterRequest={filterRequest}
               onSelect={(object) => {
                 navigate(object);
+                // Picking an object hands the space to the analysis: the
+                // drawer closes and the docked pane folds away (its edge
+                // handle, or "Browse objects", brings it back).
                 closeDrawer?.();
+                collapseDocked?.();
               }}
             />
           )}
+          onExplore={startOver}
+          toolbarActions={
+            <AnalysisHealth
+              objectId={selected?.id}
+              onOpenEvidence={openEvidence}
+            />
+          }
           inspector={
             <InspectorPanel
               inspection={inspection}
               onOpenObject={openObjectOverview}
+              onAnalyzeObject={analyzeObject}
             />
           }
         >
@@ -309,107 +358,125 @@ export function PlsqlAnalysisWorkspace() {
                       >
                         <ArrowRight aria-hidden />
                       </Button>
-                      <AnalysisHealth
-                        objectId={selected.id}
-                        onOpenEvidence={openEvidence}
-                      />
                     </>
                   }
                 />
-                <ObjectTabs value={tab} onChange={changeTab}>
-                  <TabsContent value="overview">
-                    <OverviewPanel
-                      object={selected}
-                      onOpenEvidence={openEvidence}
-                      onOpenObject={openReference}
-                      onInspectObject={inspectReference}
-                      onInspectEdge={inspectEdge}
-                      onInspectPath={(path) =>
-                        setInspection({ kind: "path", path })
-                      }
-                      onAnalyzeObject={analyzeObject}
-                      onExploreDependencies={exploreDependencies}
-                      onExploreImpact={() => changeTab("impact")}
-                    />
-                  </TabsContent>
-                  <TabsContent value="dependencies">
-                    <DependenciesPanel
-                      object={selected}
-                      initialCategory={dependenciesCategory}
-                      onOpenEvidence={openEvidence}
-                      onOpenObject={openReference}
-                      onInspectObject={inspectReference}
-                      onInspectEdge={inspectEdge}
-                      onAnalyzeObject={analyzeObject}
-                      onInspectPath={(path) =>
-                        setInspection({ kind: "path", path })
-                      }
-                    />
-                  </TabsContent>
-                  <TabsContent value="impact">
-                    <ImpactReport
-                      objectId={selected.id}
-                      onOpenEvidence={openEvidence}
-                      onOpenObject={openReference}
-                      onInspectObject={inspectReference}
-                      onInspectEdge={inspectEdge}
-                      onInspectPath={(path) =>
-                        setInspection({ kind: "path", path })
-                      }
-                    />
-                  </TabsContent>
-                  <TabsContent value="paths">
-                    <DependencyPathsSection
-                      initialFrom={selected}
-                      onInspectObject={inspectReference}
-                      onOpenEvidence={openEvidence}
-                      onInspectPath={(path) =>
-                        setInspection({ kind: "path", path })
-                      }
-                      onInspectEdge={inspectEdge}
-                      onOpenObject={openReference}
-                      onAnalyzeObject={analyzeObject}
-                    />
-                  </TabsContent>
-                  <TabsContent
-                    value="source"
-                    className="flex min-h-0 flex-1 flex-col"
-                  >
-                    {sourceRequest ? (
-                      <SourceViewer
-                        request={sourceRequest}
-                        onClose={() => setSourceRequest(undefined)}
-                      />
-                    ) : (
-                      <div className="mt-3 rounded-lg border border-dashed p-4 text-sm text-text-secondary">
-                        <p>{t("openSourcePrompt")}</p>
-                        <Button
-                          className="mt-3"
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            setSourceRequest(objectSourceRequest(selected.id))
+                <InspectedObjectProvider
+                  value={
+                    inspection?.kind === "object"
+                      ? inspection.object.id
+                      : undefined
+                  }
+                >
+                  <GroupExpansionProvider value={groupExpansion}>
+                    <ObjectTabs
+                      value={tab}
+                      onChange={changeTab}
+                      groupByPackage={groupByPackage}
+                      onGroupByPackageChange={(next) => {
+                        setGroupByPackage(next);
+                        // Every time grouping is switched, start with open groups.
+                        commandGroups("expanded");
+                      }}
+                      onExpandAllGroups={() => commandGroups("expanded")}
+                      onCollapseAllGroups={() => commandGroups("collapsed")}
+                    >
+                      <TabsContent value="overview">
+                        <OverviewPanel
+                          object={selected}
+                          groupByPackage={groupByPackage}
+                          onOpenEvidence={openEvidence}
+                          onInspectObject={inspectReference}
+                          onInspectEdge={inspectEdge}
+                          onInspectPath={(path) =>
+                            setInspection({ kind: "path", path })
                           }
-                        >
-                          {t("showSourceOf", { name: selected.name })}
-                        </Button>
-                      </div>
-                    )}
-                  </TabsContent>
-                </ObjectTabs>
+                          onExploreDependencies={exploreDependencies}
+                          onExploreImpact={() => changeTab("impact")}
+                        />
+                      </TabsContent>
+                      <TabsContent value="dependencies">
+                        <DependenciesPanel
+                          object={selected}
+                          initialCategory={dependenciesCategory}
+                          groupByPackage={groupByPackage}
+                          onOpenEvidence={openEvidence}
+                          onInspectObject={inspectReference}
+                          onInspectEdge={inspectEdge}
+                          onInspectPath={(path) =>
+                            setInspection({ kind: "path", path })
+                          }
+                        />
+                      </TabsContent>
+                      <TabsContent value="impact">
+                        <ImpactReport
+                          objectId={selected.id}
+                          groupByPackage={groupByPackage}
+                          onOpenEvidence={openEvidence}
+                          onInspectObject={inspectReference}
+                          onInspectEdge={inspectEdge}
+                          onInspectPath={(path) =>
+                            setInspection({ kind: "path", path })
+                          }
+                        />
+                      </TabsContent>
+                      <TabsContent value="paths">
+                        <DependencyPathsSection
+                          initialFrom={selected}
+                          onInspectObject={inspectReference}
+                          onOpenEvidence={openEvidence}
+                          onInspectPath={(path) =>
+                            setInspection({ kind: "path", path })
+                          }
+                          onInspectEdge={inspectEdge}
+                        />
+                      </TabsContent>
+                      <TabsContent
+                        value="source"
+                        className="flex min-h-0 flex-1 flex-col"
+                      >
+                        {sourceRequest ? (
+                          <SourceViewer
+                            request={sourceRequest}
+                            onClose={() => setSourceRequest(undefined)}
+                          />
+                        ) : (
+                          <div className="mt-3 rounded-lg border border-dashed p-4 text-sm text-text-secondary">
+                            <p>{t("openSourcePrompt")}</p>
+                            <Button
+                              className="mt-3"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setSourceRequest(
+                                  objectSourceRequest(selected.id),
+                                )
+                              }
+                            >
+                              {t("showSourceOf", { name: selected.name })}
+                            </Button>
+                          </div>
+                        )}
+                      </TabsContent>
+                    </ObjectTabs>
+                  </GroupExpansionProvider>
+                </InspectedObjectProvider>
               </div>
             ) : (
               <div className="mx-auto min-h-0 w-full max-w-[75rem] flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h1 className="text-2xl font-semibold">{t("title")}</h1>
-                  <AnalysisHealth onOpenEvidence={openEvidence} />
-                </div>
+                <h1 className="text-2xl font-semibold">{t("title")}</h1>
                 <p className="mt-2 max-w-3xl text-sm text-text-secondary">
                   {t("intro")}
                 </p>
                 <EmptyState
                   restore={restore}
-                  onBrowse={openExplorer}
+                  onBrowseKind={(key) => {
+                    setFilterRequest((current) => ({
+                      id: (current?.id ?? 0) + 1,
+                      filter: primaryFilter(key),
+                    }));
+                    openExplorer();
+                  }}
                   onRetry={retryRestore}
                   onClear={clearRestore}
                 />
@@ -424,12 +491,12 @@ export function PlsqlAnalysisWorkspace() {
 
 function EmptyState({
   restore,
-  onBrowse,
+  onBrowseKind,
   onRetry,
   onClear,
 }: {
   restore: Restore;
-  onBrowse: () => void;
+  onBrowseKind: (key: ObjectFilterKey) => void;
   onRetry: () => void;
   onClear: () => void;
 }) {
@@ -453,19 +520,16 @@ function EmptyState({
       </div>
     );
   }
-  return (
-    <div className="mt-6 rounded-lg border border-dashed p-6 text-sm text-text-secondary">
-      <p>{restore.status === "notFound" ? t("notFound") : t("noSelection")}</p>
-      <Button
-        className="mt-4"
-        variant={restore.status === "notFound" ? "outline" : "default"}
-        onClick={restore.status === "notFound" ? onClear : onBrowse}
-      >
-        <Search aria-hidden />
-        {restore.status === "notFound"
-          ? t("clearSelection")
-          : t("browseObjects")}
-      </Button>
-    </div>
-  );
+  if (restore.status === "notFound") {
+    return (
+      <div className="mt-6 rounded-lg border border-dashed p-6 text-sm text-text-secondary">
+        <p>{t("notFound")}</p>
+        <Button className="mt-4" variant="outline" onClick={onClear}>
+          <Search aria-hidden />
+          {t("clearSelection")}
+        </Button>
+      </div>
+    );
+  }
+  return <WorkspaceLanding onBrowseKind={onBrowseKind} />;
 }

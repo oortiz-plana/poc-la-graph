@@ -92,7 +92,7 @@ describe("HealthPanel", () => {
         screen.getByText((content) => content.includes("EMPLOYEE_DETAILS")),
       ).toBeInTheDocument(),
     );
-    await user.click(screen.getByText("hr/fa_qfact_calc.pkb:40"));
+    await user.click(screen.getByRole("button", { name: "line 40" }));
     expect(onOpenEvidence).toHaveBeenCalledWith(
       expect.objectContaining({ path: "hr/fa_qfact_calc.pkb" }),
     );
@@ -108,11 +108,15 @@ describe("HealthPanel", () => {
       />,
     );
     await screen.findByRole("button", { name: /Unresolved references/ });
+    const firstPage = { category: "unresolved", limit: 25, offset: 0 };
     expect(getPlsqlHealth).toHaveBeenCalledWith(
       "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+      firstPage,
     );
     await user.click(screen.getByLabelText("Show repository-wide diagnostics"));
-    await waitFor(() => expect(getPlsqlHealth).toHaveBeenCalledWith(undefined));
+    await waitFor(() =>
+      expect(getPlsqlHealth).toHaveBeenCalledWith(undefined, firstPage),
+    );
   });
 
   it("shows the all-clear message when nothing is reported", async () => {
@@ -143,5 +147,58 @@ describe("HealthPanel", () => {
     expect(
       await screen.findByRole("button", { name: /Unresolved references/ }),
     ).toBeInTheDocument();
+  });
+
+  it("pages the open category and keeps every category's count", async () => {
+    getPlsqlHealth.mockImplementation(
+      async (
+        _objectId: string | undefined,
+        options: { category: string; offset: number },
+      ) => ({
+        ...healthFixture(),
+        total: 60 + 1,
+        unresolved: {
+          count: 60,
+          items:
+            options.category === "unresolved"
+              ? [
+                  {
+                    ...unresolvedEdge,
+                    id: `edge://sample/CALLS/U${options.offset}`,
+                    target: {
+                      ...unresolvedEdge.target,
+                      qualifiedName: `HR.MISSING_${options.offset}`,
+                    },
+                  },
+                ]
+              : [],
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    render(<HealthPanel onOpenEvidence={vi.fn()} />);
+
+    expect(await screen.findByText(/HR\.MISSING_0/)).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–25 of 60")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText(/HR\.MISSING_25/)).toBeInTheDocument();
+    expect(getPlsqlHealth).toHaveBeenLastCalledWith(undefined, {
+      category: "unresolved",
+      limit: 25,
+      offset: 25,
+    });
+
+    // Another category restarts at its first page.
+    await user.click(
+      screen.getByRole("button", { name: /Ambiguous references/ }),
+    );
+    await waitFor(() =>
+      expect(getPlsqlHealth).toHaveBeenLastCalledWith(undefined, {
+        category: "ambiguous",
+        limit: 25,
+        offset: 0,
+      }),
+    );
   });
 });

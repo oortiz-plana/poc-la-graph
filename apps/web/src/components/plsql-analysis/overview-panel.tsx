@@ -1,33 +1,25 @@
 "use client";
 
-import { ArrowRight, Copy, LoaderCircle } from "lucide-react";
+import { ArrowRight, LoaderCircle, Route } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
-import useSWRInfinite from "swr/infinite";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  getPlsqlDependencies,
-  getPlsqlImpact,
-  type PlsqlProblemCode,
-} from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type {
-  ImpactRelationship,
   PlsqlDependency,
   PlsqlDependencyCategory,
-  PlsqlDependencySummary,
-  PlsqlImpactItem,
-  PlsqlImpactResult,
+  PlsqlImpactSummary,
   PlsqlObject,
   PlsqlObjectReference,
   PlsqlPath,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
 import { useAuth } from "../auth-provider";
-import { AnalysisError, problemCodeOf } from "./analysis-error";
+import { AnalysisError } from "./analysis-error";
 import {
   ANALYSIS_PAGE_SIZE,
-  AnalysisPagination,
+  AnalysisPageNavigator,
   AnalysisPaginationScope,
 } from "./analysis-pagination";
 import {
@@ -39,26 +31,35 @@ import {
   DependencyPathTrail,
   type PathLike,
 } from "./dependency-path-trail";
-import { ImpactMetricCard } from "./impact-metric-card";
+import { ImpactMetricCard, MetricBar } from "./impact-metric-card";
+import { useImpactSummary } from "./use-impact-summary";
+import {
+  useOverviewCardTotals,
+  useOverviewRows,
+  type OverviewCardTotals,
+  type OverviewRowsPage,
+} from "./use-overview-data";
+import { packageKeyOf } from "./package-grouping";
 import {
   DEFAULT_IMPACT_DEPTH,
   DepthField,
   FALLBACK_MAX_DEPTH,
-  sortImpactItems,
 } from "./impact-report";
 import {
-  eagerDependencyCategories,
   overviewMetricsForKind,
   type OverviewMetricDef,
 } from "./overview-metrics";
 import {
-  displayPackageOf,
-  evidenceLocation,
+  ObjectCell,
+  PackageCell,
   ObjectKindBadge,
-  EVIDENCE_LINK_CLASS,
   useEvidenceLineLabel,
+  edgeOccurrences,
+  OccurrencePicker,
   useHopText,
+  EvidenceCell,
 } from "./plsql-atoms";
+import { CopyValueButton } from "./copy-value-button";
 import { InsightPanel } from "./insight-panel";
 import { ListDetailSplit } from "./list-detail-split";
 import { SourceBody } from "./source-viewer";
@@ -88,25 +89,24 @@ export function OverviewPanel(
 
 function OverviewPanelContent({
   object,
+  groupByPackage,
   onOpenEvidence,
-  onOpenObject,
   onInspectObject,
   onInspectEdge,
   onInspectPath,
-  onAnalyzeObject,
   onExploreDependencies,
   onExploreImpact,
 }: {
   object: PlsqlObject;
+  /** Files the detail rows under collapsible package headers. */
+  groupByPackage: boolean;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
   /** The "Why is this affected?" trail inspects in place instead, matching
    * the Dependencies/Impact/Paths views: navigating away would discard the
    * selected metric row. */
   onInspectObject?: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
-  onAnalyzeObject: (reference: PlsqlObjectReference) => void;
   onExploreDependencies: (category: PlsqlDependencyCategory) => void;
   onExploreImpact: () => void;
 }) {
@@ -117,140 +117,65 @@ function OverviewPanelContent({
 
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
   const [selectedRowId, setSelectedRowId] = useState<string>();
-  const [pages, setPages] = useState<
-    Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>
-  >({});
-  const [dependencyStatus, setDependencyStatus] =
-    useState<SectionStatus>("loading");
-  const [dependencyErrorCode, setDependencyErrorCode] =
-    useState<PlsqlProblemCode>();
+  const [page, setPage] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const [depth, setDepth] = useState(DEFAULT_IMPACT_DEPTH);
   const maxDepth = useAuth().config.plsqlMaxHops ?? FALLBACK_MAX_DEPTH;
-  const impactRelationship =
-    overviewMetricsForKind(objectKind).impactRelationship;
+  const { metrics, impactRelationship } = overviewMetricsForKind(objectKind);
+  const metric =
+    metrics.find((entry) => entry.key === selectedMetricKey) ?? metrics[0];
 
-  const impactPages = useSWRInfinite<PlsqlImpactResult>(
-    (index, previousPage) => {
-      if (index > 0 && !previousPage?.nextCursor) return null;
-      return {
-        resource: "plsql-overview-impact",
-        objectId,
-        relationship: impactRelationship,
-        depth,
-        attempt,
-        cursor:
-          index === 0 ? undefined : (previousPage?.nextCursor ?? undefined),
-      };
-    },
-    async ({
-      objectId: requestedId,
-      relationship,
-      depth: requestedDepth,
-      cursor,
-    }: {
-      objectId: string;
-      relationship?: ImpactRelationship;
-      depth: number;
-      cursor?: string;
-    }) => {
-      const value = await getPlsqlImpact(requestedId, {
-        limit: ANALYSIS_PAGE_SIZE,
-        direction: "upstream",
-        depth: requestedDepth,
-        relationship,
-        cursor,
-      });
-      if (!value) throw new Error("Object not found");
-      return value;
-    },
-    { persistSize: false, revalidateFirstPage: false },
-  );
-  const { data: impactData, size, setSize, mutate } = impactPages;
+  // Card numbers and the selected card's rows are separate services: the
+  // impact totals, the dependency counts and one server-side page of rows
+  // each load and fail on their own.
+  const impactSummary = useImpactSummary({
+    objectId,
+    relationship: impactRelationship,
+    depth,
+    attempt,
+  });
+  const cardTotals = useOverviewCardTotals(objectId, metrics, attempt);
+  const rows = useOverviewRows({
+    objectId,
+    metric,
+    page,
+    depth,
+    impactRelationship,
+    order: groupByPackage ? "package" : "name",
+  });
+  const status: SectionStatus = cardTotals.errorCode
+    ? "error"
+    : cardTotals.totals
+      ? "ready"
+      : "loading";
 
-  const impact = useMemo(() => {
-    const first = impactData?.[0];
-    if (!first) return undefined;
-    const byId = new Map<string, PlsqlImpactItem>();
-    for (const page of impactData) {
-      for (const item of page.items) byId.set(item.id, item);
-    }
-    const last = impactData[impactData.length - 1];
-    return {
-      ...first,
-      items: [...byId.values()],
-      truncated: Boolean(last?.nextCursor),
-      nextCursor: last?.nextCursor ?? null,
-    };
-  }, [impactData]);
-
-  const impactLoadingMore =
-    impactPages.isValidating &&
-    Boolean(impactData) &&
-    size > (impactData?.length ?? 0);
-  const status: SectionStatus =
-    dependencyStatus === "error" || (impactPages.error && !impact)
-      ? "error"
-      : dependencyStatus === "ready" && impact
-        ? "ready"
-        : "loading";
-  const errorCode = impactPages.error
-    ? problemCodeOf(impactPages.error)
-    : dependencyErrorCode;
-
-  // Baseline load: one dependency category returns every category's counts
-  // in one response, plus the categories behind relationship-narrowed cards
-  // (see `eagerDependencyCategories`). The impact summary loads through the
-  // paginated hook above; together they cover every metric's card number and
-  // the default-selected metric's rows for every kind.
   useEffect(() => {
-    let cancelled = false;
-    const config = overviewMetricsForKind(objectKind);
-    const categories = eagerDependencyCategories(config.metrics);
-
-    setSelectedMetricKey(config.metrics[0].key);
+    setSelectedMetricKey(overviewMetricsForKind(objectKind).metrics[0].key);
     setSelectedRowId(undefined);
-    setPages({});
-    setDependencyStatus("loading");
-    setDependencyErrorCode(undefined);
+    setPage(0);
+  }, [objectId, objectKind]);
 
-    Promise.all(
-      categories.map((category) => getPlsqlDependencies(objectId, category)),
-    )
-      .then((values) => {
-        if (cancelled) return;
-        const loaded: Partial<
-          Record<PlsqlDependencyCategory, PlsqlDependencySummary>
-        > = {};
-        categories.forEach((category, index) => {
-          loaded[category] = values[index];
-        });
-        setPages(loaded);
-        setDependencyStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setDependencyErrorCode(problemCodeOf(error));
-          setDependencyStatus("error");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [objectId, objectKind, attempt]);
+  // Grouping by package re-reads the list in package order; start from page 1.
+  useEffect(() => {
+    setPage(0);
+    setSelectedRowId(undefined);
+  }, [groupByPackage]);
 
-  function ensureCategory(category: PlsqlDependencyCategory) {
-    if (pages[category]) return;
-    getPlsqlDependencies(objectId, category).then((value) => {
-      setPages((prev) => ({ ...prev, [category]: value }));
-    });
+  function selectMetric(next: OverviewMetricDef) {
+    setSelectedMetricKey(next.key);
+    setSelectedRowId(undefined);
+    setPage(0);
   }
 
-  function selectMetric(metric: OverviewMetricDef) {
-    setSelectedMetricKey(metric.key);
+  function changeDepth(next: number) {
+    setDepth(next);
     setSelectedRowId(undefined);
-    if (metric.source.kind === "dependency")
-      ensureCategory(metric.source.category);
+    setPage(0);
+  }
+
+  function changePage(next: number) {
+    setPage(next);
+    setSelectedRowId(undefined);
   }
 
   function toggleRow(id: string) {
@@ -259,11 +184,16 @@ function OverviewPanelContent({
 
   return (
     <section aria-labelledby={headingId}>
-      <h2 id={headingId} className="text-xl font-semibold">
-        {t("heading")}
-      </h2>
-      <div className="mt-2 max-w-32">
-        <DepthField depth={depth} maxDepth={maxDepth} onChange={setDepth} />
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h2 id={headingId} className="text-xl font-semibold">
+          {t("heading")}
+        </h2>
+        <DepthField
+          depth={depth}
+          maxDepth={maxDepth}
+          layout="inline"
+          onChange={changeDepth}
+        />
       </div>
       {status === "loading" && (
         <div role="status" className="mt-3">
@@ -280,29 +210,27 @@ function OverviewPanelContent({
       )}
       {status === "error" && (
         <AnalysisError
-          code={errorCode}
+          code={cardTotals.errorCode}
           onRetry={() => setAttempt((current) => current + 1)}
         />
       )}
-      {status === "ready" && (
+      {status === "ready" && cardTotals.totals && (
         <OverviewBody
           object={object}
-          impact={impact}
-          pages={pages}
-          impactError={Boolean(impactPages.error)}
-          impactLoadingMore={impactLoadingMore}
-          onLoadMoreImpact={() => void setSize((current) => current + 1)}
-          onRetryImpact={() => void mutate()}
-          selectedMetricKey={selectedMetricKey}
+          groupByPackage={groupByPackage}
+          impactSummary={impactSummary}
+          cardTotals={cardTotals.totals}
+          metric={metric}
+          rows={rows}
+          page={page}
           selectedRowId={selectedRowId}
           onSelectMetric={selectMetric}
+          onPageChange={changePage}
           onSelectRowId={toggleRow}
           onOpenEvidence={onOpenEvidence}
-          onOpenObject={onOpenObject}
           onInspectObject={onInspectObject}
           onInspectEdge={onInspectEdge}
           onInspectPath={onInspectPath}
-          onAnalyzeObject={onAnalyzeObject}
           onExploreDependencies={onExploreDependencies}
           onExploreImpact={onExploreImpact}
         />
@@ -313,76 +241,76 @@ function OverviewPanelContent({
 
 function OverviewBody({
   object,
-  impact,
-  pages,
-  impactError,
-  impactLoadingMore,
-  onLoadMoreImpact,
-  onRetryImpact,
-  selectedMetricKey,
+  groupByPackage,
+  impactSummary,
+  cardTotals,
+  metric,
+  rows: rowsQuery,
+  page,
   selectedRowId,
   onSelectMetric,
+  onPageChange,
   onSelectRowId,
   onOpenEvidence,
-  onOpenObject,
   onInspectObject,
   onInspectEdge,
   onInspectPath,
-  onAnalyzeObject,
   onExploreDependencies,
   onExploreImpact,
 }: {
   object: PlsqlObject;
-  impact?: PlsqlImpactResult;
-  pages: Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>;
-  impactError: boolean;
-  impactLoadingMore: boolean;
-  onLoadMoreImpact: () => void;
-  onRetryImpact: () => void;
-  selectedMetricKey: string;
+  groupByPackage: boolean;
+  impactSummary: ReturnType<typeof useImpactSummary>;
+  cardTotals: OverviewCardTotals;
+  metric: OverviewMetricDef;
+  /** The selected card's rows: one server-side page at a time. */
+  rows: ReturnType<typeof useOverviewRows>;
+  page: number;
   selectedRowId?: string;
   onSelectMetric: (metric: OverviewMetricDef) => void;
+  onPageChange: (page: number) => void;
   onSelectRowId: (id: string) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectObject?: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
-  onAnalyzeObject: (reference: PlsqlObjectReference) => void;
   onExploreDependencies: (category: PlsqlDependencyCategory) => void;
   onExploreImpact: () => void;
 }) {
   const t = useTranslations("plsqlOverview");
   const { metrics } = overviewMetricsForKind(object.kind);
   const columns = useDetailColumns();
-  const metric =
-    metrics.find((entry) => entry.key === selectedMetricKey) ?? metrics[0];
-  const { rows, truncated, loaded } = rowsForMetric(
-    metric,
-    object,
-    impact,
-    pages,
+  const rows = useMemo(
+    () => rowsForPage(object, rowsQuery.data),
+    [object, rowsQuery.data],
   );
+  const loaded = rowsQuery.data !== undefined;
   const selectedRow = rows.find((row) => row.id === selectedRowId);
-  const counts = dependencyCounts(pages);
 
   return (
     <div className="mt-3">
-      <div
-        role="group"
-        aria-label={t("overview.metricsGroup")}
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+      {impactSummary.errorCode && (
+        <div className="mb-3">
+          <AnalysisError
+            code={impactSummary.errorCode}
+            onRetry={impactSummary.retry}
+          />
+        </div>
+      )}
+      <MetricBar
+        ariaLabel={t("overview.metricsGroup")}
+        columns="grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
       >
         {metrics.map((entry) => (
           <ImpactMetricCard
             key={entry.key}
-            value={metricValue(entry, impact, pages, counts)}
+            value={metricValue(entry, impactSummary.summary, cardTotals)}
             label={t(`metrics.${entry.key}.label`)}
             active={entry.key === metric.key}
             onSelect={() => onSelectMetric(entry)}
           />
         ))}
-      </div>
+      </MetricBar>
       <section className="mt-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-text-secondary">
@@ -405,9 +333,14 @@ function OverviewBody({
         </div>
         <div className="mt-2">
           <ListDetailSplit
+            stickyTop="top-[4.5rem]"
             list={
               <>
-                {!loaded ? (
+                {!loaded && rowsQuery.failed ? (
+                  <div className="mt-2">
+                    <AnalysisError onRetry={rowsQuery.retry} />
+                  </div>
+                ) : !loaded ? (
                   <p
                     role="status"
                     className="mt-2 flex items-center gap-2 text-sm text-text-secondary"
@@ -420,38 +353,40 @@ function OverviewBody({
                   </p>
                 ) : (
                   <>
-                    {truncated && metric.source.kind !== "impact" && (
-                      <p className="mt-2 text-xs text-warning">
-                        {t("overview.truncated")}
-                      </p>
-                    )}
-                    <div className="mt-2">
+                    <div
+                      className={cn(
+                        "mt-2 transition-opacity",
+                        rowsQuery.refreshing && "opacity-60",
+                      )}
+                    >
                       <DependencyDetailTable
                         ariaLabel={t(`metrics.${metric.key}.label`)}
-                        columns={columns(metric, (row) =>
-                          onSelectRowId(row.id),
+                        columns={columns(
+                          metric,
+                          (row) => onSelectRowId(row.id),
+                          selectedRow !== undefined,
                         )}
                         rows={rows}
                         getRowId={(row) => row.id}
                         selectedId={selectedRowId}
                         onSelectRow={(row) => onSelectRowId(row.id)}
                         emptyMessage={t(`metrics.${metric.key}.empty`)}
+                        groupKey={
+                          groupByPackage
+                            ? (row) => packageKeyOf(row.subject)
+                            : undefined
+                        }
                       />
                     </div>
-                    {metric.source.kind === "impact" && impact && (
-                      <AnalysisPagination
-                        loaded={rows.length}
-                        total={metricValue(metric, impact, pages, counts)}
-                        nextCursor={
-                          rows.length <
-                          metricValue(metric, impact, pages, counts)
-                            ? impact.nextCursor
-                            : null
-                        }
-                        loading={impactLoadingMore}
-                        error={impactError}
-                        onLoadMore={onLoadMoreImpact}
-                        onRetry={onRetryImpact}
+                    {rowsQuery.data && rowsQuery.data.total > 0 && (
+                      <AnalysisPageNavigator
+                        page={page}
+                        pageSize={ANALYSIS_PAGE_SIZE}
+                        total={rowsQuery.data.total}
+                        loading={rowsQuery.refreshing}
+                        error={rowsQuery.failed}
+                        onPageChange={onPageChange}
+                        onRetry={rowsQuery.retry}
                       />
                     )}
                   </>
@@ -461,14 +396,13 @@ function OverviewBody({
             detail={
               selectedRow && (
                 <RelationshipInsight
+                  key={selectedRow.id}
                   row={selectedRow}
                   onClose={() => onSelectRowId(selectedRow.id)}
                   onOpenEvidence={onOpenEvidence}
-                  onOpenObject={onOpenObject}
                   onInspectObject={onInspectObject}
                   onInspectEdge={onInspectEdge}
                   onInspectPath={onInspectPath}
-                  onAnalyzeObject={onAnalyzeObject}
                 />
               )
             }
@@ -482,44 +416,34 @@ function OverviewBody({
 type DetailColumnsFor = (
   metric: OverviewMetricDef,
   onSelectRow: (row: OverviewDetailRow) => void,
+  compact: boolean,
 ) => DetailTableColumn<OverviewDetailRow>[];
 
 function useDetailColumns(): DetailColumnsFor {
   const t = useTranslations("plsqlOverview");
   const hopText = useHopText();
-  const evidenceLineLabel = useEvidenceLineLabel();
-  return (metric, onSelectRow) =>
-    buildColumns(metric, onSelectRow, { t, hopText, evidenceLineLabel });
+  return (metric, onSelectRow, compact) =>
+    buildColumns(metric, onSelectRow, { t, hopText }, compact);
 }
 
 type ColumnText = {
   t: ReturnType<typeof useTranslations<"plsqlOverview">>;
   hopText: (distance: number) => string;
-  evidenceLineLabel: ReturnType<typeof useEvidenceLineLabel>;
 };
 
 function buildColumns(
   metric: OverviewMetricDef,
   onSelectRow: (row: OverviewDetailRow) => void,
-  { t, hopText, evidenceLineLabel }: ColumnText,
+  { t, hopText }: ColumnText,
+  compact: boolean,
 ): DetailTableColumn<OverviewDetailRow>[] {
   const subjectColumn: DetailTableColumn<OverviewDetailRow> = {
     header: t(`metrics.subject.${metric.subjectColumnHeader}`),
-    cell: (row) => (
-      <span
-        title={row.subject.qualifiedName}
-        className="break-words font-medium"
-      >
-        {row.subject.name}
-      </span>
-    ),
+    cell: (row) => <ObjectCell reference={row.subject} compact={compact} />,
   };
   const packageColumn: DetailTableColumn<OverviewDetailRow> = {
     header: t("overview.columns.package"),
-    cell: (row) =>
-      displayPackageOf(row.subject) ?? (
-        <span className="text-text-muted">—</span>
-      ),
+    cell: (row) => <PackageCell reference={row.subject} />,
   };
   const typeColumn: DetailTableColumn<OverviewDetailRow> = {
     header: t("overview.columns.type"),
@@ -541,87 +465,40 @@ function buildColumns(
         };
   const evidenceColumn: DetailTableColumn<OverviewDetailRow> = {
     header: t("overview.columns.evidence"),
-    cell: (row) => {
-      const finalEdge =
-        row.path.relationships[row.path.relationships.length - 1];
-      const evidence = finalEdge?.evidence ?? null;
-      const label = evidenceLineLabel(evidence);
-      if (label === undefined) {
-        return <span className="text-text-muted">—</span>;
-      }
-      const fullLocation = evidenceLocation(evidence);
-      if (!evidence?.sourceFileId) {
-        return (
-          <span
-            title={fullLocation}
-            className="break-words text-xs text-text-secondary"
-          >
-            {label}
-          </span>
-        );
-      }
-      return (
-        <button
-          type="button"
-          title={fullLocation}
-          onClick={(event) => {
-            event.stopPropagation();
-            onSelectRow(row);
-          }}
-          className={EVIDENCE_LINK_CLASS}
-        >
-          {label}
-        </button>
-      );
-    },
+    cell: (row) => (
+      <EvidenceCell
+        edge={row.path.relationships[row.path.relationships.length - 1]}
+        onSelect={() => onSelectRow(row)}
+      />
+    ),
   };
-  return [subjectColumn, packageColumn, typeColumn, lastColumn, evidenceColumn];
-}
-
-/** Every loaded page carries every category's counts; the first one found suffices. */
-function dependencyCounts(
-  pages: Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>,
-): PlsqlDependencySummary["counts"] | undefined {
-  for (const page of Object.values(pages)) {
-    if (page) return page.counts;
-  }
-  return undefined;
+  return compact
+    ? [subjectColumn, lastColumn, evidenceColumn]
+    : [subjectColumn, packageColumn, typeColumn, lastColumn, evidenceColumn];
 }
 
 function metricValue(
   metric: OverviewMetricDef,
-  impact: PlsqlImpactResult | undefined,
-  pages: Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>,
-  counts: PlsqlDependencySummary["counts"] | undefined,
-): number {
+  impact: PlsqlImpactSummary | undefined,
+  totals: OverviewCardTotals,
+): number | undefined {
   if (metric.source.kind === "impact") {
-    if (!impact) return 0;
-    return metric.source.scope === "direct"
-      ? impact.summary.direct
-      : impact.summary.indirect;
+    if (!impact) return undefined;
+    return metric.source.scope === "direct" ? impact.direct : impact.indirect;
   }
-  const page = pages[metric.source.category];
-  const onlyRelationship = metric.source.onlyRelationship;
-  if (onlyRelationship && page && !page.truncated) {
-    return page.items.filter((edge) => edge.relationship === onlyRelationship)
-      .length;
-  }
-  return counts?.[metric.source.category] ?? 0;
+  return metric.source.onlyRelationship
+    ? totals.narrowed[metric.key]
+    : totals.counts[metric.source.category];
 }
 
-function rowsForMetric(
-  metric: OverviewMetricDef,
+/** Normalizes one page of impact items or dependency edges into detail rows. */
+function rowsForPage(
   object: PlsqlObject,
-  impact: PlsqlImpactResult | undefined,
-  pages: Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>,
-): { rows: OverviewDetailRow[]; truncated: boolean; loaded: boolean } {
-  if (metric.source.kind === "impact") {
-    if (!impact) return { rows: [], truncated: false, loaded: false };
-    const scope = metric.source.scope;
-    const filtered = impact.items.filter((item) =>
-      scope === "direct" ? item.distance === 1 : item.distance > 1,
-    );
-    const rows = sortImpactItems(filtered)
+  page: OverviewRowsPage | undefined,
+): OverviewDetailRow[] {
+  if (!page) return [];
+  if (page.kind === "impact") {
+    return page.items
       .filter((item) => item.paths.length > 0)
       .map((item): OverviewDetailRow => {
         const path = item.paths[0];
@@ -635,15 +512,8 @@ function rowsForMetric(
           fullPath: path,
         };
       });
-    return { rows, truncated: impact.truncated, loaded: true };
   }
-  const page = pages[metric.source.category];
-  if (!page) return { rows: [], truncated: false, loaded: false };
-  const onlyRelationship = metric.source.onlyRelationship;
-  const edges = onlyRelationship
-    ? page.items.filter((edge) => edge.relationship === onlyRelationship)
-    : page.items;
-  const rows = edges.map((edge): OverviewDetailRow => {
+  return page.edges.map((edge): OverviewDetailRow => {
     const subject = edge.source.id === object.id ? edge.target : edge.source;
     const path = dependencyToPath(edge);
     return {
@@ -655,46 +525,35 @@ function rowsForMetric(
       fullPath: { id: edge.id, ...path, hopCount: 1 },
     };
   });
-  return { rows, truncated: page.truncated, loaded: true };
 }
 
 function RelationshipInsight({
   row,
   onClose,
   onOpenEvidence,
-  onOpenObject,
   onInspectObject,
   onInspectEdge,
   onInspectPath,
-  onAnalyzeObject,
 }: {
   row: OverviewDetailRow;
   onClose: () => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectObject?: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
-  onAnalyzeObject: (reference: PlsqlObjectReference) => void;
 }) {
   const t = useTranslations("plsqlOverview.overview.why");
   const tInsight = useTranslations("plsqlOverview.insight");
   const hopText = useHopText();
   const evidenceLineLabel = useEvidenceLineLabel();
   const finalEdge = row.path.relationships[row.path.relationships.length - 1];
-  const lineLabel = evidenceLineLabel(finalEdge?.evidence);
-  const [copied, setCopied] = useState(false);
-
-  async function copyQualifiedName() {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(row.subject.qualifiedName);
-      }
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
+  const occurrences = edgeOccurrences(finalEdge);
+  const [occurrenceIndex, setOccurrenceIndex] = useState(0);
+  const activeEvidence =
+    occurrences[Math.min(occurrenceIndex, occurrences.length - 1)] ??
+    finalEdge?.evidence ??
+    null;
+  const lineLabel = evidenceLineLabel(activeEvidence);
 
   return (
     <InsightPanel
@@ -703,70 +562,50 @@ function RelationshipInsight({
       subtitle={row.subject.qualifiedName}
       closeLabel={t("close", { name: row.subject.name })}
       onClose={onClose}
+      actions={<CopyValueButton value={row.subject.qualifiedName} />}
       trail={
         <>
           <DependencyPathTrail
             path={row.path}
             onOpenObject={onInspectObject}
             onInspectEdge={onInspectEdge}
-            showKind
           />
           {/* The full path/line already appears once, in the source evidence
            * header on the right. */}
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
-            <span className="font-medium text-text-primary">
+            <span className="rounded-full bg-selected px-2.5 py-0.5 font-medium text-primary">
               {hopText(row.hopCount)}
             </span>
             {lineLabel !== undefined && <span>{lineLabel}</span>}
           </div>
+          <OccurrencePicker
+            occurrences={occurrences}
+            activeIndex={occurrenceIndex}
+            onChange={setOccurrenceIndex}
+          />
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onOpenObject(row.subject)}
-            >
-              {t("openObject")}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label={t("analyzeLabel", { name: row.subject.name })}
-              onClick={() => onAnalyzeObject(row.subject)}
-            >
-              {t("analyze")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
               onClick={() => onInspectPath(row.fullPath)}
             >
-              {t("viewPath")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void copyQualifiedName()}
-            >
-              <Copy aria-hidden /> {copied ? t("copied") : t("copy")}
+              <Route aria-hidden /> {t("viewPath")}
             </Button>
           </div>
-          <p aria-live="polite" className="sr-only">
-            {copied ? t("copiedAnnouncement") : ""}
-          </p>
         </>
       }
       evidence={
         <>
-          {finalEdge?.evidence?.sourceFileId ? (
+          {activeEvidence?.sourceFileId ? (
             <SourceBody
               heading={tInsight("sourceEvidence")}
               compact
-              onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
+              onOpenFullSource={() => onOpenEvidence(activeEvidence)}
               request={{
                 kind: "file",
-                fileId: finalEdge.evidence.sourceFileId,
-                startLine: finalEdge.evidence.startLine ?? undefined,
-                endLine: finalEdge.evidence.startLine ?? undefined,
+                fileId: activeEvidence.sourceFileId,
+                startLine: activeEvidence.startLine ?? undefined,
+                endLine: activeEvidence.startLine ?? undefined,
               }}
             />
           ) : (

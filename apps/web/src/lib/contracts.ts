@@ -379,7 +379,7 @@ export const plsqlObjectSearchResultSchema = z.object({
   truncated: z.boolean(),
   count: z.number().int().nonnegative(),
 });
-export const plsqlRelationshipSchema = z.enum([
+const plsqlRelationshipSchema = z.enum([
   "CALLS",
   "READS",
   "WRITES",
@@ -422,6 +422,11 @@ export const plsqlDependencySchema = z.object({
   derived: z.boolean().nullish(),
   events: z.string().nullish(),
   viaTable: plsqlObjectReferenceSchema.nullish(),
+  // One dependency stands for an object pair however many call sites it has;
+  // `evidence` is the first of `occurrences`. Optional for the same fixture
+  // reason as above; read through `edgeOccurrences`.
+  occurrences: z.array(plsqlSourceCoordinateSchema).optional(),
+  occurrenceCount: z.number().int().positive().optional(),
 });
 export const plsqlDependencyResultSchema = z.object({
   items: z.array(plsqlDependencySchema),
@@ -440,11 +445,11 @@ export const plsqlPathResultSchema = z.object({
   count: z.number().int().nonnegative(),
   nextCursor: z.string().nullable(),
 });
-export const plsqlSourceFileSchema = z.object({
+const plsqlSourceFileSchema = z.object({
   fileId: z.string(),
   path: z.string(),
 });
-export const plsqlSourceHighlightSchema = z.object({
+const plsqlSourceHighlightSchema = z.object({
   startLine: z.number().int().positive(),
   endLine: z.number().int().positive(),
 });
@@ -464,7 +469,7 @@ export const impactRelationshipSchema = z.enum([
   "FOREIGN_KEY",
   "TRIGGERS",
 ]);
-export const plsqlImpactSummarySchema = z.object({
+const plsqlImpactSummarySchema = z.object({
   direct: z.number().int().nonnegative(),
   indirect: z.number().int().nonnegative(),
   packages: z.number().int().nonnegative(),
@@ -492,7 +497,7 @@ export const plsqlDependencySummarySchema = z.object({
   truncated: z.boolean(),
   total: z.number().int().nonnegative(),
 });
-export const plsqlHealthCategorySchema = z.object({
+const plsqlHealthCategorySchema = z.object({
   count: z.number().int().nonnegative(),
   items: z.array(plsqlDependencySchema),
 });
@@ -505,22 +510,16 @@ export const plsqlHealthSchema = z.object({
   unsupported: plsqlHealthCategorySchema,
   truncated: z.boolean(),
 });
-export const plsqlOverviewSchema = z.object({
-  object: plsqlObjectReferenceSchema,
-  directDependents: z.number().int().nonnegative(),
-  indirectDependents: z.number().int().nonnegative(),
-  callers: z.number().int().nonnegative(),
-  callees: z.number().int().nonnegative(),
-  tablesAccessed: z.number().int().nonnegative(),
-  topCallers: z.array(plsqlObjectReferenceSchema),
-});
 export const plsqlImpactResultSchema = z.object({
   object: plsqlObjectReferenceSchema,
   items: z.array(plsqlImpactItemSchema),
   truncated: z.boolean(),
   count: z.number().int().nonnegative(),
-  summary: plsqlImpactSummarySchema,
   nextCursor: z.string().nullable(),
+});
+export const plsqlImpactSummaryResultSchema = z.object({
+  object: plsqlObjectReferenceSchema,
+  summary: plsqlImpactSummarySchema,
 });
 
 export type Project = z.infer<typeof projectSchema>;
@@ -539,23 +538,30 @@ export type PlsqlObject = z.infer<typeof plsqlObjectSchema>;
 export type PlsqlObjectSearchResult = z.infer<
   typeof plsqlObjectSearchResultSchema
 >;
-export type PlsqlRelationship = z.infer<typeof plsqlRelationshipSchema>;
 export type PlsqlResolution = z.infer<typeof plsqlResolutionSchema>;
 export type PlsqlObjectReference = z.infer<typeof plsqlObjectReferenceSchema>;
 export type PlsqlDependency = z.infer<typeof plsqlDependencySchema>;
 export type PlsqlDependencyResult = z.infer<typeof plsqlDependencyResultSchema>;
 export type PlsqlPath = z.infer<typeof plsqlPathSchema>;
 export type PlsqlPathResult = z.infer<typeof plsqlPathResultSchema>;
-export type PlsqlSourceFile = z.infer<typeof plsqlSourceFileSchema>;
-export type PlsqlSourceHighlight = z.infer<typeof plsqlSourceHighlightSchema>;
 export type PlsqlSourceContent = z.infer<typeof plsqlSourceContentSchema>;
 export type PlsqlImpactItem = z.infer<typeof plsqlImpactItemSchema>;
 export type PlsqlImpactResult = z.infer<typeof plsqlImpactResultSchema>;
-export type PlsqlOverview = z.infer<typeof plsqlOverviewSchema>;
-export type PlsqlHealth = z.infer<typeof plsqlHealthSchema>;
-export type ImpactDirection = z.infer<typeof impactDirectionSchema>;
-export type ImpactRelationship = z.infer<typeof impactRelationshipSchema>;
 export type PlsqlImpactSummary = z.infer<typeof plsqlImpactSummarySchema>;
+export type PlsqlImpactSummaryResult = z.infer<
+  typeof plsqlImpactSummaryResultSchema
+>;
+export type PlsqlHealth = z.infer<typeof plsqlHealthSchema>;
+/** How a list is ordered: by object name, or by package first for a grouped view. */
+export type PlsqlListOrder = "name" | "package";
+/** Keys of `PlsqlHealth` that hold a diagnostics category. */
+export type PlsqlHealthCategoryName =
+  "unresolved" | "ambiguous" | "dynamicSql" | "parseErrors" | "unsupported";
+export type ImpactDirection = z.infer<typeof impactDirectionSchema>;
+/** Blast-radius card that narrows the impact item list server-side; `all` selects none. */
+export type ImpactScope =
+  "all" | "direct" | "indirect" | "packages" | "tablesModified";
+export type ImpactRelationship = z.infer<typeof impactRelationshipSchema>;
 export type PlsqlDependencyCategory = z.infer<
   typeof plsqlDependencyCategorySchema
 >;

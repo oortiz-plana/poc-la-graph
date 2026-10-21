@@ -21,6 +21,10 @@
   },
   "hop": "{count, plural, one {# salto} other {# saltos}}",
   "line": "línea {line}",
+  "occurrences": "{count, plural, one {# vez} other {# veces}}",
+  "occurrenceLines": "{count, plural, one {línea} other {líneas}} {lines}",
+  "occurrenceMore": "+{count} más",
+  "occurrenceGroup": "Ocurrencias",
   "insight": {
     "sourceEvidence": "Evidencia en el código fuente"
   },
@@ -35,7 +39,6 @@
     "region": "Salud del análisis",
     "repositoryWide": "Mostrar diagnósticos de todo el repositorio",
     "loading": "Cargando la salud del análisis…",
-    "truncated": "Resultados truncados",
     "categoryGroup": "Categoría de diagnóstico",
     "categories": {
       "unresolved": "Referencias sin resolver",
@@ -106,7 +109,6 @@
     "heading": "Impacto potencial",
     "loading": "Cargando el resumen…",
     "loadingRows": "Cargando…",
-    "truncated": "Resultados truncados",
     "metricsGroup": "Métricas del resumen",
     "viewAllDependencies": "Ver todo en Dependencias",
     "viewAllImpact": "Ver todo en Impacto",
@@ -122,13 +124,7 @@
       "region": "Por qué {name} está relacionado",
       "title": "¿Por qué se ve afectado?",
       "close": "Cerrar por qué {name} está relacionado",
-      "openObject": "Abrir objeto",
-      "analyze": "Analizar impacto",
-      "analyzeLabel": "Analizar el impacto de {name}",
       "viewPath": "Ver ruta",
-      "copy": "Copiar nombre calificado",
-      "copied": "Copiado",
-      "copiedAnnouncement": "Nombre calificado copiado al portapapeles.",
       "noEvidence": "No hay evidencia en el código fuente para esta relación."
     }
   }

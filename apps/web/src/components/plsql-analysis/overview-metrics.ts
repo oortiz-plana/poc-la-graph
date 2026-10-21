@@ -43,7 +43,7 @@ export type OverviewMetricDef = {
   subjectColumnHeader: "object" | "trigger" | "table";
 };
 
-export type OverviewMetricsConfig = {
+type OverviewMetricsConfig = {
   /** Impact-endpoint relationship filter shared by every impact-sourced metric of this kind. */
   impactRelationship?: ImpactRelationship;
   metrics: OverviewMetricDef[];

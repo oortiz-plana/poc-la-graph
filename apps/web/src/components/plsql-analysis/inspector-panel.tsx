@@ -8,10 +8,13 @@ import type {
   PlsqlObjectReference,
   PlsqlPath,
 } from "@/lib/contracts";
+import { Button } from "@/components/ui/button";
+import { CopyValueButton } from "./copy-value-button";
+import { DependencyPathTrail } from "./dependency-path-trail";
 import {
-  evidenceLocation,
+  edgeOccurrences,
   ObjectKindBadge,
-  RelationshipChip,
+  ObjectKindIcon,
   ResolutionBadge,
 } from "./plsql-atoms";
 
@@ -30,9 +33,12 @@ export type Inspection =
 export function InspectorPanel({
   inspection,
   onOpenObject,
+  onAnalyzeObject,
 }: {
   inspection?: Inspection;
   onOpenObject?: (reference: PlsqlObjectReference) => void;
+  /** Analyze the shown object's impact (its Impact tab). */
+  onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
 }) {
   const t = useTranslations("plsqlDependencies.inspector");
   if (!inspection) {
@@ -43,6 +49,7 @@ export function InspectorPanel({
       <ObjectInspection
         object={inspection.object}
         onOpenObject={onOpenObject}
+        onAnalyzeObject={onAnalyzeObject}
       />
     );
   }
@@ -57,9 +64,11 @@ export function InspectorPanel({
 function ObjectInspection({
   object,
   onOpenObject,
+  onAnalyzeObject,
 }: {
   object: PlsqlObject;
   onOpenObject?: (reference: PlsqlObjectReference) => void;
+  onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
 }) {
   const t = useTranslations("plsqlDependencies.inspector");
   const declaration = object.declaration;
@@ -69,31 +78,85 @@ function ObjectInspection({
         <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
           {t("objectDetails")}
         </p>
-        <p className="mt-1 flex flex-wrap items-center gap-2">
+      </header>
+      <div className="flex items-start gap-3 px-4 py-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-selected text-primary">
+          <ObjectKindIcon kind={object.kind} className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
           <ObjectLink
             reference={object}
             onOpenObject={onOpenObject}
-            className="text-sm font-semibold"
+            className="text-base font-semibold"
           >
             {object.name}
           </ObjectLink>
-          <ObjectKindBadge kind={object.kind} />
-        </p>
-      </header>
-      <dl className="divide-y">
-        <Row label={t("schema")} value={object.schema} />
-        <Row label={t("qualifiedName")} value={object.qualifiedName} />
-        {object.owner && <Row label={t("package")} value={object.owner} />}
-        {declaration?.path && (
-          <Row label={t("file")} value={declaration.path} />
-        )}
-        {declaration?.startLine != null && (
-          <Row label={t("startLine")} value={String(declaration.startLine)} />
-        )}
-        {declaration?.endOffset != null && (
-          <Row label={t("endOffset")} value={String(declaration.endOffset)} />
-        )}
-      </dl>
+          <p className="mt-1">
+            <ObjectKindBadge kind={object.kind} />
+          </p>
+        </div>
+      </div>
+      {(onOpenObject || onAnalyzeObject) && (
+        <div className="flex flex-wrap gap-2 px-4 pb-4">
+          {onOpenObject && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onOpenObject(object)}
+            >
+              {t("openObject")}
+            </Button>
+          )}
+          {onAnalyzeObject && (
+            <Button
+              size="sm"
+              variant="outline"
+              aria-label={t("analyzeImpactFor", { name: object.name })}
+              onClick={() => onAnalyzeObject(object)}
+            >
+              {t("analyzeImpact")}
+            </Button>
+          )}
+        </div>
+      )}
+      <section className="space-y-3 border-t px-4 py-3">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+          <dt className="text-text-muted">{t("schema")}</dt>
+          <dd className="min-w-0 break-words">{object.schema}</dd>
+          {object.owner && (
+            <>
+              <dt className="text-text-muted">{t("package")}</dt>
+              <dd className="min-w-0 break-words">{object.owner}</dd>
+            </>
+          )}
+        </dl>
+        <div>
+          <p className="text-xs text-text-muted">{t("qualifiedName")}</p>
+          <div className="mt-1 flex items-start gap-2 rounded-md border bg-background px-2.5 py-1.5">
+            <code className="min-w-0 flex-1 break-all text-xs">
+              {object.qualifiedName}
+            </code>
+            <CopyValueButton compact value={object.qualifiedName} />
+          </div>
+        </div>
+      </section>
+      {declaration?.path && (
+        <section className="border-t px-4 py-3">
+          <h3 className="text-xs font-semibold text-text-secondary">
+            {t("declaration")}
+          </h3>
+          <div className="mt-2 flex items-start justify-between gap-3 rounded-md border bg-surface px-2.5 py-1.5 text-xs">
+            <span className="min-w-0 break-all text-text-secondary">
+              {declaration.path}
+            </span>
+            {declaration.startLine != null && (
+              <span className="shrink-0 font-semibold text-text-primary">
+                {t("line", { line: declaration.startLine })}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -106,36 +169,54 @@ function EdgeInspection({
   onOpenObject?: (reference: PlsqlObjectReference) => void;
 }) {
   const t = useTranslations("plsqlDependencies.inspector");
+  const occurrences = edgeOccurrences(edge);
   return (
     <div>
-      <header className="border-b px-4 py-3">
+      <header className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
           {t("dependencyEdge")}
         </p>
-        <p className="mt-1 flex flex-wrap items-center gap-2">
-          <ResolutionBadge resolution={edge.resolution} />
-        </p>
+        <ResolutionBadge resolution={edge.resolution} />
       </header>
-      <dl className="divide-y">
-        <ReferenceRow
-          label={t("from")}
-          reference={edge.source}
-          onOpenObject={onOpenObject}
-        />
-        <Row
-          label={t("relationship")}
-          value={<RelationshipChip relationship={edge.relationship} />}
-        />
-        <ReferenceRow
-          label={t("to")}
-          reference={edge.target}
-          onOpenObject={onOpenObject}
-        />
-        <Row
-          label={t("evidence")}
-          value={evidenceLocation(edge.evidence) ?? t("none")}
-        />
-      </dl>
+      <PathTimeline
+        label={t("dependencyEdge")}
+        nodes={[edge.source, edge.target]}
+        relationships={[edge]}
+        onOpenObject={onOpenObject}
+      />
+      <section className="border-t px-4 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-semibold text-text-secondary">
+            {t("evidence")}
+          </h3>
+          {occurrences.length > 1 && (
+            <span className="rounded-full bg-selected px-2 py-0.5 text-xs font-medium text-primary">
+              {t("occurrences", { count: occurrences.length })}
+            </span>
+          )}
+        </div>
+        {occurrences.length === 0 ? (
+          <p className="mt-2 text-sm text-text-secondary">{t("none")}</p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {occurrences.map((occurrence) => (
+              <li
+                key={`${occurrence.path}:${occurrence.startLine ?? ""}:${occurrence.startOffset ?? ""}`}
+                className="flex items-start justify-between gap-3 rounded-md border bg-surface px-2.5 py-1.5 text-xs"
+              >
+                <span className="min-w-0 break-all text-text-secondary">
+                  {occurrence.path}
+                </span>
+                {occurrence.startLine != null && (
+                  <span className="shrink-0 font-semibold text-text-primary">
+                    {t("line", { line: occurrence.startLine })}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
@@ -148,85 +229,45 @@ function PathInspection({
   onOpenObject?: (reference: PlsqlObjectReference) => void;
 }) {
   const t = useTranslations("plsqlDependencies.inspector");
-  const from = path.nodes[0];
-  const to = path.nodes[path.nodes.length - 1];
   return (
     <div>
-      <header className="border-b px-4 py-3">
+      <header className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
           {t("dependencyPath")}
         </p>
+        <span className="rounded-full bg-selected px-2.5 py-0.5 text-xs font-medium text-primary">
+          {t("hopCount", { count: path.hopCount })}
+        </span>
       </header>
-      <dl className="divide-y">
-        <ReferenceRow
-          label={t("from")}
-          reference={from}
-          onOpenObject={onOpenObject}
-        />
-        <ReferenceRow
-          label={t("to")}
-          reference={to}
-          onOpenObject={onOpenObject}
-        />
-        <Row
-          label={t("hops")}
-          value={t("hopCount", { count: path.hopCount })}
-        />
-      </dl>
-      <div className="border-t px-4 py-3">
-        <p className="text-xs text-text-muted">{t("fullPath")}</p>
-        <ol className="mt-2 space-y-1.5">
-          {path.nodes.map((node, index) => (
-            <li
-              key={`${node.id}-${index}`}
-              className="flex flex-wrap items-center gap-1.5 text-sm"
-            >
-              {index > 0 && (
-                <RelationshipChip
-                  relationship={path.relationships[index - 1].relationship}
-                />
-              )}
-              <ObjectLink
-                reference={node}
-                onOpenObject={onOpenObject}
-                className="break-words"
-              >
-                {node.qualifiedName}
-              </ObjectLink>
-            </li>
-          ))}
-        </ol>
-      </div>
+      <PathTimeline
+        label={t("fullPath")}
+        nodes={path.nodes}
+        relationships={path.relationships}
+        onOpenObject={onOpenObject}
+      />
     </div>
   );
 }
 
-function Row({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="px-4 py-2.5">
-      <dt className="text-xs text-text-muted">{label}</dt>
-      <dd className="mt-0.5 break-words text-sm">{value}</dd>
-    </div>
-  );
-}
-
-function ReferenceRow({
+/** The path (or single dependency) drawn with the shared timeline, padded for the Inspector. */
+function PathTimeline({
   label,
-  reference,
+  nodes,
+  relationships,
   onOpenObject,
 }: {
   label: string;
-  reference: PlsqlObjectReference;
+  nodes: PlsqlObjectReference[];
+  relationships: PlsqlDependency[];
   onOpenObject?: (reference: PlsqlObjectReference) => void;
 }) {
   return (
-    <div className="px-4 py-2.5">
-      <dt className="text-xs text-text-muted">{label}</dt>
-      <dd className="mt-0.5 break-words text-sm">
-        <ObjectLink reference={reference} onOpenObject={onOpenObject}>
-          {reference.qualifiedName}
-        </ObjectLink>
-      </dd>
+    <div className="px-4 py-4">
+      <DependencyPathTrail
+        label={label}
+        path={{ nodes, relationships }}
+        onOpenObject={onOpenObject}
+      />
     </div>
   );
 }
@@ -248,13 +289,17 @@ function ObjectLink({
   children: ReactNode;
 }) {
   if (!onOpenObject) {
-    return <span className={className}>{children}</span>;
+    return (
+      <span className={`[overflow-wrap:anywhere] ${className ?? ""}`}>
+        {children}
+      </span>
+    );
   }
   return (
     <button
       type="button"
       onClick={() => onOpenObject(reference)}
-      className={`break-words underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${className ?? ""}`}
+      className={`text-left [overflow-wrap:anywhere] underline decoration-text-secondary/50 underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${className ?? ""}`}
     >
       {children}
     </button>

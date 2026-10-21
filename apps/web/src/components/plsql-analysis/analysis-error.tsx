@@ -36,6 +36,18 @@ export function AnalysisError({
 }) {
   const t = useTranslations("plsqlWorkspace.error");
   const limitExceeded = code === "analysis_limit_exceeded";
+  if (code === "analysis_not_found") {
+    // Nothing failed: the thing asked for simply is not there (for example a
+    // source file this environment does not hold), so no alarm and no retry.
+    return (
+      <p
+        role="status"
+        className="rounded-md border border-dashed p-4 text-sm text-text-secondary"
+      >
+        {context === "source" ? t("sourceNotFound") : t("notFound")}
+      </p>
+    );
+  }
   return (
     <div
       role="alert"

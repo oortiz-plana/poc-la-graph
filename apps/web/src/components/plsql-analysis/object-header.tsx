@@ -1,7 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { PlsqlObject } from "@/lib/contracts";
 import { ObjectKindBadge } from "./plsql-atoms";
@@ -62,36 +64,86 @@ export function ObjectHeader({
   );
 }
 
+/** Tabs whose rows can be filed under package headers. */
+const GROUPABLE_TABS: ReadonlySet<PlsqlTab> = new Set([
+  "overview",
+  "dependencies",
+  "impact",
+]);
+
 export function ObjectTabs({
   value,
   onChange,
+  groupByPackage,
+  onGroupByPackageChange,
+  onExpandAllGroups,
+  onCollapseAllGroups,
   children,
 }: {
   value: PlsqlTab;
   onChange: (tab: PlsqlTab) => void;
+  /** The workspace-wide "group by package" indicator; omit to hide it. */
+  groupByPackage?: boolean;
+  onGroupByPackageChange?: (groupByPackage: boolean) => void;
+  /** Expand / collapse every package group; offered while grouping is on. */
+  onExpandAllGroups?: () => void;
+  onCollapseAllGroups?: () => void;
   children: ReactNode;
 }) {
   const t = useTranslations("plsqlWorkspace.header");
+  const tGrouping = useTranslations("plsqlWorkspace.grouping");
+  const showGrouping =
+    onGroupByPackageChange !== undefined && GROUPABLE_TABS.has(value);
   return (
     <Tabs
       value={value}
       onValueChange={(next) => onChange(next as PlsqlTab)}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <TabsList
-        aria-label={t("objectViews")}
-        className="mt-3 h-auto max-w-full shrink-0 self-start overflow-x-auto overflow-y-hidden"
-      >
-        {OBJECT_TABS.map((tab) => (
-          <TabsTrigger
-            key={tab.value}
-            value={tab.value}
-            className="px-1.5 text-[13px] max-md:min-h-11 sm:px-3 sm:text-sm"
-          >
-            {t(`tabs.${tab.value}`)}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+      <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <TabsList
+          aria-label={t("objectViews")}
+          className="h-auto max-w-full self-start overflow-x-auto overflow-y-hidden"
+        >
+          {OBJECT_TABS.map((tab) => (
+            <TabsTrigger
+              key={tab.value}
+              value={tab.value}
+              className="px-1.5 text-[13px] max-md:min-h-11 sm:px-3 sm:text-sm"
+            >
+              {t(`tabs.${tab.value}`)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {showGrouping && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {groupByPackage && onExpandAllGroups && onCollapseAllGroups && (
+              <div
+                role="group"
+                aria-label={tGrouping("groups")}
+                className="flex items-center gap-1"
+              >
+                <Button variant="ghost" size="sm" onClick={onExpandAllGroups}>
+                  <ChevronsUpDown aria-hidden /> {tGrouping("expandAll")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={onCollapseAllGroups}>
+                  <ChevronsDownUp aria-hidden /> {tGrouping("collapseAll")}
+                </Button>
+              </div>
+            )}
+            <label className="flex min-h-10 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={groupByPackage ?? false}
+                onChange={(event) =>
+                  onGroupByPackageChange(event.target.checked)
+                }
+              />
+              {tGrouping("toggle")}
+            </label>
+          </div>
+        )}
+      </div>
       <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
         {children}
       </div>

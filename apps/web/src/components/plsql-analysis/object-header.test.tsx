@@ -1,6 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import { renderWithIntl as render } from "@/test/render-with-intl";
 import { createRef } from "react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { PlsqlObject } from "@/lib/contracts";
 import { ObjectHeader, ObjectTabs } from "./object-header";
@@ -45,6 +46,78 @@ describe("ObjectHeader", () => {
       />,
     );
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("offers the workspace-wide package grouping only on tabs that list objects", async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <ObjectTabs
+        value="overview"
+        onChange={vi.fn()}
+        groupByPackage={false}
+        onGroupByPackageChange={onChange}
+      >
+        <p>panel</p>
+      </ObjectTabs>,
+    );
+    const toggle = screen.getByRole("checkbox", { name: "Group by package" });
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith(true);
+
+    for (const value of ["dependencies", "impact"] as const) {
+      rerender(
+        <ObjectTabs
+          value={value}
+          onChange={vi.fn()}
+          groupByPackage
+          onGroupByPackageChange={onChange}
+        >
+          <p>panel</p>
+        </ObjectTabs>,
+      );
+      expect(
+        screen.getByRole("checkbox", { name: "Group by package" }),
+      ).toBeChecked();
+    }
+    for (const value of ["paths", "source"] as const) {
+      rerender(
+        <ObjectTabs
+          value={value}
+          onChange={vi.fn()}
+          groupByPackage
+          onGroupByPackageChange={onChange}
+        >
+          <p>panel</p>
+        </ObjectTabs>,
+      );
+      expect(screen.queryByRole("checkbox")).toBeNull();
+    }
+  });
+
+  it("offers Expand all / Collapse all only while grouping is on", async () => {
+    const onExpand = vi.fn();
+    const onCollapse = vi.fn();
+    const tabs = (groupByPackage: boolean) => (
+      <ObjectTabs
+        value="impact"
+        onChange={vi.fn()}
+        groupByPackage={groupByPackage}
+        onGroupByPackageChange={vi.fn()}
+        onExpandAllGroups={onExpand}
+        onCollapseAllGroups={onCollapse}
+      >
+        <p>panel</p>
+      </ObjectTabs>
+    );
+    const { rerender } = render(tabs(false));
+    expect(screen.queryByRole("button", { name: "Collapse all" })).toBeNull();
+
+    rerender(tabs(true));
+    await userEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(onExpand).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the tabs at a 44px touch size on small screens", () => {

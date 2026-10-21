@@ -177,6 +177,7 @@ export function SourceBody({
       .then((value) => {
         if (cancelled) return;
         if (!value) {
+          setErrorCode("analysis_not_found");
           setStatus("error");
           return;
         }

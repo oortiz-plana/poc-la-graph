@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, LoaderCircle } from "lucide-react";
+import { LoaderCircle, Route } from "lucide-react";
 import { useTranslations } from "next-intl";
 import {
   useEffect,
@@ -8,14 +8,15 @@ import {
   useState,
   type KeyboardEvent,
   type ComponentProps,
+  type ReactNode,
 } from "react";
-import useSWRInfinite from "swr/infinite";
-import { getPlsqlImpact, type PlsqlProblemCode } from "@/lib/api";
+import { getPlsqlImpact } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
   ImpactDirection,
   ImpactRelationship,
+  ImpactScope,
   PlsqlDependency,
   PlsqlImpactItem,
   PlsqlImpactResult,
@@ -24,29 +25,35 @@ import type {
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
 import { useAuth } from "../auth-provider";
-import { AnalysisError, problemCodeOf } from "./analysis-error";
-import {
-  DependencyGraph,
-  type GraphEdge,
-  type GraphNode,
-} from "./dependency-graph";
+import { AnalysisError } from "./analysis-error";
 import { DependencyPathTrail } from "./dependency-path-trail";
 import {
-  displayPackageOf,
+  ObjectCell,
+  PackageCell,
   useEvidenceLineLabel,
-  evidenceLocation,
+  edgeOccurrences,
+  OccurrencePicker,
   useHopText,
   ObjectKindBadge,
-  EVIDENCE_LINK_CLASS,
+  EvidenceCell,
 } from "./plsql-atoms";
+import { CopyValueButton } from "./copy-value-button";
 import { InsightPanel } from "./insight-panel";
 import { ListDetailSplit } from "./list-detail-split";
+import {
+  groupByPackage as groupItemsByPackage,
+  groupDomKey,
+  packageKeyOf,
+  PackageGroupHeader,
+  useCollapsedGroups,
+} from "./package-grouping";
 import { SourceBody } from "./source-viewer";
-import { StatCard } from "./stat-card";
-import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
+import { ImpactMetricCard, MetricBar } from "./impact-metric-card";
+import { useImpactSummary } from "./use-impact-summary";
+import { usePagedQuery } from "./use-paged-query";
 import {
   ANALYSIS_PAGE_SIZE,
-  AnalysisPagination,
+  AnalysisPageNavigator,
   AnalysisPaginationScope,
 } from "./analysis-pagination";
 
@@ -73,35 +80,7 @@ const DEFAULT_FILTERS: Filters = {
 
 /** Used only until the runtime config (the real, deployment-configured
  * ceiling) finishes loading. */
-export const FALLBACK_MAX_DEPTH = 5;
-
-const ROUTINE_KINDS = new Set(["Procedure", "Function"]);
-
-/** Full package path (schema.package) used for graph grouping. */
-function packageOf(qualifiedName: string, kind: string): string | undefined {
-  if (kind === "Package") return qualifiedName;
-  const segments = qualifiedName.split(".");
-  if (ROUTINE_KINDS.has(kind) && segments.length >= 3) {
-    return segments.slice(0, 2).join(".");
-  }
-  return undefined;
-}
-
-/** Distance → Package → Object name, the default scan order. */
-export function sortImpactItems(items: PlsqlImpactItem[]): PlsqlImpactItem[] {
-  return [...items].sort((a, b) => {
-    if (a.distance !== b.distance) return a.distance - b.distance;
-    const pkgA = displayPackageOf(a.dependent) ?? "";
-    const pkgB = displayPackageOf(b.dependent) ?? "";
-    const byPackage = pkgA.localeCompare(pkgB, undefined, {
-      sensitivity: "base",
-    });
-    if (byPackage !== 0) return byPackage;
-    return a.dependent.name.localeCompare(b.dependent.name, undefined, {
-      sensitivity: "base",
-    });
-  });
-}
+export const FALLBACK_MAX_DEPTH = 100;
 
 /** Shortest path first, then deterministic by id. */
 function sortPaths(paths: PlsqlPath[]): PlsqlPath[] {
@@ -110,12 +89,10 @@ function sortPaths(paths: PlsqlPath[]): PlsqlPath[] {
   );
 }
 
-/** Evidence for the shortest path's final hop, shown as the row's evidence. */
-function primaryEvidence(item: PlsqlImpactItem): PlsqlSourceCoordinate | null {
+/** Final hop of the shortest path: the edge whose call sites explain the row. */
+function primaryEdge(item: PlsqlImpactItem): PlsqlDependency | undefined {
   const [shortest] = sortPaths(item.paths);
-  return (
-    shortest?.relationships[shortest.relationships.length - 1]?.evidence ?? null
-  );
+  return shortest?.relationships[shortest.relationships.length - 1];
 }
 
 export function ImpactReport(
@@ -130,16 +107,16 @@ export function ImpactReport(
 
 function ImpactReportContent({
   objectId,
+  groupByPackage,
   onOpenEvidence,
-  onOpenObject,
   onInspectObject,
   onInspectEdge,
   onInspectPath,
 }: {
   objectId: string;
+  /** Files the affected objects under collapsible package headers. */
+  groupByPackage: boolean;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
-  /** Graph node taps navigate: drilling into a node's own neighborhood is the point of the graph. */
-  onOpenObject: (reference: PlsqlObjectReference) => void;
   /** The "Why is this affected?" trail inspects in place instead, matching
    * the Paths/Dependencies views: navigating away would discard the
    * analyzed object's blast-radius selection. */
@@ -152,92 +129,67 @@ function ImpactReportContent({
   const maxDepth = auth.config.plsqlMaxHops ?? FALLBACK_MAX_DEPTH;
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [selectedId, setSelectedId] = useState<string>();
+  const [scope, setScope] = useState<ImpactScope>("all");
   const [selectedPathIndex, setSelectedPathIndex] = useState(0);
-  const [focusNodeId, setFocusNodeId] = useState<string>();
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [groupByPackage, setGroupByPackage] = useState(false);
-  const [openPackages, setOpenPackages] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
   const headingId = "plsql-impact-heading";
+  const summary = useImpactSummary({
+    objectId,
+    direction: filters.direction,
+    depth: filters.directOnly ? undefined : filters.depth,
+    relationship:
+      filters.relationship === "All" ? undefined : filters.relationship,
+    directOnly: filters.directOnly,
+    writesOnly: filters.writesOnly,
+  });
 
-  const { data, error, size, setSize, isLoading, isValidating, mutate } =
-    useSWRInfinite<PlsqlImpactResult>(
-      (index, previousPage) => {
-        if (index > 0 && !previousPage?.nextCursor) return null;
-        return {
-          resource: "plsql-impact",
-          objectId,
-          filters,
-          cursor:
-            index === 0 ? undefined : (previousPage?.nextCursor ?? undefined),
-        };
-      },
-      async ({
-        objectId: requestedId,
-        filters: requestedFilters,
-        cursor,
-      }: {
-        objectId: string;
-        filters: Filters;
-        cursor?: string;
-      }) => {
-        const value = await getPlsqlImpact(requestedId, {
-          limit: ANALYSIS_PAGE_SIZE,
-          direction: requestedFilters.direction,
-          depth: requestedFilters.directOnly
-            ? undefined
-            : requestedFilters.depth,
-          relationship:
-            requestedFilters.relationship === "All"
-              ? undefined
-              : requestedFilters.relationship,
-          directOnly: requestedFilters.directOnly,
-          writesOnly: requestedFilters.writesOnly,
-          cursor,
-        });
-        if (!value) throw new Error("The impact report was not found.");
-        return value;
-      },
-      {
-        persistSize: false,
-        revalidateFirstPage: false,
-      },
-    );
-
-  const result = useMemo(() => {
-    const first = data?.[0];
-    if (!first) return undefined;
-    const byId = new Map<string, PlsqlImpactItem>();
-    for (const page of data) {
-      for (const item of page.items) byId.set(item.id, item);
-    }
-    const last = data[data.length - 1];
-    return {
-      ...first,
-      items: [...byId.values()],
-      truncated: Boolean(last?.nextCursor),
-      nextCursor: last?.nextCursor ?? null,
-    };
-  }, [data]);
-  const status: SectionStatus = isLoading
-    ? "loading"
-    : error && !result
+  const [page, setPage] = useState(0);
+  // Grouped by package, the list is read in package order (see Dependencies).
+  const order = groupByPackage ? "package" : "name";
+  const impactPage = usePagedQuery({
+    listKey: JSON.stringify(["impact", objectId, filters, scope, order]),
+    page,
+    fetchPage: async (requestedPage) => {
+      const value = await getPlsqlImpact(objectId, {
+        limit: ANALYSIS_PAGE_SIZE,
+        offset: requestedPage * ANALYSIS_PAGE_SIZE,
+        direction: filters.direction,
+        depth: filters.directOnly ? undefined : filters.depth,
+        relationship:
+          filters.relationship === "All" ? undefined : filters.relationship,
+        directOnly: filters.directOnly,
+        writesOnly: filters.writesOnly,
+        scope,
+        order,
+      });
+      if (!value) throw new Error("The impact report was not found.");
+      return value;
+    },
+  });
+  const result = impactPage.data;
+  const status: SectionStatus = result
+    ? "ready"
+    : impactPage.failed
       ? "error"
-      : result
-        ? "ready"
-        : "loading";
-  const errorCode: PlsqlProblemCode | undefined = error
-    ? problemCodeOf(error)
-    : undefined;
-  const isLoadingMore =
-    isValidating && Boolean(data) && size > (data?.length ?? 0);
+      : "loading";
 
   useEffect(() => {
     setSelectedId(undefined);
     setSelectedPathIndex(0);
-    setFocusNodeId(undefined);
+    setScope("all");
+    setPage(0);
   }, [objectId, filters]);
+
+  useEffect(() => {
+    setPage(0);
+    setSelectedId(undefined);
+    setSelectedPathIndex(0);
+  }, [groupByPackage]);
+
+  function changePage(next: number) {
+    setPage(next);
+    setSelectedId(undefined);
+    setSelectedPathIndex(0);
+  }
 
   function toggleSelection(id: string) {
     setSelectedId((current) => (current === id ? undefined : id));
@@ -249,37 +201,16 @@ function ImpactReportContent({
     setSelectedPathIndex(0);
   }
 
-  function focusInGraph(nodeId: string) {
-    setFocusNodeId(nodeId);
-    setViewMode("graph");
-  }
-
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} className="text-xl font-semibold">
         {t("heading")}
       </h2>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <ImpactControls
-          filters={filters}
-          maxDepth={maxDepth}
-          onChange={(next) => setFilters({ ...filters, ...next })}
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex min-h-10 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={groupByPackage}
-              onChange={(event) => {
-                setGroupByPackage(event.target.checked);
-                setOpenPackages(new Set());
-              }}
-            />
-            {t("groupByPackage")}
-          </label>
-          <ViewModeToggle mode={viewMode} onChange={setViewMode} />
-        </div>
-      </div>
+      <ImpactControls
+        filters={filters}
+        maxDepth={maxDepth}
+        onChange={(next) => setFilters({ ...filters, ...next })}
+      />
       {status === "loading" && (
         <p
           role="status"
@@ -291,55 +222,106 @@ function ImpactReportContent({
       )}
       {status === "error" && (
         <div className="mt-3">
-          <AnalysisError code={errorCode} onRetry={() => void mutate()} />
+          <AnalysisError
+            code={impactPage.errorCode}
+            onRetry={impactPage.retry}
+          />
         </div>
       )}
       {status === "ready" && result && (
         <>
-          {viewMode === "list" ? (
-            <ImpactBody
-              result={result}
-              selectedId={selectedId}
-              selectedPathIndex={selectedPathIndex}
-              onToggle={toggleSelection}
-              onSelect={selectId}
-              onPathIndexChange={setSelectedPathIndex}
-              onOpenEvidence={onOpenEvidence}
-              onOpenObject={onOpenObject}
-              onInspectObject={onInspectObject}
-              onInspectEdge={onInspectEdge}
-              onInspectPath={onInspectPath}
-              onFocusInGraph={focusInGraph}
-            />
-          ) : (
-            <ImpactGraph
-              result={result}
-              focusNodeId={focusNodeId}
-              groupByPackage={groupByPackage}
-              openPackages={openPackages}
-              onTogglePackage={(packageName) =>
-                setOpenPackages((current) => {
-                  const next = new Set(current);
-                  if (next.has(packageName)) next.delete(packageName);
-                  else next.add(packageName);
-                  return next;
-                })
-              }
-              onOpenObject={onOpenObject}
+          <ImpactBody
+            result={result}
+            summary={summary}
+            selectedId={selectedId}
+            selectedPathIndex={selectedPathIndex}
+            scope={scope}
+            groupByPackage={groupByPackage}
+            onScopeChange={(next) => {
+              setScope((current) => (current === next ? "all" : next));
+              setSelectedId(undefined);
+              setPage(0);
+            }}
+            onToggle={toggleSelection}
+            onSelect={selectId}
+            onPathIndexChange={setSelectedPathIndex}
+            onOpenEvidence={onOpenEvidence}
+            onInspectObject={onInspectObject}
+            onInspectEdge={onInspectEdge}
+            onInspectPath={onInspectPath}
+          />
+          {result.count > 0 && (
+            <AnalysisPageNavigator
+              page={page}
+              pageSize={ANALYSIS_PAGE_SIZE}
+              total={result.count}
+              loading={impactPage.refreshing}
+              error={impactPage.failed}
+              onPageChange={changePage}
+              onRetry={impactPage.retry}
             />
           )}
-          <AnalysisPagination
-            loaded={result.items.length}
-            total={result.count}
-            nextCursor={result.nextCursor}
-            loading={isLoadingMore}
-            error={Boolean(error)}
-            onLoadMore={() => void setSize((current) => current + 1)}
-            onRetry={() => void mutate()}
-          />
         </>
       )}
     </section>
+  );
+}
+
+const FIELD_LABEL_CLASS = "text-xs font-medium text-text-secondary";
+const FIELD_CONTROL_CLASS =
+  "h-9 w-full rounded-md border bg-background px-3 text-sm transition-colors hover:border-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50";
+
+/** A labelled filter control: small caption above a fixed-height control. */
+function FilterField({
+  label,
+  hint,
+  className,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className={cn("flex flex-col gap-1", className)}>
+      <span className="flex items-baseline justify-between gap-2">
+        <span className={FIELD_LABEL_CLASS}>{label}</span>
+        {hint && <span className="text-xs text-text-muted">{hint}</span>}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/** A checkbox filter drawn as a chip that fills in when it is on. */
+function FilterToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border px-3 text-sm transition-colors",
+        "focus-within:ring-2 focus-within:ring-primary",
+        checked
+          ? "border-primary bg-selected text-primary"
+          : "bg-background text-text-secondary hover:border-text-muted hover:text-foreground",
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 accent-primary"
+      />
+      {label}
+    </label>
   );
 }
 
@@ -353,33 +335,28 @@ function ImpactControls({
   onChange: (patch: Partial<Filters>) => void;
 }) {
   const t = useTranslations("plsqlImpact.impact");
-  const fieldClass = "flex min-w-32 flex-col text-sm font-medium leading-5";
-  const selectClass =
-    "mt-1 block min-h-10 w-full rounded-md border bg-surface px-2 text-sm";
   return (
-    <div className="mt-3 flex flex-wrap items-start gap-x-3 gap-y-2">
-      <label className={fieldClass}>
-        {t("direction")}
+    <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-3 rounded-lg border bg-surface p-3">
+      <FilterField label={t("direction")} className="w-36">
         <select
           aria-label={t("direction")}
           value={filters.direction}
           onChange={(event) =>
             onChange({ direction: event.target.value as ImpactDirection })
           }
-          className={selectClass}
+          className={FIELD_CONTROL_CLASS}
         >
           <option value="upstream">{t("upstream")}</option>
           <option value="downstream">{t("downstream")}</option>
         </select>
-      </label>
+      </FilterField>
       <DepthField
         depth={filters.depth}
         maxDepth={maxDepth}
         disabled={filters.directOnly}
         onChange={(depth) => onChange({ depth })}
       />
-      <label className={`${fieldClass} min-w-44`}>
-        {t("relationship")}
+      <FilterField label={t("relationship")} className="w-44">
         <select
           aria-label={t("relationship")}
           value={filters.relationship}
@@ -389,7 +366,7 @@ function ImpactControls({
               relationship: event.target.value as Filters["relationship"],
             })
           }
-          className={selectClass}
+          className={FIELD_CONTROL_CLASS}
         >
           {(
             [
@@ -407,30 +384,26 @@ function ImpactControls({
             </option>
           ))}
         </select>
-      </label>
-      <label className="mt-6 flex h-10 items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+      </FilterField>
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterToggle
+          label={t("directOnly")}
           checked={filters.directOnly}
-          onChange={(event) => onChange({ directOnly: event.target.checked })}
+          onChange={(directOnly) => onChange({ directOnly })}
         />
-        {t("directOnly")}
-      </label>
-      <label className="mt-6 flex h-10 items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <FilterToggle
+          label={t("writesOnly")}
           checked={filters.writesOnly}
-          onChange={(event) => onChange({ writesOnly: event.target.checked })}
+          onChange={(writesOnly) => onChange({ writesOnly })}
         />
-        {t("writesOnly")}
-      </label>
+      </div>
     </div>
   );
 }
 
 /**
  * Free-form depth: the deployment configures how many hops are actually
- * allowed (`PLSQL_MAX_HOPS`, up to 50), so this can't be a fixed dropdown.
+ * allowed (`PLSQL_MAX_HOPS`, up to 100), so this can't be a fixed dropdown.
  * Keeps its own draft text while typing and only commits (clamped to
  * `[1, maxDepth]`) on blur or Enter, so a partial number like "1" while
  * aiming for "12" doesn't fire a query or get force-corrected mid-keystroke.
@@ -439,11 +412,14 @@ export function DepthField({
   depth,
   maxDepth,
   disabled,
+  layout = "stacked",
   onChange,
 }: {
   depth: number;
   maxDepth: number;
   disabled?: boolean;
+  /** `inline` sets the label and hint beside the field, to save a row. */
+  layout?: "stacked" | "inline";
   onChange: (depth: number) => void;
 }) {
   const t = useTranslations("plsqlImpact.impact");
@@ -462,174 +438,136 @@ export function DepthField({
     if (clamped !== depth) onChange(clamped);
   }
 
-  return (
-    <label className="flex min-w-20 flex-col text-sm font-medium leading-5">
-      {t("depth")}
-      <input
-        type="number"
-        inputMode="numeric"
-        aria-label={t("depth")}
-        min={1}
-        max={maxDepth}
-        step={1}
-        disabled={disabled}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            commit();
-          }
-        }}
-        className="mt-1 block min-h-10 w-full rounded-md border bg-surface px-2 text-sm"
-      />
-      <span className="mt-1 block text-xs font-normal text-text-secondary">
-        {t("maxHops", { max: maxDepth })}
-      </span>
-    </label>
-  );
-}
-
-type ImpactGraphProps = {
-  result: PlsqlImpactResult;
-  focusNodeId?: string;
-  groupByPackage: boolean;
-  openPackages: ReadonlySet<string>;
-  onTogglePackage: (packageName: string) => void;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
-};
-
-function ImpactGraph({
-  result,
-  focusNodeId,
-  groupByPackage,
-  openPackages,
-  onTogglePackage,
-  onOpenObject,
-}: ImpactGraphProps) {
-  const t = useTranslations("plsqlImpact.impact");
-  const nodeMap = new Map<string, GraphNode>();
-  const refById = new Map<string, PlsqlObjectReference>();
-  const refByPackage = new Map<string, PlsqlObjectReference[]>();
-  const edges: GraphEdge[] = [];
-
-  const ensure = (ref: PlsqlObjectReference, focused = false) => {
-    const packageName = groupByPackage
-      ? packageOf(ref.qualifiedName, ref.kind)
-      : undefined;
-    if (packageName && !openPackages.has(packageName)) {
-      if (!nodeMap.has(`pkg://${packageName}`)) {
-        nodeMap.set(`pkg://${packageName}`, {
-          id: `pkg://${packageName}`,
-          label: packageName,
-          kind: "Package",
-        });
-      }
-      refByPackage.set(packageName, [
-        ...(refByPackage.get(packageName) ?? []),
-        ref,
-      ]);
-      return `pkg://${packageName}`;
-    }
-    if (!nodeMap.has(ref.id)) {
-      nodeMap.set(ref.id, {
-        id: ref.id,
-        label: ref.qualifiedName,
-        kind: ref.kind,
-        focused: focused ? true : undefined,
-      });
-      refById.set(ref.id, ref);
-    }
-    return ref.id;
-  };
-
-  ensure(result.object, focusNodeId === undefined);
-  for (const item of result.items) {
-    ensure(item.dependent, item.dependent.id === focusNodeId);
-    for (const path of item.paths) {
-      for (const relationship of path.relationships) {
-        const sourceId = ensure(relationship.source);
-        const targetId = ensure(relationship.target);
-        if (sourceId === targetId) continue;
-        edges.push({
-          id: relationship.id,
-          source: sourceId,
-          target: targetId,
-          label: relationship.relationship,
-        });
-      }
-    }
-  }
-
-  const nodes = [...nodeMap.values()];
-  const refsForPackage = refByPackage;
-  return (
-    <div className="mt-4">
-      <DependencyGraph
-        nodes={nodes}
-        edges={edges}
-        onSelectNode={(nodeId) => {
-          if (nodeId.startsWith("pkg://")) {
-            onTogglePackage(nodeId.slice("pkg://".length));
-            return;
-          }
-          const ref = refById.get(nodeId);
-          if (ref) onOpenObject(ref);
-        }}
-        ariaLabel={t("graphLabel", { name: result.object.qualifiedName })}
-      />
-      {groupByPackage && refsForPackage.size > 0 && (
-        <p className="mt-2 text-sm text-text-secondary">
-          {t("drillIntoPackage")}
-        </p>
+  const input = (
+    <input
+      type="number"
+      inputMode="numeric"
+      aria-label={t("depth")}
+      min={1}
+      max={maxDepth}
+      step={1}
+      disabled={disabled}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        }
+      }}
+      className={cn(
+        FIELD_CONTROL_CLASS,
+        layout === "inline" && "h-8 w-20 text-center",
       )}
-    </div>
+    />
+  );
+  if (layout === "inline") {
+    return (
+      <label className="flex items-center gap-2 text-sm">
+        <span className={FIELD_LABEL_CLASS}>{t("depth")}</span>
+        {input}
+        <span className="text-xs text-text-muted">
+          {t("maxHops", { max: maxDepth })}
+        </span>
+      </label>
+    );
+  }
+  return (
+    <FilterField
+      label={t("depth")}
+      hint={t("maxHops", { max: maxDepth })}
+      className="w-40"
+    >
+      {input}
+    </FilterField>
   );
 }
 
 function ImpactBody({
   result,
+  summary: blastRadius,
   selectedId,
   selectedPathIndex,
+  scope,
+  groupByPackage,
+  onScopeChange,
   onToggle,
   onSelect,
   onPathIndexChange,
   onOpenEvidence,
-  onOpenObject,
   onInspectObject,
   onInspectEdge,
   onInspectPath,
-  onFocusInGraph,
 }: {
   result: PlsqlImpactResult;
+  summary: ReturnType<typeof useImpactSummary>;
   selectedId?: string;
   selectedPathIndex: number;
+  scope: ImpactScope;
+  groupByPackage: boolean;
+  onScopeChange: (scope: ImpactScope) => void;
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
   onPathIndexChange: (index: number) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectObject: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
-  onFocusInGraph: (nodeId: string) => void;
 }) {
   const t = useTranslations("plsqlImpact.impact");
-  const { summary } = result;
-  const items = useMemo(() => sortImpactItems(result.items), [result.items]);
+  // Rows keep the server's order: alphabetical by object name.
+  const items = result.items;
+  const groups = useMemo(
+    () =>
+      groupByPackage
+        ? groupItemsByPackage(items, (item) => packageKeyOf(item.dependent))
+        : [],
+    [groupByPackage, items],
+  );
+  const collapsedGroups = useCollapsedGroups();
+  const scopeCards: {
+    scope: Exclude<ImpactScope, "all">;
+    value: number | undefined;
+  }[] = [
+    { scope: "direct", value: blastRadius.summary?.direct },
+    { scope: "indirect", value: blastRadius.summary?.indirect },
+    { scope: "packages", value: blastRadius.summary?.packages },
+    { scope: "tablesModified", value: blastRadius.summary?.tablesModified },
+  ];
   const selectedItem = items.find((item) => item.id === selectedId);
+  // Beside the detail pane the list is narrow: fold package and kind under the name.
+  const compact = selectedItem !== undefined;
   return (
     <div className="mt-4">
-      <h3 className="text-sm font-semibold text-text-secondary">
+      <h3
+        id="plsql-impact-blast-heading"
+        className="text-sm font-semibold text-text-secondary"
+      >
         {t("blastRadius")}
       </h3>
-      <dl className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard value={summary.direct} label={t("direct")} />
-        <StatCard value={summary.indirect} label={t("indirect")} />
-        <StatCard value={summary.packages} label={t("packages")} />
-        <StatCard value={summary.tablesModified} label={t("tablesModified")} />
-      </dl>
+      {blastRadius.errorCode && (
+        <div className="mt-2">
+          <AnalysisError
+            code={blastRadius.errorCode}
+            onRetry={blastRadius.retry}
+          />
+        </div>
+      )}
+      <MetricBar
+        labelledBy="plsql-impact-blast-heading"
+        columns="grid-cols-2 lg:grid-cols-4"
+      >
+        {scopeCards.map((card) => (
+          <ImpactMetricCard
+            key={card.scope}
+            value={card.value}
+            label={t(card.scope)}
+            active={scope === card.scope}
+            onSelect={() => onScopeChange(card.scope)}
+          />
+        ))}
+      </MetricBar>
       <h3
         id="plsql-impact-list-heading"
         className="mt-6 text-sm font-semibold text-text-secondary"
@@ -638,6 +576,7 @@ function ImpactBody({
       </h3>
       <div className="mt-2">
         <ListDetailSplit
+          stickyTop="top-[4.5rem]"
           list={
             <>
               {items.length === 0 ? (
@@ -655,12 +594,16 @@ function ImpactBody({
                         <th scope="col" className="px-3 py-2 font-medium">
                           {t("columnObject")}
                         </th>
-                        <th scope="col" className="px-3 py-2 font-medium">
-                          {t("columnPackage")}
-                        </th>
-                        <th scope="col" className="px-3 py-2 font-medium">
-                          {t("columnType")}
-                        </th>
+                        {!compact && (
+                          <>
+                            <th scope="col" className="px-3 py-2 font-medium">
+                              {t("columnPackage")}
+                            </th>
+                            <th scope="col" className="px-3 py-2 font-medium">
+                              {t("columnType")}
+                            </th>
+                          </>
+                        )}
                         <th
                           scope="col"
                           className="px-3 py-2 text-right font-medium"
@@ -672,17 +615,53 @@ function ImpactBody({
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y">
-                      {items.map((item) => (
-                        <AffectedObjectRow
-                          key={item.id}
-                          item={item}
-                          selected={selectedId === item.id}
-                          onToggle={onToggle}
-                          onSelect={onSelect}
-                        />
-                      ))}
-                    </tbody>
+                    {groupByPackage ? (
+                      groups.map((group) => {
+                        const collapsed = collapsedGroups.isCollapsed(
+                          group.packageName,
+                        );
+                        return (
+                          <tbody
+                            key={groupDomKey(group.packageName)}
+                            className="divide-y border-t"
+                          >
+                            <PackageGroupHeader
+                              packageName={group.packageName}
+                              count={group.items.length}
+                              collapsed={collapsed}
+                              colSpan={compact ? 3 : 5}
+                              onToggle={() =>
+                                collapsedGroups.toggle(group.packageName)
+                              }
+                            />
+                            {!collapsed &&
+                              group.items.map((item) => (
+                                <AffectedObjectRow
+                                  key={item.id}
+                                  item={item}
+                                  selected={selectedId === item.id}
+                                  compact={compact}
+                                  onToggle={onToggle}
+                                  onSelect={onSelect}
+                                />
+                              ))}
+                          </tbody>
+                        );
+                      })
+                    ) : (
+                      <tbody className="divide-y">
+                        {items.map((item) => (
+                          <AffectedObjectRow
+                            key={item.id}
+                            item={item}
+                            selected={selectedId === item.id}
+                            compact={compact}
+                            onToggle={onToggle}
+                            onSelect={onSelect}
+                          />
+                        ))}
+                      </tbody>
+                    )}
                   </table>
                 </div>
               )}
@@ -691,17 +670,16 @@ function ImpactBody({
           detail={
             selectedItem && (
               <ImpactDetail
+                key={selectedItem.id}
                 item={selectedItem}
                 analyzedId={result.object.id}
                 pathIndex={selectedPathIndex}
                 onPathIndexChange={onPathIndexChange}
                 onClose={() => onToggle(selectedItem.id)}
                 onOpenEvidence={onOpenEvidence}
-                onOpenObject={onOpenObject}
                 onInspectObject={onInspectObject}
                 onInspectEdge={onInspectEdge}
                 onInspectPath={onInspectPath}
-                onFocusInGraph={onFocusInGraph}
               />
             )
           }
@@ -714,20 +692,18 @@ function ImpactBody({
 function AffectedObjectRow({
   item,
   selected,
+  compact,
   onToggle,
   onSelect,
 }: {
   item: PlsqlImpactItem;
   selected: boolean;
+  compact: boolean;
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
 }) {
-  const evidenceLineLabel = useEvidenceLineLabel();
   const hopText = useHopText();
-  const pkg = displayPackageOf(item.dependent);
-  const evidence = primaryEvidence(item);
-  const evidenceLabel = evidenceLineLabel(evidence);
-  const evidenceTitle = evidenceLocation(evidence);
+  const edge = primaryEdge(item);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTableRowElement>) {
     if (event.key === "Enter" || event.key === " ") {
@@ -735,10 +711,12 @@ function AffectedObjectRow({
       onToggle(item.id);
       return;
     }
+    // Every object row of the table (group headers excluded), so arrow keys
+    // also cross package groups.
     const rows = Array.from(
-      event.currentTarget.parentElement?.querySelectorAll<HTMLTableRowElement>(
-        "tr",
-      ) ?? [],
+      event.currentTarget
+        .closest("table")
+        ?.querySelectorAll<HTMLTableRowElement>("tr[data-impact-id]") ?? [],
     );
     const current = rows.indexOf(event.currentTarget);
     let next = -1;
@@ -768,45 +746,23 @@ function AffectedObjectRow({
       )}
     >
       <td className="px-3 py-1.5 align-middle">
-        <span
-          title={item.dependent.qualifiedName}
-          className="break-words font-medium"
-        >
-          {item.dependent.name}
-        </span>
+        <ObjectCell reference={item.dependent} compact={compact} />
       </td>
-      <td className="px-3 py-1.5 align-middle text-text-secondary">
-        {pkg ?? <span className="text-text-muted">—</span>}
-      </td>
-      <td className="px-3 py-1.5 align-middle">
-        <ObjectKindBadge kind={item.dependent.kind} />
-      </td>
+      {!compact && (
+        <>
+          <td className="px-3 py-1.5 align-middle text-text-secondary">
+            <PackageCell reference={item.dependent} />
+          </td>
+          <td className="px-3 py-1.5 align-middle">
+            <ObjectKindBadge kind={item.dependent.kind} />
+          </td>
+        </>
+      )}
       <td className="px-3 py-1.5 text-right align-middle text-xs text-text-secondary">
         {hopText(item.distance)}
       </td>
       <td className="px-3 py-1.5 align-middle">
-        {evidenceLabel === undefined ? (
-          <span className="text-text-muted">—</span>
-        ) : evidence?.sourceFileId ? (
-          <button
-            type="button"
-            title={evidenceTitle}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggle(item.id);
-            }}
-            className={EVIDENCE_LINK_CLASS}
-          >
-            {evidenceLabel}
-          </button>
-        ) : (
-          <span
-            title={evidenceTitle}
-            className="break-words text-xs text-text-secondary"
-          >
-            {evidenceLabel}
-          </span>
-        )}
+        <EvidenceCell edge={edge} onSelect={() => onToggle(item.id)} />
       </td>
     </tr>
   );
@@ -819,11 +775,9 @@ function ImpactDetail({
   onPathIndexChange,
   onClose,
   onOpenEvidence,
-  onOpenObject,
   onInspectObject,
   onInspectEdge,
   onInspectPath,
-  onFocusInGraph,
 }: {
   item: PlsqlImpactItem;
   analyzedId: string;
@@ -831,11 +785,9 @@ function ImpactDetail({
   onPathIndexChange: (index: number) => void;
   onClose: () => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectObject: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
   onInspectPath: (path: PlsqlPath) => void;
-  onFocusInGraph: (nodeId: string) => void;
 }) {
   const t = useTranslations("plsqlImpact.impact");
   const evidenceLineLabel = useEvidenceLineLabel();
@@ -844,19 +796,13 @@ function ImpactDetail({
   const activeIndex = Math.min(pathIndex, paths.length - 1);
   const path = paths[activeIndex];
   const finalEdge = path?.relationships[path.relationships.length - 1];
-  const lineLabel = evidenceLineLabel(finalEdge?.evidence);
-  const [copied, setCopied] = useState(false);
-
-  async function copyQualifiedName() {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(item.dependent.qualifiedName);
-      }
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
+  const occurrences = edgeOccurrences(finalEdge);
+  const [occurrenceIndex, setOccurrenceIndex] = useState(0);
+  const activeEvidence =
+    occurrences[Math.min(occurrenceIndex, occurrences.length - 1)] ??
+    finalEdge?.evidence ??
+    null;
+  const lineLabel = evidenceLineLabel(activeEvidence);
 
   return (
     <InsightPanel
@@ -865,6 +811,7 @@ function ImpactDetail({
       subtitle={item.dependent.qualifiedName}
       closeLabel={t("closeWhy", { name: item.dependent.name })}
       onClose={onClose}
+      actions={<CopyValueButton value={item.dependent.qualifiedName} />}
       trail={
         <>
           {path ? (
@@ -873,13 +820,12 @@ function ImpactDetail({
               highlightedId={analyzedId}
               onOpenObject={onInspectObject}
               onInspectEdge={onInspectEdge}
-              showKind
             />
           ) : (
             <p className="text-sm text-text-secondary">{t("noPath")}</p>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
-            <span className="font-medium text-text-primary">
+            <span className="rounded-full bg-selected px-2.5 py-0.5 font-medium text-primary">
               {path ? hopText(path.hopCount) : null}
             </span>
             {paths.length > 1 && (
@@ -889,6 +835,11 @@ function ImpactDetail({
             )}
             {lineLabel !== undefined && <span>{lineLabel}</span>}
           </div>
+          <OccurrencePicker
+            occurrences={occurrences}
+            activeIndex={occurrenceIndex}
+            onChange={setOccurrenceIndex}
+          />
           {paths.length > 1 && (
             <div className="mt-2">
               <label className="inline-flex items-center gap-2 text-sm text-text-secondary">
@@ -921,51 +872,26 @@ function ImpactDetail({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onOpenObject(item.dependent)}
-            >
-              {t("openObject")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
               onClick={() => path && onInspectPath(path)}
               disabled={!path}
             >
-              {t("viewFullPath")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onFocusInGraph(item.dependent.id)}
-            >
-              {t("focusInGraph")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void copyQualifiedName()}
-            >
-              <Copy aria-hidden />{" "}
-              {copied ? t("copied") : t("copyQualifiedName")}
+              <Route aria-hidden /> {t("viewFullPath")}
             </Button>
           </div>
-          <p aria-live="polite" className="sr-only">
-            {copied ? t("copiedAnnouncement") : ""}
-          </p>
         </>
       }
       evidence={
         <>
-          {finalEdge?.evidence?.sourceFileId ? (
+          {activeEvidence?.sourceFileId ? (
             <SourceBody
               heading={t("sourceEvidence")}
               compact
-              onOpenFullSource={() => onOpenEvidence(finalEdge.evidence)}
+              onOpenFullSource={() => onOpenEvidence(activeEvidence)}
               request={{
                 kind: "file",
-                fileId: finalEdge.evidence.sourceFileId,
-                startLine: finalEdge.evidence.startLine ?? undefined,
-                endLine: finalEdge.evidence.startLine ?? undefined,
+                fileId: activeEvidence.sourceFileId,
+                startLine: activeEvidence.startLine ?? undefined,
+                endLine: activeEvidence.startLine ?? undefined,
               }}
             />
           ) : (

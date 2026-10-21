@@ -9,19 +9,14 @@
   "panel": {
     "ariaLabel": "Dependencias",
     "categoryGroup": "Categoría de dependencia",
-    "graphExpansion": "Expansión del grafo",
-    "oneLevel": "Un nivel",
     "loading": "Cargando dependencias…",
-    "graphLabel": "Grafo de dependencias de {name}",
-    "expandHint": "Expanda una categoría para explorar el entorno de {name}.",
     "resultsHeading": "Resultados de dependencias",
-    "truncated": "Resultados truncados",
     "tableLabel": "Resultados de {category}",
-    "fallbackCategory": "Dependencia",
     "empty": "No hay dependencias que coincidan"
   },
   "columns": {
     "relatedObject": "Objeto relacionado",
+    "package": "Paquete",
     "relationship": "Relación",
     "resolution": "Resolución",
     "evidence": "Evidencia"
@@ -29,13 +24,7 @@
   "selected": {
     "title": "Dependencia seleccionada",
     "close": "Cerrar dependencia seleccionada",
-    "openObject": "Abrir objeto",
-    "analyzeImpact": "Analizar impacto",
-    "analyzeImpactFor": "Analizar impacto de {name}",
     "viewFullPath": "Ver ruta completa",
-    "copied": "Copiado",
-    "copyQualifiedName": "Copiar nombre calificado",
-    "copiedAnnouncement": "Nombre calificado copiado al portapapeles.",
     "sourceEvidence": "Evidencia en el código fuente",
     "noEvidence": "No hay evidencia en el código fuente para esta dependencia."
   },
@@ -61,18 +50,37 @@
     "schema": "Esquema",
     "qualifiedName": "Nombre calificado",
     "package": "Paquete",
-    "file": "Archivo",
-    "startLine": "Línea de inicio",
-    "endOffset": "Desplazamiento final",
-    "dependencyEdge": "Arista de dependencia",
+    "dependencyEdge": "Dependencia",
     "from": "Desde",
     "to": "Hasta",
     "relationship": "Relación",
     "evidence": "Evidencia",
     "none": "Ninguna",
     "dependencyPath": "Ruta de dependencias",
-    "hops": "Saltos",
     "hopCount": "{count, plural, one {# salto} other {# saltos}}",
-    "fullPath": "Ruta completa"
+    "fullPath": "Ruta completa",
+    "verbs": {
+      "CALLS": "llama a",
+      "READS": "lee de",
+      "WRITES": "escribe en",
+      "VIEW_DEPENDS_ON": "es una vista que depende de",
+      "FOREIGN_KEY": "referencia (llave foránea)",
+      "TRIGGER_ON": "es un disparador sobre",
+      "TRIGGERS": "dispara",
+      "INDEXES": "indexa",
+      "SYNONYM_FOR": "es sinónimo de",
+      "DECLARES": "declara",
+      "CONTAINS": "contiene"
+    },
+    "step": "Paso {number}",
+    "occurrences": "{count, plural, one {# ocurrencia} other {# ocurrencias}}",
+    "line": "línea {line}",
+    "declaration": "Declaración",
+    "copy": "Copiar nombre calificado",
+    "copied": "Copiado",
+    "openObject": "Abrir objeto",
+    "analyzeImpact": "Analizar impacto",
+    "analyzeImpactFor": "Analizar impacto de {name}",
+    "inspected": "En detalle"
   }
 }

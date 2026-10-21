@@ -35,7 +35,9 @@ describe("AnalysisHealth trigger", () => {
         name: "Analysis Health, 3 diagnostics for this object",
       }),
     ).toBeInTheDocument();
-    expect(getPlsqlHealth).toHaveBeenCalledWith("plsql://p/HR/X");
+    expect(getPlsqlHealth).toHaveBeenCalledWith("plsql://p/HR/X", {
+      limit: 1,
+    });
   });
 
   it("counts repository-wide diagnostics when no object is selected", async () => {

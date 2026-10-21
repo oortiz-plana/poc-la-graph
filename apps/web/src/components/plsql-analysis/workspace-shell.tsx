@@ -1,8 +1,14 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, PanelLeft, PanelRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelRight, Search } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -44,20 +50,41 @@ import { cn } from "@/lib/utils";
  * dependency, and path selections that drive it live in the caller
  * regardless of whether this pane is open.
  */
-export type WorkspaceShellControls = {
+type WorkspaceShellControls = {
   /** Focuses the docked Explorer search, or opens the Explorer drawer when it is not docked. */
   openExplorer: () => void;
+  /**
+   * Starts over: the caller clears the selection and the Explorer's search,
+   * then the Explorer is opened (expanded if collapsed) with the search
+   * focused. This is what the toolbar's always-visible button does.
+   */
+  explore: () => void;
+};
+
+type DockControls = { setOpen: (open: boolean) => void };
+
+/** What the Explorer render function can do to its own pane. */
+type ExplorerControls = {
+  /** Present in the narrow-screen drawer: closes it. */
+  closeDrawer?: () => void;
+  /** Present in the docked pane: collapses it, e.g. after an object is picked. */
+  collapseDocked?: () => void;
 };
 
 export function WorkspaceShell({
   explorer,
   inspector,
   hasInspection,
+  onExplore,
+  toolbarActions,
   children,
 }: {
-  /** Receives `closeDrawer` when rendered inside the narrow-screen drawer. */
-  explorer: (controls: { closeDrawer?: () => void }) => ReactNode;
+  explorer: (controls: ExplorerControls) => ReactNode;
+  /** Called by the toolbar's "Browse objects" button before the Explorer opens, to reset the view. */
+  onExplore?: () => void;
   inspector: ReactNode;
+  /** Always-visible actions at the toolbar's trailing edge, before the Inspector toggle. */
+  toolbarActions?: ReactNode;
   /** Whether there's currently something to show in the Inspector (an
    * object, dependency, or path selected). The Inspector never reserves
    * space, and never offers a toggle, when this is false. */
@@ -70,6 +97,8 @@ export function WorkspaceShell({
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
   const objectsButtonRef = useRef<HTMLButtonElement>(null);
   const dockedExplorerRef = useRef<HTMLElement>(null);
+  const drawerExplorerRef = useRef<HTMLDivElement>(null);
+  const dockControlsRef = useRef<DockControls | undefined>(undefined);
 
   function openExplorerDrawer() {
     // Mounted once, on first open, then kept mounted (see the Sheet below) so
@@ -84,6 +113,24 @@ export function WorkspaceShell({
     // its own; without this the focus would fall to <body>.
     if (restoreFocus)
       window.setTimeout(() => objectsButtonRef.current?.focus(), 0);
+  }
+
+  function focusSearchIn(container: HTMLElement | null) {
+    container?.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
+  }
+
+  /** Reset the view, then open the Explorer ready for typing. */
+  function explore() {
+    onExplore?.();
+    const docked = window.matchMedia?.("(min-width: 1024px)")?.matches ?? false;
+    if (docked) {
+      dockControlsRef.current?.setOpen(true);
+      // The pane may have been collapsed (display: none) a moment ago.
+      window.setTimeout(() => focusSearchIn(dockedExplorerRef.current), 50);
+    } else {
+      openExplorerDrawer();
+      window.setTimeout(() => focusSearchIn(drawerExplorerRef.current), 100);
+    }
   }
 
   function openExplorer() {
@@ -109,8 +156,11 @@ export function WorkspaceShell({
           dockFrom="lg"
           paneRef={dockedExplorerRef}
           skipTo="plsql-workspace"
+          controlsRef={dockControlsRef}
         >
-          {explorer({})}
+          {explorer({
+            collapseDocked: () => dockControlsRef.current?.setOpen(false),
+          })}
         </DockedPane>
       </SidebarProvider>
       <section
@@ -119,17 +169,17 @@ export function WorkspaceShell({
         aria-label={t("analysisWorkspace")}
         className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden focus:outline-none"
       >
-        <div className="z-10 flex shrink-0 items-center justify-between gap-2 border-b bg-surface/95 px-3 py-2 backdrop-blur">
+        <div className="z-10 flex shrink-0 items-center justify-between gap-2 border-b bg-surface/95 px-3 py-1.5 backdrop-blur">
           <Button
             ref={objectsButtonRef}
             variant="outline"
             size="sm"
-            className="lg:hidden"
-            onClick={openExplorerDrawer}
+            onClick={explore}
           >
-            <PanelLeft aria-hidden /> {t("objects")}
+            <Search aria-hidden /> {t("explore")}
           </Button>
           <span className="flex-1" />
+          {toolbarActions}
           {hasInspection && (
             <Button
               variant="outline"
@@ -141,7 +191,9 @@ export function WorkspaceShell({
             </Button>
           )}
         </div>
-        {typeof children === "function" ? children({ openExplorer }) : children}
+        {typeof children === "function"
+          ? children({ openExplorer, explore })
+          : children}
       </section>
       {hasInspection && (
         <SidebarProvider
@@ -183,7 +235,7 @@ export function WorkspaceShell({
                 {t("explorerDescription")}
               </SheetDescription>
             </SheetHeader>
-            <div className="min-h-0 flex-1">
+            <div ref={drawerExplorerRef} className="min-h-0 flex-1">
               {explorer({ closeDrawer: () => closeExplorerDrawer(false) })}
             </div>
           </SheetContent>
@@ -229,6 +281,7 @@ function DockedPane({
   dockFrom,
   paneRef,
   skipTo,
+  controlsRef,
   children,
 }: {
   side: "left" | "right";
@@ -239,10 +292,15 @@ function DockedPane({
   paneRef?: RefObject<HTMLElement | null>;
   /** Id of an element a keyboard user can jump to past this pane's controls. */
   skipTo?: string;
+  /** Receives this pane's open/close setter so the shell can drive it. */
+  controlsRef?: RefObject<DockControls | undefined>;
   children: ReactNode;
 }) {
   const t = useTranslations("plsqlWorkspace.shell");
-  const { state, toggleSidebar } = useSidebar();
+  const { state, toggleSidebar, setOpen } = useSidebar();
+  useEffect(() => {
+    if (controlsRef) controlsRef.current = { setOpen };
+  }, [controlsRef, setOpen]);
   const collapsed = state === "collapsed";
   const showChevronRight = side === "left" ? collapsed : !collapsed;
 

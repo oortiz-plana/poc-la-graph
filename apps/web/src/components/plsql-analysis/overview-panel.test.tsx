@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithIntl as render } from "@/test/render-with-intl";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   PlsqlDependency,
   PlsqlDependencySummary,
@@ -12,10 +12,12 @@ import type {
 import { OverviewPanel } from "./overview-panel";
 
 const getPlsqlImpact = vi.hoisted(() => vi.fn());
+const getPlsqlImpactSummary = vi.hoisted(() => vi.fn());
 const getPlsqlDependencies = vi.hoisted(() => vi.fn());
 const getPlsqlFileSource = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({
   getPlsqlImpact,
+  getPlsqlImpactSummary,
   getPlsqlDependencies,
   getPlsqlFileSource,
 }));
@@ -144,8 +146,30 @@ const impactResult: PlsqlImpactResult = {
   truncated: false,
   count: 2,
   nextCursor: null,
-  summary: { direct: 1, indirect: 1, packages: 2, tablesModified: 0 },
 };
+
+const impactSummary = {
+  direct: 1,
+  indirect: 1,
+  packages: 2,
+  tablesModified: 0,
+};
+
+/** A stand-in for the server: filters the items by the requested `scope` before paging. */
+function mockImpactServer(result: PlsqlImpactResult) {
+  getPlsqlImpact.mockImplementation(
+    async (_id: string, options?: { scope?: string }) => {
+      const items = result.items.filter((item) =>
+        options?.scope === "direct"
+          ? item.distance === 1
+          : options?.scope === "indirect"
+            ? item.distance > 1
+            : true,
+      );
+      return { ...result, items, count: items.length };
+    },
+  );
+}
 
 function dependencySummary(
   category: "callees" | "reads" | "writes",
@@ -160,9 +184,7 @@ function dependencySummary(
 }
 
 const onOpenEvidence = vi.fn();
-const onOpenObject = vi.fn();
 const onInspectPath = vi.fn();
-const onAnalyzeObject = vi.fn();
 const onExploreDependencies = vi.fn();
 const onExploreImpact = vi.fn();
 
@@ -171,17 +193,17 @@ function renderPanel(
   overrides: {
     onInspectObject?: (reference: PlsqlObjectReference) => void;
     onInspectEdge?: (edge: PlsqlDependency) => void;
+    groupByPackage?: boolean;
   } = {},
 ) {
   return render(
     <OverviewPanel
       object={object}
+      groupByPackage={overrides.groupByPackage ?? false}
       onOpenEvidence={onOpenEvidence}
-      onOpenObject={onOpenObject}
       onInspectObject={overrides.onInspectObject}
       onInspectEdge={overrides.onInspectEdge}
       onInspectPath={onInspectPath}
-      onAnalyzeObject={onAnalyzeObject}
       onExploreDependencies={onExploreDependencies}
       onExploreImpact={onExploreImpact}
     />,
@@ -189,20 +211,26 @@ function renderPanel(
 }
 
 describe("OverviewPanel", () => {
+  beforeEach(() => {
+    getPlsqlImpactSummary.mockResolvedValue({
+      object: impactResult.object,
+      summary: impactSummary,
+    });
+  });
+
   afterEach(() => {
     getPlsqlImpact.mockReset();
+    getPlsqlImpactSummary.mockReset();
     getPlsqlDependencies.mockReset();
     getPlsqlFileSource.mockReset();
     onOpenEvidence.mockReset();
-    onOpenObject.mockReset();
     onInspectPath.mockReset();
-    onAnalyzeObject.mockReset();
     onExploreDependencies.mockReset();
     onExploreImpact.mockReset();
   });
 
   it("shows routine-relevant metrics for a Function, with Direct callers active by default", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -248,7 +276,7 @@ describe("OverviewPanel", () => {
       qualifiedName: "HR.EMPLOYEES",
       owner: null,
     };
-    getPlsqlImpact.mockResolvedValue({
+    mockImpactServer({
       ...impactResult,
       object: ref(table.id, "Table", table.name, table.qualifiedName),
     });
@@ -298,49 +326,51 @@ describe("OverviewPanel", () => {
       "TRG_EMPLOYEES_AUDIT",
       "HR.TRG_EMPLOYEES_AUDIT",
     );
-    const departments = ref(
-      "plsql://sample/HR/TABLE/DEPARTMENTS",
-      "Table",
-      "DEPARTMENTS",
-      "HR.DEPARTMENTS",
-    );
-    getPlsqlImpact.mockResolvedValue({
+    mockImpactServer({
       ...impactResult,
       object: ref(table.id, "Table", table.name, table.qualifiedName),
     });
-    getPlsqlDependencies.mockImplementation((_objectId, category) =>
-      Promise.resolve({
-        // "other" mixes relationships: one trigger, two foreign keys.
-        counts: { callers: 0, callees: 0, reads: 0, writes: 0, other: 3 },
-        items:
-          category === "other"
-            ? [
-                { ...callsEdge(trigger, table), relationship: "TRIGGER_ON" },
-                {
-                  ...callsEdge(table, departments),
-                  relationship: "FOREIGN_KEY",
-                },
-                {
-                  ...callsEdge(departments, table),
-                  relationship: "FOREIGN_KEY",
-                },
-              ]
-            : [],
-        truncated: false,
-        total: 3,
-      } satisfies PlsqlDependencySummary),
+    const triggerEdge = {
+      ...callsEdge(trigger, table),
+      relationship: "TRIGGER_ON" as const,
+    };
+    getPlsqlDependencies.mockImplementation(
+      (
+        _objectId: string,
+        category: string,
+        options?: { relationship?: string },
+      ) =>
+        // "other" mixes relationships (one trigger, two foreign keys); the
+        // server narrows the page and its total, never the counts.
+        Promise.resolve({
+          counts: { callers: 0, callees: 0, reads: 0, writes: 0, other: 3 },
+          items:
+            category === "other" && options?.relationship === "TRIGGER_ON"
+              ? [triggerEdge]
+              : [],
+          truncated: false,
+          total:
+            category === "other"
+              ? options?.relationship === "TRIGGER_ON"
+                ? 1
+                : 3
+              : 0,
+        } satisfies PlsqlDependencySummary),
     );
     renderPanel(table);
 
     const triggers = await screen.findByRole("button", { name: /Triggers/ });
-    expect(triggers).toHaveTextContent("1");
+    await waitFor(() => expect(triggers).toHaveTextContent("1"));
     expect(triggers).not.toHaveTextContent("3");
-    expect(getPlsqlDependencies).toHaveBeenCalledWith(table.id, "reads");
-    expect(getPlsqlDependencies).toHaveBeenCalledWith(table.id, "other");
+    expect(getPlsqlDependencies).toHaveBeenCalledWith(
+      table.id,
+      "other",
+      expect.objectContaining({ relationship: "TRIGGER_ON" }),
+    );
   });
 
   it("shows the Direct callers detail table with a Relationship column", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -357,7 +387,7 @@ describe("OverviewPanel", () => {
   });
 
   it("switches to Indirect callers and shows a Distance column", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -381,8 +411,8 @@ describe("OverviewPanel", () => {
     expect(within(table).getByText("2 hops")).toBeInTheDocument();
   });
 
-  it("lazily loads a category not yet fetched when its card is selected", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+  it("reads a category's rows only once its card is selected", async () => {
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockImplementation((_objectId, category) =>
       Promise.resolve(
         dependencySummary(
@@ -394,23 +424,96 @@ describe("OverviewPanel", () => {
     const user = userEvent.setup();
     renderPanel();
     await screen.findByRole("table", { name: /Direct callers/ });
-    expect(getPlsqlDependencies).toHaveBeenCalledWith(getSalary.id, "callees");
+    // Only the counts are fetched up front (one row of one category).
+    expect(getPlsqlDependencies).toHaveBeenCalledWith(getSalary.id, "callees", {
+      limit: 1,
+    });
     expect(getPlsqlDependencies).not.toHaveBeenCalledWith(
       getSalary.id,
       "reads",
+      expect.anything(),
     );
 
     await user.click(screen.getByRole("button", { name: /Tables read/ }));
     await waitFor(() =>
-      expect(getPlsqlDependencies).toHaveBeenCalledWith(getSalary.id, "reads"),
+      expect(getPlsqlDependencies).toHaveBeenCalledWith(
+        getSalary.id,
+        "reads",
+        expect.objectContaining({ limit: 25, offset: 0 }),
+      ),
     );
     expect(
       await screen.findByRole("table", { name: /Tables read/ }),
     ).toHaveTextContent("EMPLOYEES");
   });
 
+  it("re-reads the list in package order, from page one, when grouping by package", async () => {
+    mockImpactServer(impactResult);
+    getPlsqlDependencies.mockResolvedValue(
+      dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
+    );
+    const element = (groupByPackage: boolean) => (
+      <OverviewPanel
+        object={getSalary}
+        groupByPackage={groupByPackage}
+        onOpenEvidence={onOpenEvidence}
+        onInspectPath={onInspectPath}
+        onExploreDependencies={onExploreDependencies}
+        onExploreImpact={onExploreImpact}
+      />
+    );
+    const { rerender } = render(element(false));
+    await screen.findByRole("table", { name: /Direct callers/ });
+    expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+      getSalary.id,
+      expect.objectContaining({ order: "name", offset: 0 }),
+    );
+
+    rerender(element(true));
+    await waitFor(() =>
+      expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+        getSalary.id,
+        expect.objectContaining({ order: "package", offset: 0 }),
+      ),
+    );
+  });
+
+  it("folds package and kind under the name while a row's detail is open", async () => {
+    mockImpactServer(impactResult);
+    getPlsqlDependencies.mockResolvedValue(
+      dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
+    );
+    getPlsqlFileSource.mockResolvedValue(null);
+    const user = userEvent.setup();
+    renderPanel();
+    const table = await screen.findByRole("table", { name: /Direct callers/ });
+    expect(
+      within(table).getByRole("columnheader", { name: "Package" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByText("RUN_PAYROLL"));
+    await screen.findByText("Why is this affected?");
+    const narrow = screen.getByRole("table", { name: /Direct callers/ });
+    expect(
+      within(narrow).queryByRole("columnheader", { name: "Package" }),
+    ).toBeNull();
+    expect(
+      within(narrow).queryByRole("columnheader", { name: "Type" }),
+    ).toBeNull();
+    expect(
+      within(narrow).getByRole("columnheader", { name: "Evidence" }),
+    ).toBeInTheDocument();
+    // A missing source file is a quiet notice, not an alarming error.
+    expect(
+      await screen.findByText(
+        /source code for this location is not available/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("selects a row and shows why it is related, with source/path/analyze actions", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -437,10 +540,8 @@ describe("OverviewPanel", () => {
     expect(screen.getAllByText("line 34").length).toBeGreaterThan(0);
     expect(await screen.findByText("Source evidence")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Open object" }));
-    expect(onOpenObject).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "RUN_PAYROLL" }),
-    );
+    // Open / analyze actions live in the Inspector, not in this panel.
+    expect(screen.queryByRole("button", { name: "Open object" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Open full source" }));
     expect(onOpenEvidence).toHaveBeenCalledWith(
@@ -452,16 +553,11 @@ describe("OverviewPanel", () => {
       expect.objectContaining({ id: "path://sample/direct" }),
     );
 
-    await user.click(
-      screen.getByRole("button", { name: "Analyze impact for RUN_PAYROLL" }),
-    );
-    expect(onAnalyzeObject).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "RUN_PAYROLL" }),
-    );
+    expect(screen.queryByRole("button", { name: /Analyze impact/ })).toBeNull();
   });
 
   it("shows an Evidence column, inspects a trail node in place, and closes the detail", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -493,7 +589,6 @@ describe("OverviewPanel", () => {
     expect(onInspectObject).toHaveBeenCalledWith(
       expect.objectContaining({ name: "GET_SALARY" }),
     );
-    expect(onOpenObject).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "CALLS" }));
     expect(onInspectEdge).toHaveBeenCalledWith(
@@ -507,7 +602,7 @@ describe("OverviewPanel", () => {
   });
 
   it("preserves the selected card and row while switching away and back is not required for evidence actions", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -534,7 +629,7 @@ describe("OverviewPanel", () => {
   });
 
   it("opens Dependencies with the metric's category filter applied", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -551,7 +646,7 @@ describe("OverviewPanel", () => {
   });
 
   it("offers View all in Impact for impact-sourced metrics instead", async () => {
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -565,9 +660,9 @@ describe("OverviewPanel", () => {
   });
 
   it("shows an empty state for a metric with no rows", async () => {
-    getPlsqlImpact.mockResolvedValue({
-      ...impactResult,
-      items: [],
+    mockImpactServer({ ...impactResult, items: [] });
+    getPlsqlImpactSummary.mockResolvedValue({
+      object: impactResult.object,
       summary: { direct: 0, indirect: 0, packages: 0, tablesModified: 0 },
     });
     getPlsqlDependencies.mockResolvedValue(dependencySummary("callees", []));
@@ -576,9 +671,10 @@ describe("OverviewPanel", () => {
   });
 
   it("retries after a failure", async () => {
-    getPlsqlImpact
-      .mockRejectedValueOnce({ code: "analysis_unavailable" })
-      .mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
+    getPlsqlDependencies.mockRejectedValueOnce({
+      code: "analysis_unavailable",
+    });
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );
@@ -593,22 +689,60 @@ describe("OverviewPanel", () => {
       await screen.findByRole("table", { name: /Direct callers/ }),
     ).toBeInTheDocument();
   });
-  it("loads further impact pages for the dependents cards on request", async () => {
+  it("keeps the dependency cards and rows when the impact totals fail", async () => {
+    mockImpactServer(impactResult);
+    getPlsqlImpactSummary
+      .mockRejectedValueOnce({ code: "analysis_unavailable" })
+      .mockResolvedValue({
+        object: impactResult.object,
+        summary: impactSummary,
+      });
+    getPlsqlDependencies.mockResolvedValue(
+      dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
+    );
+    renderPanel();
+
+    expect(
+      await screen.findByRole("table", { name: /Direct callers/ }),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("unavailable");
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Retry analysis query" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText("—")).toBeNull();
+  });
+
+  it("navigates impact pages by number, previous and next", async () => {
     const user = userEvent.setup();
-    const secondIndirect = {
-      ...impactResult.items[1],
-      id: "impact://sample/indirect-2",
-    };
+    const [, indirect] = impactResult.items;
+    const named = (name: string, index: number) => ({
+      ...indirect,
+      id: `impact://sample/indirect-${index}`,
+      dependent: ref(
+        `plsql://sample/HR/PROCEDURE/${name}`,
+        "Procedure",
+        name,
+        `HR.${name}`,
+      ),
+    });
+    getPlsqlImpactSummary.mockResolvedValue({
+      object: impactResult.object,
+      summary: { ...impactSummary, indirect: 60 },
+    });
     getPlsqlImpact.mockImplementation(
-      async (_id: string, options?: { cursor?: string }) =>
-        options?.cursor
-          ? { ...impactResult, items: [secondIndirect], nextCursor: null }
-          : {
-              ...impactResult,
-              nextCursor: "impact-page-2",
-              truncated: true,
-              summary: { ...impactResult.summary, indirect: 2 },
-            },
+      async (_id: string, options?: { offset?: number }) => ({
+        ...impactResult,
+        items: [
+          named(
+            `PAGE_${(options?.offset ?? 0) / 25 + 1}`,
+            options?.offset ?? 0,
+          ),
+        ],
+        count: 60,
+      }),
     );
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
@@ -618,21 +752,152 @@ describe("OverviewPanel", () => {
     await user.click(
       await screen.findByRole("button", { name: /Indirect callers/ }),
     );
-    expect(await screen.findByText("Showing 1 of 2")).toBeInTheDocument();
+    expect(await screen.findByText("PAGE_1")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–25 of 60")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Page 1" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
 
-    await user.click(screen.getByRole("button", { name: "Load more" }));
-
-    expect(await screen.findByText("Showing 2 of 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("PAGE_2")).toBeInTheDocument();
+    expect(screen.queryByText("PAGE_1")).toBeNull();
+    expect(screen.getByText("Showing 26–50 of 60")).toBeInTheDocument();
     expect(getPlsqlImpact).toHaveBeenLastCalledWith(
       getSalary.id,
-      expect.objectContaining({ cursor: "impact-page-2", limit: 25 }),
+      expect.objectContaining({ offset: 25, limit: 25, scope: "indirect" }),
     );
-    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(getPlsqlImpact).not.toHaveBeenCalledWith(
+      getSalary.id,
+      expect.objectContaining({ cursor: expect.anything() }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Go to page 3" }));
+    expect(await screen.findByText("PAGE_3")).toBeInTheDocument();
+    expect(screen.getByText("Showing 51–60 of 60")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(await screen.findByText("PAGE_2")).toBeInTheDocument();
+  });
+
+  it("pages the rows of a dependency card too and restarts on another card", async () => {
+    const user = userEvent.setup();
+    const reader = (index: number) => ({
+      ...callsEdge(getSalary, employees),
+      id: `edge://sample/READS/${index}`,
+      target: ref(
+        `plsql://sample/HR/TABLE/T${index}`,
+        "Table",
+        `T${index}`,
+        `HR.T${index}`,
+      ),
+    });
+    getPlsqlDependencies.mockImplementation(
+      async (
+        _id: string,
+        category: string,
+        options?: { offset?: number; limit?: number },
+      ) => ({
+        counts: { callers: 0, callees: 1, reads: 30, writes: 0, other: 0 },
+        items:
+          category === "reads" && options?.limit === 25
+            ? [reader(options.offset ?? 0)]
+            : [],
+        truncated: false,
+        total: category === "reads" ? 30 : 1,
+      }),
+    );
+    mockImpactServer(impactResult);
+    renderPanel();
+
+    await user.click(
+      await screen.findByRole("button", { name: /Tables read/ }),
+    );
+    expect(await screen.findByText("T0")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("T25")).toBeInTheDocument();
+    expect(getPlsqlDependencies).toHaveBeenLastCalledWith(
+      getSalary.id,
+      "reads",
+      expect.objectContaining({ offset: 25 }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /Direct callers/ }));
+    await user.click(screen.getByRole("button", { name: /Tables read/ }));
+    expect(await screen.findByText("T0")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Page 1" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("keeps the shown page and offers a retry when the next page fails", async () => {
+    const user = userEvent.setup();
+    let failing = false;
+    getPlsqlImpact.mockImplementation(
+      async (_id: string, options?: { offset?: number; scope?: string }) => {
+        if (options?.scope !== "direct") return impactResult;
+        if (failing && options.offset) throw { code: "analysis_unavailable" };
+        return { ...impactResult, items: [impactResult.items[0]], count: 40 };
+      },
+    );
+    getPlsqlDependencies.mockResolvedValue(
+      dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
+    );
+    renderPanel();
+    await screen.findByText("RUN_PAYROLL");
+
+    failing = true;
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      await screen.findByText("Could not load this page."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("RUN_PAYROLL")).toBeInTheDocument();
+
+    failing = false;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Could not load this page.")).toBeNull(),
+    );
+    expect(screen.getByText("Showing 26–40 of 40")).toBeInTheDocument();
+  });
+
+  it("asks the server for the indirect dependents instead of filtering the first page", async () => {
+    const user = userEvent.setup();
+    const [direct, indirect] = impactResult.items;
+    // The unfiltered first page is all direct dependents (they sort first),
+    // so the indirect rows exist only behind the server-side scope.
+    getPlsqlImpact.mockImplementation(
+      async (_id: string, options?: { scope?: string }) =>
+        options?.scope === "indirect"
+          ? { ...impactResult, items: [indirect], count: 1 }
+          : { ...impactResult, items: [direct], count: 2 },
+    );
+    getPlsqlDependencies.mockResolvedValue(
+      dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
+    );
+    renderPanel();
+
+    await user.click(
+      await screen.findByRole("button", { name: /Indirect callers/ }),
+    );
+    const table = await screen.findByRole("table", {
+      name: /Indirect callers/,
+    });
+    expect(
+      await within(table).findByText("GENERAR_REPORTE"),
+    ).toBeInTheDocument();
+    expect(getPlsqlImpact).toHaveBeenCalledWith(
+      getSalary.id,
+      expect.objectContaining({ scope: "indirect" }),
+    );
   });
 
   it("reloads the dependents with the depth the user enters", async () => {
     const user = userEvent.setup();
-    getPlsqlImpact.mockResolvedValue(impactResult);
+    mockImpactServer(impactResult);
     getPlsqlDependencies.mockResolvedValue(
       dependencySummary("callees", [callsEdge(getSalary, applyIva)]),
     );

@@ -12,18 +12,32 @@
     "clearSelection": "Clear selection",
     "browseObjects": "Browse objects",
     "openSourcePrompt": "Open an object or follow a source location to view it.",
-    "showSourceOf": "Show source of {name}"
+    "showSourceOf": "Show source of {name}",
+    "landing": {
+      "statsHeading": "What is in the analyzed project",
+      "total": "Objects",
+      "openFilter": "Browse {label}",
+      "guideHeading": "What you can do with an object",
+      "guide": {
+        "overview": "Headline numbers: who depends on it, who writes it, and the first rows of each.",
+        "dependencies": "Callers, callees, readers, writers and other relations, with the evidence line.",
+        "impact": "Everything affected by a change, with filters, depth and the path that explains each row.",
+        "paths": "Trace the routes that connect two objects.",
+        "source": "Read the code behind any relation, highlighted at the exact line."
+      },
+      "start": "Start by choosing an object in the Explorer, or open a shortcut above."
+    }
   },
   "shell": {
     "objectExplorer": "Object Explorer",
     "analysisWorkspace": "Analysis workspace",
-    "objects": "Objects",
     "inspector": "Inspector",
     "explorerDescription": "PL/SQL object navigation",
     "inspectorDescription": "Selected object and dependency details",
     "skipToWorkspace": "Skip to analysis workspace",
     "show": "Show {label}",
-    "hide": "Hide {label}"
+    "hide": "Hide {label}",
+    "explore": "Browse objects"
   },
   "header": {
     "qualifiedName": "Qualified name",
@@ -37,9 +51,11 @@
     }
   },
   "explorer": {
+    "packageGroups": "Package groups",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
     "searchLabel": "Search objects",
     "searchPlaceholder": "Search packages, routines and tables...",
-    "showingFirst": "Showing first {limit} results",
     "searching": "Searching…",
     "noMatch": "No objects match",
     "results": "Object search results",
@@ -72,17 +88,17 @@
     "searchFailed": "Object search failed",
     "selected": "Selected {kind} {name}."
   },
-  "viewMode": {
-    "group": "View mode",
-    "graph": "Graph",
-    "list": "List"
-  },
   "pagination": {
-    "showing": "Showing {loaded} of {total}",
-    "loadError": "Could not load more results. Loaded results are still available.",
-    "loading": "Loading…",
-    "retry": "Retry loading more",
-    "loadMore": "Load more"
+    "navigation": "Pagination",
+    "range": "Showing {from, number}–{to, number} of {total, number}",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {page}",
+    "goToPage": "Go to page {page}",
+    "gap": "More pages",
+    "loadPageError": "Could not load this page.",
+    "retryPage": "Retry",
+    "pageOf": "Page {page} of {count}"
   },
   "error": {
     "sourceTooLarge": "This file is too large to preview here.",
@@ -90,6 +106,17 @@
     "unavailable": "Analysis is unavailable",
     "sourceLimitDetail": "The source viewer caps how much of a single file it can load, so retrying would fail the same way.",
     "analysisLimitDetail": "The analysis backend caps how much data this view may compute, so retrying would fail the same way.",
-    "retry": "Retry analysis query"
+    "retry": "Retry analysis query",
+    "notFound": "The requested item was not found.",
+    "sourceNotFound": "The source code for this location is not available in this environment."
+  },
+  "grouping": {
+    "groups": "Package groups",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "toggle": "Group by package",
+    "noPackage": "No package",
+    "count": "{count, plural, one {# object} other {# objects}}",
+    "groupToggle": "{name}, {count, plural, one {# object} other {# objects}}"
   }
 }

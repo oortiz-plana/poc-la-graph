@@ -21,6 +21,10 @@
   },
   "hop": "{count, plural, one {# hop} other {# hops}}",
   "line": "line {line}",
+  "occurrences": "{count, plural, one {# time} other {# times}}",
+  "occurrenceLines": "{count, plural, one {line} other {lines}} {lines}",
+  "occurrenceMore": "+{count} more",
+  "occurrenceGroup": "Occurrences",
   "insight": {
     "sourceEvidence": "Source evidence"
   },
@@ -35,7 +39,6 @@
     "region": "Analysis health",
     "repositoryWide": "Show repository-wide diagnostics",
     "loading": "Loading analysis health…",
-    "truncated": "Results truncated",
     "categoryGroup": "Diagnostic category",
     "categories": {
       "unresolved": "Unresolved references",
@@ -106,7 +109,6 @@
     "heading": "Potential impact",
     "loading": "Loading overview…",
     "loadingRows": "Loading…",
-    "truncated": "Results truncated",
     "metricsGroup": "Overview metrics",
     "viewAllDependencies": "View all in Dependencies",
     "viewAllImpact": "View all in Impact",
@@ -122,13 +124,7 @@
       "region": "Why {name} is related",
       "title": "Why is this affected?",
       "close": "Close why {name} is related",
-      "openObject": "Open object",
-      "analyze": "Analyze impact",
-      "analyzeLabel": "Analyze impact for {name}",
       "viewPath": "View path",
-      "copy": "Copy qualified name",
-      "copied": "Copied",
-      "copiedAnnouncement": "Qualified name copied to clipboard.",
       "noEvidence": "No source evidence available for this relationship."
     }
   }

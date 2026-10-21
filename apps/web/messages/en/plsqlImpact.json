@@ -4,9 +4,6 @@
     "collapse": "Collapse package {name}",
     "members": "{name} members"
   },
-  "graph": {
-    "defaultLabel": "Dependency graph"
-  },
   "paths": {
     "heading": "Dependency paths",
     "columnRoute": "Route",
@@ -20,18 +17,11 @@
     "empty": "No dependency paths found",
     "selectedPath": "Selected path",
     "closeSelectedPath": "Close selected path",
-    "openObject": "Open object",
-    "analyzeImpactFor": "Analyze impact for {name}",
-    "analyzeImpact": "Analyze impact",
-    "copied": "Copied",
-    "copyQualifiedName": "Copy qualified name",
-    "copiedAnnouncement": "Qualified name copied to clipboard.",
     "sourceEvidence": "Source evidence",
     "noEvidence": "No source evidence available for this path."
   },
   "impact": {
     "heading": "Impact analysis",
-    "groupByPackage": "Group by package",
     "loading": "Loading impact analysis…",
     "direction": "Direction",
     "upstream": "Upstream",
@@ -41,9 +31,7 @@
     "relationshipAll": "All",
     "directOnly": "Direct only",
     "writesOnly": "Writes only",
-    "maxHops": "Max {max} hops",
-    "graphLabel": "Impact graph for {name}",
-    "drillIntoPackage": "Select a package node to drill into its routines.",
+    "maxHops": "max {max}",
     "blastRadius": "Blast radius",
     "direct": "Direct",
     "indirect": "Indirect dependents",
@@ -64,12 +52,7 @@
     "path": "Path",
     "pathOption": "Path {number} · {hops}",
     "pathOptionShortest": "Path {number} · shortest · {hops}",
-    "openObject": "Open object",
     "viewFullPath": "View full path",
-    "focusInGraph": "Focus in graph",
-    "copied": "Copied",
-    "copyQualifiedName": "Copy qualified name",
-    "copiedAnnouncement": "Qualified name copied to clipboard.",
     "sourceEvidence": "Source evidence",
     "noEvidence": "No source evidence available for this relationship."
   }

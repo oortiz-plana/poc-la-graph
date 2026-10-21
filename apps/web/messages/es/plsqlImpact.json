@@ -4,9 +4,6 @@
     "collapse": "Contraer paquete {name}",
     "members": "Miembros de {name}"
   },
-  "graph": {
-    "defaultLabel": "Grafo de dependencias"
-  },
   "paths": {
     "heading": "Rutas de dependencia",
     "columnRoute": "Ruta",
@@ -20,18 +17,11 @@
     "empty": "No se encontraron rutas de dependencia",
     "selectedPath": "Ruta seleccionada",
     "closeSelectedPath": "Cerrar la ruta seleccionada",
-    "openObject": "Abrir objeto",
-    "analyzeImpactFor": "Analizar el impacto de {name}",
-    "analyzeImpact": "Analizar impacto",
-    "copied": "Copiado",
-    "copyQualifiedName": "Copiar nombre calificado",
-    "copiedAnnouncement": "Nombre calificado copiado al portapapeles.",
     "sourceEvidence": "Evidencia en el código fuente",
     "noEvidence": "No hay evidencia en el código fuente para esta ruta."
   },
   "impact": {
     "heading": "Análisis de impacto",
-    "groupByPackage": "Agrupar por paquete",
     "loading": "Cargando análisis de impacto…",
     "direction": "Dirección",
     "upstream": "Ascendente",
@@ -41,9 +31,7 @@
     "relationshipAll": "Todas",
     "directOnly": "Solo directos",
     "writesOnly": "Solo escrituras",
-    "maxHops": "Máximo {max} saltos",
-    "graphLabel": "Grafo de impacto de {name}",
-    "drillIntoPackage": "Seleccione un nodo de paquete para ver sus rutinas.",
+    "maxHops": "máx. {max}",
     "blastRadius": "Alcance del impacto",
     "direct": "Directos",
     "indirect": "Dependientes indirectos",
@@ -64,12 +52,7 @@
     "path": "Ruta",
     "pathOption": "Ruta {number} · {hops}",
     "pathOptionShortest": "Ruta {number} · la más corta · {hops}",
-    "openObject": "Abrir objeto",
     "viewFullPath": "Ver ruta completa",
-    "focusInGraph": "Enfocar en el grafo",
-    "copied": "Copiado",
-    "copyQualifiedName": "Copiar nombre calificado",
-    "copiedAnnouncement": "Nombre calificado copiado al portapapeles.",
     "sourceEvidence": "Evidencia en el código fuente",
     "noEvidence": "No hay evidencia en el código fuente para esta relación."
   }

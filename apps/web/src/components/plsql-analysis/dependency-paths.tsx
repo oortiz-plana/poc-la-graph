@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useTranslations } from "next-intl";
 import {
   useEffect,
@@ -8,18 +8,16 @@ import {
   type FormEvent,
   type ComponentProps,
 } from "react";
-import useSWRInfinite from "swr/infinite";
 import { Button } from "@/components/ui/button";
-import { findPlsqlPaths, type PlsqlProblemCode } from "@/lib/api";
+import { findPlsqlPaths } from "@/lib/api";
 import type {
   PlsqlDependency,
   PlsqlObject,
   PlsqlObjectReference,
   PlsqlPath,
-  PlsqlPathResult,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
-import { AnalysisError, problemCodeOf } from "./analysis-error";
+import { AnalysisError } from "./analysis-error";
 import {
   DependencyDetailTable,
   type DetailTableColumn,
@@ -27,12 +25,14 @@ import {
 import { DependencyPathTrail } from "./dependency-path-trail";
 import { PlsqlObjectCombobox } from "./object-combobox";
 import { useEvidenceLineLabel, useHopText } from "./plsql-atoms";
+import { CopyValueButton } from "./copy-value-button";
 import { InsightPanel } from "./insight-panel";
 import { ListDetailSplit } from "./list-detail-split";
 import { SourceBody } from "./source-viewer";
+import { usePagedQuery } from "./use-paged-query";
 import {
   ANALYSIS_PAGE_SIZE,
-  AnalysisPagination,
+  AnalysisPageNavigator,
   AnalysisPaginationScope,
 } from "./analysis-pagination";
 
@@ -57,8 +57,6 @@ function DependencyPathsContent({
   onOpenEvidence,
   onInspectPath,
   onInspectEdge,
-  onOpenObject,
-  onAnalyzeObject,
 }: {
   initialFrom?: PlsqlObject;
   /** Route nodes are inspected in place; clicking one must never navigate
@@ -67,8 +65,6 @@ function DependencyPathsContent({
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
   onInspectPath?: (path: PlsqlPath) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
-  onOpenObject?: (reference: PlsqlObjectReference) => void;
-  onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
 }) {
   const t = useTranslations("plsqlImpact.paths");
   const hopText = useHopText();
@@ -82,69 +78,32 @@ function DependencyPathsContent({
   const [selectedId, setSelectedId] = useState<string>();
   const headingId = "plsql-dependency-paths-heading";
 
-  const { data, error, size, setSize, isLoading, isValidating, mutate } =
-    useSWRInfinite<PlsqlPathResult>(
-      (index, previousPage) => {
-        if (!submitted) return null;
-        if (index > 0 && !previousPage?.nextCursor) return null;
-        return {
-          resource: "plsql-paths",
-          ...submitted,
-          cursor:
-            index === 0 ? undefined : (previousPage?.nextCursor ?? undefined),
-        };
-      },
-      async ({
-        fromId,
-        toId,
-        cursor,
-      }: {
-        fromId: string;
-        toId: string;
-        cursor?: string;
-      }) => findPlsqlPaths(fromId, toId, { limit: ANALYSIS_PAGE_SIZE, cursor }),
-      {
-        persistSize: false,
-        revalidateFirstPage: false,
-      },
-    );
-
-  const firstPage = data?.[0];
-  const lastPage = data?.[data.length - 1];
-  const items = data
-    ? [
-        ...new Map(
-          data.flatMap((page) => page.items).map((path) => [path.id, path]),
-        ).values(),
-      ]
-    : [];
-  const result = firstPage
-    ? {
-        ...firstPage,
-        items,
-        truncated: Boolean(lastPage?.nextCursor),
-        nextCursor: lastPage?.nextCursor ?? null,
-      }
-    : undefined;
+  const [page, setPage] = useState(0);
+  const pathsPage = usePagedQuery({
+    listKey: submitted
+      ? `paths|${submitted.fromId}|${submitted.toId}|${submitted.request}`
+      : null,
+    page,
+    fetchPage: (requestedPage) =>
+      findPlsqlPaths(submitted?.fromId ?? "", submitted?.toId ?? "", {
+        limit: ANALYSIS_PAGE_SIZE,
+        offset: requestedPage * ANALYSIS_PAGE_SIZE,
+      }),
+  });
+  const result = pathsPage.data;
   const status: PathStatus = !submitted
     ? "idle"
-    : isLoading
-      ? "loading"
-      : error && !result
+    : result
+      ? "ready"
+      : pathsPage.failed
         ? "error"
-        : result
-          ? "ready"
-          : "loading";
-  const errorCode: PlsqlProblemCode | undefined = error
-    ? problemCodeOf(error)
-    : undefined;
-  const isLoadingMore =
-    isValidating && Boolean(data) && size > (data?.length ?? 0);
+        : "loading";
 
   useEffect(() => {
     setFrom(initialFrom);
     setSubmitted(undefined);
     setSelectedId(undefined);
+    setPage(0);
   }, [initialFrom]);
 
   const canTrace = Boolean(from && to && from.id !== to.id);
@@ -157,6 +116,12 @@ function DependencyPathsContent({
       toId: to.id,
       request: (current?.request ?? 0) + 1,
     }));
+    setSelectedId(undefined);
+    setPage(0);
+  }
+
+  function changePage(next: number) {
+    setPage(next);
     setSelectedId(undefined);
   }
 
@@ -228,7 +193,7 @@ function DependencyPathsContent({
       )}
       {status === "error" && (
         <div className="mt-3">
-          <AnalysisError code={errorCode} onRetry={() => void mutate()} />
+          <AnalysisError code={pathsPage.errorCode} onRetry={pathsPage.retry} />
         </div>
       )}
       {status === "ready" && result && (
@@ -245,15 +210,17 @@ function DependencyPathsContent({
                   onSelectRow={(row) => selectPath(row.path)}
                   emptyMessage={t("empty")}
                 />
-                <AnalysisPagination
-                  loaded={result.items.length}
-                  total={result.count}
-                  nextCursor={result.nextCursor}
-                  loading={isLoadingMore}
-                  error={Boolean(error)}
-                  onLoadMore={() => void setSize((current) => current + 1)}
-                  onRetry={() => void mutate()}
-                />
+                {result.count > 0 && (
+                  <AnalysisPageNavigator
+                    page={page}
+                    pageSize={ANALYSIS_PAGE_SIZE}
+                    total={result.count}
+                    loading={pathsPage.refreshing}
+                    error={pathsPage.failed}
+                    onPageChange={changePage}
+                    onRetry={pathsPage.retry}
+                  />
+                )}
               </>
             }
             detail={
@@ -265,8 +232,6 @@ function DependencyPathsContent({
                   onInspectObject={onInspectObject}
                   onOpenEvidence={onOpenEvidence}
                   onInspectEdge={onInspectEdge}
-                  onOpenObject={onOpenObject}
-                  onAnalyzeObject={onAnalyzeObject}
                 />
               )
             }
@@ -283,16 +248,12 @@ function SelectedPath({
   onInspectObject,
   onOpenEvidence,
   onInspectEdge,
-  onOpenObject,
-  onAnalyzeObject,
 }: {
   path: PlsqlPath;
   onClose: () => void;
   onInspectObject: (reference: PlsqlObjectReference) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
-  onOpenObject?: (reference: PlsqlObjectReference) => void;
-  onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
 }) {
   const t = useTranslations("plsqlImpact.paths");
   const evidenceLineLabel = useEvidenceLineLabel();
@@ -305,18 +266,6 @@ function SelectedPath({
   // Source tab (that's "Open full source" below, an explicit escalation).
   const [selectedEvidence, setSelectedEvidence] = useState(finalEdge?.evidence);
   const lineLabel = evidenceLineLabel(selectedEvidence);
-  const [copied, setCopied] = useState(false);
-
-  async function copyQualifiedName() {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(destination.qualifiedName);
-      }
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
 
   return (
     <InsightPanel
@@ -324,6 +273,7 @@ function SelectedPath({
       title={t("selectedPath")}
       closeLabel={t("closeSelectedPath")}
       onClose={onClose}
+      actions={<CopyValueButton value={destination.qualifiedName} />}
       trail={
         <>
           <DependencyPathTrail
@@ -331,7 +281,6 @@ function SelectedPath({
             onOpenObject={onInspectObject}
             onOpenEvidence={setSelectedEvidence}
             onInspectEdge={onInspectEdge}
-            showKind
           />
           <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
             <span className="font-medium text-text-primary">
@@ -339,38 +288,7 @@ function SelectedPath({
             </span>
             {lineLabel !== undefined && <span>{lineLabel}</span>}
           </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {onOpenObject && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onOpenObject(destination)}
-              >
-                {t("openObject")}
-              </Button>
-            )}
-            {onAnalyzeObject && (
-              <Button
-                size="sm"
-                variant="outline"
-                aria-label={t("analyzeImpactFor", { name: destination.name })}
-                onClick={() => onAnalyzeObject(destination)}
-              >
-                {t("analyzeImpact")}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void copyQualifiedName()}
-            >
-              <Copy aria-hidden />{" "}
-              {copied ? t("copied") : t("copyQualifiedName")}
-            </Button>
-          </div>
-          <p aria-live="polite" className="sr-only">
-            {copied ? t("copiedAnnouncement") : ""}
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2"></div>
         </>
       }
       evidence={

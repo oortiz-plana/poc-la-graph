@@ -16,13 +16,12 @@ import {
   uploadSessionSchema,
   plsqlObjectSchema,
   plsqlObjectSearchResultSchema,
-  plsqlDependencyResultSchema,
   plsqlDependencySummarySchema,
   plsqlHealthSchema,
   plsqlPathResultSchema,
   plsqlSourceContentSchema,
   plsqlImpactResultSchema,
-  plsqlOverviewSchema,
+  plsqlImpactSummaryResultSchema,
   type BuildSummary,
   type AccessActivity,
   type AccessRequestContext,
@@ -33,15 +32,18 @@ import {
   type GovernanceProject,
   type PlsqlObject,
   type PlsqlDependencyCategory,
-  type PlsqlDependencyResult,
   type PlsqlDependencySummary,
   type PlsqlHealth,
+  type PlsqlListOrder,
+  type PlsqlHealthCategoryName,
+  type PlsqlDependency,
   type PlsqlImpactResult,
+  type PlsqlImpactSummaryResult,
   type ImpactDirection,
   type ImpactRelationship,
+  type ImpactScope,
   type PlsqlObjectKind,
   type PlsqlObjectSearchResult,
-  type PlsqlOverview,
   type PlsqlPathResult,
   type PlsqlSourceContent,
   type ProjectAccessRequest,
@@ -62,7 +64,7 @@ const runtimeConfigSchema = z.object({
     maxTotalBytes: z.number().int().positive(),
   }),
   plsqlEnabled: z.boolean().default(false),
-  plsqlMaxHops: z.number().int().positive().default(5),
+  plsqlMaxHops: z.number().int().positive().default(100),
 });
 
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
@@ -516,7 +518,7 @@ export type PlsqlProblemCode = PlsqlProblem["code"];
  * the backend code (e.g. `analysis_limit_exceeded` is deterministic while
  * `analysis_unavailable` is transient) and the request id for support.
  */
-export class PlsqlApiError extends Error {
+class PlsqlApiError extends Error {
   readonly code?: PlsqlProblemCode;
   readonly requestId?: string;
 
@@ -543,13 +545,14 @@ async function plsqlFailure(
 
 export async function searchPlsqlObjects(
   query: string,
-  options?: { kinds?: PlsqlObjectKind[]; limit?: number },
+  options?: { kinds?: PlsqlObjectKind[]; limit?: number; offset?: number },
 ): Promise<PlsqlObjectSearchResult> {
   const params = new URLSearchParams();
   const trimmed = query.trim();
   if (trimmed) params.set("q", trimmed);
   for (const kind of options?.kinds ?? []) params.append("kinds", kind);
   if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
   const suffix = params.size ? `?${params}` : "";
   const response = await safeFetch(
     `/api/backend/api/v1/plsql/objects${suffix}`,
@@ -574,50 +577,14 @@ export async function getPlsqlObject(
   return plsqlObjectSchema.parse(await response.json());
 }
 
-async function loadPlsqlDependencies(
-  path: string,
-  objectId: string,
-  errorMessage: string,
-): Promise<PlsqlDependencyResult> {
-  const params = new URLSearchParams({ objectId });
-  const response = await safeFetch(
-    `/api/backend/api/v1/plsql/${path}?${params}`,
-    { cache: "no-store" },
-  );
-  if (!response.ok) return plsqlFailure(response, errorMessage);
-  return plsqlDependencyResultSchema.parse(await response.json());
-}
-
-export async function listPlsqlCallers(
-  objectId: string,
-): Promise<PlsqlDependencyResult> {
-  return loadPlsqlDependencies("callers", objectId, "Could not load callers.");
-}
-
-export async function listPlsqlCallees(
-  objectId: string,
-): Promise<PlsqlDependencyResult> {
-  return loadPlsqlDependencies("callees", objectId, "Could not load callees.");
-}
-
-export async function getPlsqlTableAccess(
-  objectId: string,
-): Promise<PlsqlDependencyResult> {
-  return loadPlsqlDependencies(
-    "table-access",
-    objectId,
-    "Could not load table access.",
-  );
-}
-
 export async function findPlsqlPaths(
   fromId: string,
   toId: string,
-  options?: { limit?: number; cursor?: string },
+  options?: { limit?: number; offset?: number },
 ): Promise<PlsqlPathResult> {
   const params = new URLSearchParams({ from: fromId, to: toId });
   if (options?.limit !== undefined) params.set("limit", String(options.limit));
-  if (options?.cursor !== undefined) params.set("cursor", options.cursor);
+  if (options?.offset) params.set("offset", String(options.offset));
   const response = await safeFetch(
     `/api/backend/api/v1/plsql/paths?${params}`,
     { cache: "no-store" },
@@ -625,15 +592,6 @@ export async function findPlsqlPaths(
   if (!response.ok)
     return plsqlFailure(response, "Could not find dependency paths.");
   return plsqlPathResultSchema.parse(await response.json());
-}
-
-export async function listPlsqlUnresolved(): Promise<PlsqlDependencyResult> {
-  const response = await safeFetch("/api/backend/api/v1/plsql/unresolved", {
-    cache: "no-store",
-  });
-  if (!response.ok)
-    return plsqlFailure(response, "Could not load unresolved references.");
-  return plsqlDependencyResultSchema.parse(await response.json());
 }
 
 export async function getPlsqlObjectSource(
@@ -653,10 +611,21 @@ export async function getPlsqlObjectSource(
 export async function getPlsqlDependencies(
   objectId: string,
   category: PlsqlDependencyCategory,
-  options?: { limit?: number },
+  options?: {
+    limit?: number;
+    /** Rows of the selected category to skip: addresses any page directly. */
+    offset?: number;
+    /** Narrows the selected page and its total to one edge type of the category. */
+    relationship?: PlsqlDependency["relationship"];
+    order?: PlsqlListOrder;
+  },
 ): Promise<PlsqlDependencySummary> {
   const params = new URLSearchParams({ objectId, category });
   if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
+  if (options?.relationship !== undefined)
+    params.set("relationship", options.relationship);
+  if (options?.order === "package") params.set("order", "package");
   const response = await safeFetch(
     `/api/backend/api/v1/plsql/dependencies?${params}`,
     { cache: "no-store" },
@@ -666,9 +635,20 @@ export async function getPlsqlDependencies(
   return plsqlDependencySummarySchema.parse(await response.json());
 }
 
-export async function getPlsqlHealth(objectId?: string): Promise<PlsqlHealth> {
+export async function getPlsqlHealth(
+  objectId?: string,
+  options?: {
+    /** Lists items of this category alone; every category still reports its count. */
+    category?: PlsqlHealthCategoryName;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<PlsqlHealth> {
   const params = new URLSearchParams();
   if (objectId) params.set("objectId", objectId);
+  if (options?.category) params.set("category", options.category);
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
   const suffix = params.size ? `?${params}` : "";
   const response = await safeFetch(
     `/api/backend/api/v1/plsql/health${suffix}`,
@@ -681,36 +661,19 @@ export async function getPlsqlHealth(objectId?: string): Promise<PlsqlHealth> {
   return plsqlHealthSchema.parse(await response.json());
 }
 
-export async function getPlsqlOverview(
-  objectId: string,
-  options?: { top?: number },
-): Promise<PlsqlOverview | null> {
-  const params = new URLSearchParams({ objectId });
-  if (options?.top !== undefined) params.set("top", String(options.top));
-  const response = await safeFetch(
-    `/api/backend/api/v1/plsql/overview?${params}`,
-    { cache: "no-store" },
-  );
-  if (response.status === 404) return null;
-  if (!response.ok)
-    return plsqlFailure(response, "Could not load the object overview.");
-  return plsqlOverviewSchema.parse(await response.json());
-}
+type ImpactTraversalOptions = {
+  direction?: ImpactDirection;
+  depth?: number;
+  relationship?: ImpactRelationship;
+  directOnly?: boolean;
+  writesOnly?: boolean;
+};
 
-export async function getPlsqlImpact(
+function impactTraversalParams(
   objectId: string,
-  options?: {
-    limit?: number;
-    direction?: ImpactDirection;
-    depth?: number;
-    relationship?: ImpactRelationship;
-    directOnly?: boolean;
-    writesOnly?: boolean;
-    cursor?: string;
-  },
-): Promise<PlsqlImpactResult | null> {
+  options?: ImpactTraversalOptions,
+): URLSearchParams {
   const params = new URLSearchParams({ objectId });
-  if (options?.limit !== undefined) params.set("limit", String(options.limit));
   if (options?.direction !== undefined)
     params.set("direction", options.direction);
   if (options?.depth !== undefined) params.set("depth", String(options.depth));
@@ -718,7 +681,25 @@ export async function getPlsqlImpact(
     params.set("relationship", options.relationship);
   if (options?.directOnly) params.set("directOnly", "true");
   if (options?.writesOnly) params.set("writesOnly", "true");
-  if (options?.cursor !== undefined) params.set("cursor", options.cursor);
+  return params;
+}
+
+export async function getPlsqlImpact(
+  objectId: string,
+  options?: ImpactTraversalOptions & {
+    limit?: number;
+    scope?: ImpactScope;
+    /** Rows to skip: addresses any page directly (page navigation). */
+    offset?: number;
+    order?: PlsqlListOrder;
+  },
+): Promise<PlsqlImpactResult | null> {
+  const params = impactTraversalParams(objectId, options);
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.offset) params.set("offset", String(options.offset));
+  if (options?.scope !== undefined && options.scope !== "all")
+    params.set("scope", options.scope);
+  if (options?.order === "package") params.set("order", "package");
   const response = await safeFetch(
     `/api/backend/api/v1/plsql/impact?${params}`,
     { cache: "no-store" },
@@ -727,6 +708,21 @@ export async function getPlsqlImpact(
   if (!response.ok)
     return plsqlFailure(response, "Could not load the impact report.");
   return plsqlImpactResultSchema.parse(await response.json());
+}
+
+/** Blast-radius totals: a service of their own, never derived from a page. */
+export async function getPlsqlImpactSummary(
+  objectId: string,
+  options?: ImpactTraversalOptions,
+): Promise<PlsqlImpactSummaryResult | null> {
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/impact/summary?${impactTraversalParams(objectId, options)}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load the impact summary.");
+  return plsqlImpactSummaryResultSchema.parse(await response.json());
 }
 
 export async function getPlsqlFileSource(

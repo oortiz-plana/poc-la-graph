@@ -1,7 +1,7 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithIntl as render } from "@/test/render-with-intl";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SWRConfig } from "swr";
 import type {
   PlsqlImpactItem,
@@ -9,12 +9,16 @@ import type {
   PlsqlObjectReference,
   PlsqlPath,
 } from "@/lib/contracts";
-import { addedElements, resetCytoscapeMock } from "./cytoscape-mock";
 import { ImpactReport } from "./impact-report";
 
 const getPlsqlImpact = vi.hoisted(() => vi.fn());
+const getPlsqlImpactSummary = vi.hoisted(() => vi.fn());
 const getPlsqlFileSource = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/api", () => ({ getPlsqlImpact, getPlsqlFileSource }));
+vi.mock("@/lib/api", () => ({
+  getPlsqlImpact,
+  getPlsqlImpactSummary,
+  getPlsqlFileSource,
+}));
 
 vi.mock("../auth-provider", () => ({
   useAuth: () => ({
@@ -32,17 +36,6 @@ vi.mock("./monaco-source-editor", () => ({
     <pre data-testid="monaco-source-editor">{props.value ?? ""}</pre>
   ),
 }));
-
-const cyMock = vi.hoisted(() => ({
-  on: vi.fn(),
-  destroy: vi.fn(),
-  elements: vi.fn(() => ({ remove: vi.fn() })),
-  add: vi.fn(),
-  layout: vi.fn(() => ({ run: vi.fn(), one: vi.fn() })),
-  pan: vi.fn(() => ({ x: 10, y: 20 })),
-  zoom: vi.fn(() => 1.5),
-}));
-vi.mock("cytoscape", () => ({ default: vi.fn(() => cyMock) }));
 
 function ref(
   id: string,
@@ -110,28 +103,32 @@ const result: PlsqlImpactResult = {
   truncated: false,
   count: 1,
   nextCursor: null,
-  summary: { direct: 1, indirect: 74, packages: 18, tablesModified: 0 },
 };
 
+const summary = { direct: 1, indirect: 74, packages: 18, tablesModified: 0 };
+
 const onOpenEvidence = vi.fn();
-const onOpenObject = vi.fn();
 const onInspectObject = vi.fn();
 const onInspectEdge = vi.fn();
 const onInspectPath = vi.fn();
 
-function renderPanel() {
-  return render(
+function panel(groupByPackage = false) {
+  return (
     <SWRConfig value={{ provider: () => new Map() }}>
       <ImpactReport
         objectId="plsql://sample/HR/FUNCTION/DOCU_FIDE"
+        groupByPackage={groupByPackage}
         onOpenEvidence={onOpenEvidence}
-        onOpenObject={onOpenObject}
         onInspectObject={onInspectObject}
         onInspectEdge={onInspectEdge}
         onInspectPath={onInspectPath}
       />
-    </SWRConfig>,
+    </SWRConfig>
   );
+}
+
+function renderPanel(groupByPackage = false) {
+  return render(panel(groupByPackage));
 }
 
 async function selectFirstRow(name: string) {
@@ -139,14 +136,163 @@ async function selectFirstRow(name: string) {
 }
 
 describe("ImpactReport", () => {
+  beforeEach(() => {
+    getPlsqlImpactSummary.mockResolvedValue({ object: docuFide, summary });
+  });
+
   afterEach(() => {
     getPlsqlImpact.mockReset();
+    getPlsqlImpactSummary.mockReset();
     onOpenEvidence.mockReset();
-    onOpenObject.mockReset();
     onInspectObject.mockReset();
     onInspectEdge.mockReset();
     onInspectPath.mockReset();
-    resetCytoscapeMock(cyMock);
+  });
+
+  it("asks the server for the selected blast radius card and pages through it", async () => {
+    const user = userEvent.setup();
+    const indirectDependent = ref(
+      "plsql://sample/HR/PROCEDURE/RUN_BILLING",
+      "Procedure",
+      "RUN_BILLING",
+      "HR.RUN_BILLING",
+    );
+    const indirectItem: PlsqlImpactItem = {
+      id: "impact://sample/d2",
+      dependent: indirectDependent,
+      distance: 2,
+      paths: [
+        {
+          id: "path://sample/p2",
+          nodes: [indirectDependent, calcIvaMora, docuFide],
+          relationships: [
+            callsEdge(indirectDependent, calcIvaMora, null),
+            callsEdge(calcIvaMora, docuFide, null),
+          ],
+          hopCount: 2,
+        },
+      ],
+    };
+    getPlsqlImpact.mockImplementation(
+      async (_id: string, options: { scope?: string }) => {
+        if (options.scope === "indirect")
+          return { ...result, items: [indirectItem], count: 1 };
+        return { ...result, items: result.items, count: 2 };
+      },
+    );
+    renderPanel();
+    const table = await screen.findByRole("table", {
+      name: "Affected objects",
+    });
+    expect(within(table).getByText("CALC_IVA_MORA")).toBeInTheDocument();
+    expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+      "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+      expect.objectContaining({ scope: "all" }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Indirect dependents/ }),
+    );
+    await waitFor(() =>
+      expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+        "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+        expect.objectContaining({ scope: "indirect", offset: 0 }),
+      ),
+    );
+    const filtered = await screen.findByRole("table", {
+      name: "Affected objects",
+    });
+    expect(within(filtered).getByText("RUN_BILLING")).toBeInTheDocument();
+    expect(within(filtered).queryByText("CALC_IVA_MORA")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Indirect dependents/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(
+      screen.getByRole("button", { name: /Indirect dependents/ }),
+    );
+    // "All" was already fetched, so it is served from the page cache.
+    expect(await screen.findByText("CALC_IVA_MORA")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Indirect dependents/ }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("groups the affected objects by package and collapses a package", async () => {
+    const user = userEvent.setup();
+    const itemFor = (dependent: PlsqlObjectReference, id: string) => ({
+      ...result.items[0],
+      id,
+      dependent,
+    });
+    const sibling = ref(
+      "plsql://sample/HR/FUNCTION/CALC_OTRO",
+      "Function",
+      "CALC_OTRO",
+      "HR.FA_QFACT_CALC.CALC_OTRO",
+    );
+    const standalone = ref(
+      "plsql://sample/HR/PROCEDURE/LONE",
+      "Procedure",
+      "LONE",
+      "HR.LONE",
+    );
+    getPlsqlImpact.mockResolvedValue({
+      ...result,
+      items: [
+        itemFor(calcIvaMora, "impact://sample/a"),
+        itemFor(sibling, "impact://sample/b"),
+        itemFor(standalone, "impact://sample/c"),
+      ],
+      count: 3,
+    });
+    const { rerender } = renderPanel();
+    const table = await screen.findByRole("table", {
+      name: "Affected objects",
+    });
+    // Flat list by default: no group headers.
+    expect(
+      within(table).queryByRole("button", { name: /objects?$/ }),
+    ).toBeNull();
+
+    // Grouping re-reads the list in package order.
+    rerender(panel(true));
+    await waitFor(() =>
+      expect(getPlsqlImpact).toHaveBeenLastCalledWith(
+        "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+        expect.objectContaining({ order: "package", offset: 0 }),
+      ),
+    );
+    const grouped = await screen.findByRole("table", {
+      name: "Affected objects",
+    });
+    const header = within(grouped).getByRole("button", {
+      name: "FA_QFACT_CALC, 2 objects",
+    });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(grouped).getByRole("button", { name: "No package, 1 object" }),
+    ).toBeInTheDocument();
+    expect(within(grouped).getByText("CALC_IVA_MORA")).toBeInTheDocument();
+    expect(within(grouped).getByText("LONE")).toBeInTheDocument();
+
+    await user.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    expect(within(grouped).queryByText("CALC_IVA_MORA")).toBeNull();
+    expect(within(grouped).queryByText("CALC_OTRO")).toBeNull();
+    expect(within(grouped).getByText("LONE")).toBeInTheDocument();
+
+    await user.click(header);
+    expect(within(grouped).getByText("CALC_IVA_MORA")).toBeInTheDocument();
+
+    rerender(panel(false));
+    const flat = await screen.findByRole("table", {
+      name: "Affected objects",
+    });
+    expect(
+      within(flat).queryByRole("button", { name: /objects?$/ }),
+    ).toBeNull();
+    expect(within(flat).getByText("LONE")).toBeInTheDocument();
   });
 
   it("renders blast radius cards and the affected objects table", async () => {
@@ -181,39 +327,84 @@ describe("ImpactReport", () => {
         relationship: undefined,
         directOnly: false,
         writesOnly: false,
-        cursor: undefined,
+        offset: 0,
+        scope: "all",
+        order: "name",
+      },
+    );
+    // The totals come from their own service, with the same traversal filters.
+    expect(getPlsqlImpactSummary).toHaveBeenCalledWith(
+      "plsql://sample/HR/FUNCTION/DOCU_FIDE",
+      {
+        direction: "upstream",
+        depth: 5,
+        relationship: undefined,
+        directOnly: false,
+        writesOnly: false,
       },
     );
   });
 
-  it("sorts affected objects by distance, package, then object name", async () => {
-    const items: PlsqlImpactItem[] = [
-      {
-        id: "impact://sample/s2",
-        dependent: ref("a", "Procedure", "BETA", "HR.PKG_B.BETA"),
-        distance: 1,
-        paths: [],
-      },
-      {
-        id: "impact://sample/s1",
-        dependent: ref("b", "Procedure", "ZETA", "HR.PKG_A.ZETA"),
-        distance: 1,
-        paths: [],
-      },
-      {
-        id: "impact://sample/s4",
-        dependent: ref("c", "Trigger", "FM_GORPA_UPD", "HR.FM_GORPA_UPD"),
-        distance: 2,
-        paths: [],
-      },
-      {
-        id: "impact://sample/s3",
-        dependent: ref("d", "Procedure", "ALPHA", "HR.PKG_A.ALPHA"),
-        distance: 2,
-        paths: [],
-      },
-    ];
-    getPlsqlImpact.mockResolvedValue({ ...result, items });
+  it("keeps the rows usable when the totals fail, and retries them on their own", async () => {
+    const user = userEvent.setup();
+    getPlsqlImpact.mockResolvedValue(result);
+    getPlsqlImpactSummary
+      .mockRejectedValueOnce({ code: "analysis_unavailable" })
+      .mockResolvedValue({ object: docuFide, summary });
+    renderPanel();
+
+    const table = await screen.findByRole("table", {
+      name: "Affected objects",
+    });
+    expect(within(table).getByText("CALC_IVA_MORA")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("unavailable");
+    expect(screen.getAllByText("—").length).toBe(4);
+
+    await user.click(
+      screen.getByRole("button", { name: "Retry analysis query" }),
+    );
+    expect(await screen.findByText("74")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(getPlsqlImpact).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the totals as soon as they arrive, independent of the rows", async () => {
+    let resolveSummary!: (value: unknown) => void;
+    getPlsqlImpact.mockResolvedValue(result);
+    getPlsqlImpactSummary.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSummary = resolve;
+      }),
+    );
+    renderPanel();
+    await screen.findByRole("table", { name: "Affected objects" });
+    expect(screen.getAllByText("—").length).toBe(4);
+
+    resolveSummary({ object: docuFide, summary });
+    expect(await screen.findByText("74")).toBeInTheDocument();
+  });
+
+  it("lists affected objects in the server's alphabetical order, whatever their distance", async () => {
+    const item = (
+      id: string,
+      name: string,
+      qualified: string,
+      distance: number,
+    ): PlsqlImpactItem => ({
+      id: `impact://sample/${id}`,
+      dependent: ref(id, "Procedure", name, qualified),
+      distance,
+      paths: [],
+    });
+    getPlsqlImpact.mockResolvedValue({
+      ...result,
+      items: [
+        item("a", "ALPHA", "HR.PKG_A.ALPHA", 2),
+        item("b", "BETA", "HR.PKG_B.BETA", 1),
+        item("c", "FM_GORPA_UPD", "HR.FM_GORPA_UPD", 2),
+        item("d", "ZETA", "HR.PKG_A.ZETA", 1),
+      ],
+    });
     renderPanel();
     await screen.findByText("Blast radius");
 
@@ -222,102 +413,100 @@ describe("ImpactReport", () => {
     const names = rows.map(
       (row) => within(row).getAllByRole("cell")[0].textContent,
     );
-    expect(names).toEqual(["ZETA", "BETA", "FM_GORPA_UPD", "ALPHA"]);
+    expect(names).toEqual(["ALPHA", "BETA", "FM_GORPA_UPD", "ZETA"]);
   });
 
-  it("loads and appends the next impact page", async () => {
-    const secondItem: PlsqlImpactItem = {
+  it("navigates impact pages by number, previous and next", async () => {
+    const named = (name: string): PlsqlImpactItem => ({
       ...result.items[0],
-      id: "impact://sample/d2",
+      id: `impact://sample/${name}`,
       dependent: ref(
-        "plsql://sample/HR/FUNCTION/CALC_RETENTION",
+        `plsql://sample/HR/FUNCTION/${name}`,
         "Function",
-        "CALC_RETENTION",
-        "HR.FA_QFACT_CALC.CALC_RETENTION",
+        name,
+        `HR.${name}`,
       ),
-    };
-    getPlsqlImpact
-      .mockResolvedValueOnce({
+    });
+    getPlsqlImpact.mockImplementation(
+      async (_id: string, options: { offset?: number }) => ({
         ...result,
-        truncated: true,
-        count: 2,
-        nextCursor: "impact-page-2",
-      })
-      .mockResolvedValueOnce({
-        ...result,
-        items: [secondItem],
-        count: 2,
-        nextCursor: null,
-      });
+        items: [named(`PAGE_${(options.offset ?? 0) / 25 + 1}`)],
+        count: 60,
+      }),
+    );
     const user = userEvent.setup();
     renderPanel();
 
-    expect(await screen.findByText("Showing 1 of 2")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("PAGE_1")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–25 of 60")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
 
-    expect(await screen.findByText("CALC_RETENTION")).toBeInTheDocument();
-    expect(screen.getByText("Showing 2 of 2")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("PAGE_2")).toBeInTheDocument();
+    expect(screen.queryByText("PAGE_1")).toBeNull();
     expect(getPlsqlImpact).toHaveBeenLastCalledWith(
       "plsql://sample/HR/FUNCTION/DOCU_FIDE",
-      expect.objectContaining({ limit: 25, cursor: "impact-page-2" }),
+      expect.objectContaining({ limit: 25, offset: 25 }),
     );
+
+    await user.click(screen.getByRole("button", { name: "Go to page 3" }));
+    expect(await screen.findByText("PAGE_3")).toBeInTheDocument();
+    expect(screen.getByText("Showing 51–60 of 60")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
-  it("retains loaded rows after a failed page and retries without duplicates", async () => {
-    const first = { ...result, count: 2, truncated: true, nextCursor: "next" };
-    const extra = {
-      ...result.items[0],
-      id: "impact://sample/extra",
-      dependent: ref("extra", "Function", "EXTRA", "HR.EXTRA"),
-    };
+  it("keeps the shown page and retries only the page that failed", async () => {
     let failNext = true;
-    getPlsqlImpact.mockImplementation(async (_id, options) => {
-      if (!options.cursor) return first;
-      if (failNext) throw { code: "analysis_unavailable" };
-      return { ...result, count: 2, items: [result.items[0], extra] };
-    });
+    getPlsqlImpact.mockImplementation(
+      async (_id: string, options: { offset?: number }) => {
+        if (!options.offset) return { ...result, count: 40 };
+        if (failNext) throw { code: "analysis_unavailable" };
+        return { ...result, items: [], count: 40 };
+      },
+    );
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Load more" }));
-    const retry = await screen.findByRole("button", {
-      name: "Retry loading more",
-    });
-    expect(screen.getByText("CALC_IVA_MORA")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("Could not load more");
-    failNext = false;
-    await user.click(retry);
-    expect(await screen.findByText("Showing 2 of 2")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Next" }));
     expect(
-      screen
-        .getByRole("table", { name: "Affected objects" })
-        .querySelectorAll("tbody tr"),
-    ).toHaveLength(2);
+      await screen.findByText("Could not load this page."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("CALC_IVA_MORA")).toBeInTheDocument();
+
+    failNext = false;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Could not load this page.")).toBeNull(),
+    );
+    expect(screen.getByText("Showing 26–40 of 40")).toBeInTheDocument();
   });
 
-  it("resets the cursor and ignores a pending page when filters change", async () => {
-    let resolveNext!: (value: PlsqlImpactResult) => void;
-    getPlsqlImpact.mockImplementation(async (_id, options) => {
-      if (options.direction === "downstream")
-        return { ...result, items: [], count: 0 };
-      if (options.cursor)
-        return new Promise<PlsqlImpactResult>((resolve) => {
-          resolveNext = resolve;
-        });
-      return { ...result, count: 2, truncated: true, nextCursor: "next" };
-    });
+  it("returns to the first page and ignores a stale one when filters change", async () => {
+    let resolvePage2!: (value: PlsqlImpactResult) => void;
+    getPlsqlImpact.mockImplementation(
+      async (_id: string, options: { direction?: string; offset?: number }) => {
+        if (options.direction === "downstream")
+          return { ...result, items: [], count: 0 };
+        if (options.offset)
+          return new Promise<PlsqlImpactResult>((resolve) => {
+            resolvePage2 = resolve;
+          });
+        return { ...result, count: 40 };
+      },
+    );
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Load more" }));
+    await user.click(await screen.findByRole("button", { name: "Next" }));
     await user.selectOptions(screen.getByLabelText("Direction"), "downstream");
-    expect(await screen.findByText("Showing 0 of 0")).toBeInTheDocument();
-    resolveNext(result);
+    expect(
+      await screen.findByText("No impacted dependents"),
+    ).toBeInTheDocument();
+    resolvePage2(result);
     await waitFor(() =>
-      expect(screen.getByText("Showing 0 of 0")).toBeInTheDocument(),
+      expect(screen.getByText("No impacted dependents")).toBeInTheDocument(),
     );
     expect(getPlsqlImpact).toHaveBeenLastCalledWith(
       "plsql://sample/HR/FUNCTION/DOCU_FIDE",
-      expect.objectContaining({ direction: "downstream", cursor: undefined }),
+      expect.objectContaining({ direction: "downstream", offset: 0 }),
     );
   });
 
@@ -345,10 +534,8 @@ describe("ImpactReport", () => {
     expect(await screen.findByText("Source evidence")).toBeInTheDocument();
     expect(await screen.findByText("hr/fa_qfact_calc.pkb")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Open object" }));
-    expect(onOpenObject).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "CALC_IVA_MORA" }),
-    );
+    // Open / analyze actions live in the Inspector, not in this panel.
+    expect(screen.queryByRole("button", { name: "Open object" })).toBeNull();
 
     await userEvent.click(
       screen.getByRole("button", { name: "Open full source" }),
@@ -398,7 +585,6 @@ describe("ImpactReport", () => {
     expect(onInspectObject).toHaveBeenCalledWith(
       expect.objectContaining({ name: "DOCU_FIDE" }),
     );
-    expect(onOpenObject).not.toHaveBeenCalled();
     // Still on the same analysis: the detail stays open.
     expect(screen.getByText("Why is this affected?")).toBeInTheDocument();
 
@@ -420,26 +606,6 @@ describe("ImpactReport", () => {
     expect(onInspectPath).toHaveBeenCalledWith(
       expect.objectContaining({ id: "path://sample/p1" }),
     );
-  });
-
-  it("focuses the selected object in the graph", async () => {
-    getPlsqlImpact.mockResolvedValue(result);
-    renderPanel();
-    await selectFirstRow("CALC_IVA_MORA");
-    await screen.findByText("Why is this affected?");
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Focus in graph" }),
-    );
-    expect(
-      await screen.findByRole("img", { name: /Impact graph for/ }),
-    ).toBeInTheDocument();
-
-    const elements = addedElements(cyMock);
-    const focused = elements
-      .filter((element) => element.data.focused === "true")
-      .map((element) => element.data.id);
-    expect(focused).toEqual(["plsql://sample/HR/FUNCTION/CALC_IVA_MORA"]);
   });
 
   it("shows multiple paths and lets the user inspect them", async () => {
@@ -550,7 +716,7 @@ describe("ImpactReport", () => {
     await screen.findByText("Blast radius");
 
     // The fixture's mocked auth config sets plsqlMaxHops to 5.
-    expect(screen.getByText("Max 5 hops")).toBeInTheDocument();
+    expect(screen.getByText("max 5")).toBeInTheDocument();
     const depthField = screen.getByLabelText("Depth");
     expect(depthField).toHaveAttribute("max", "5");
 
@@ -572,13 +738,12 @@ describe("ImpactReport", () => {
       items: [],
       truncated: false,
       count: 0,
-      summary: { direct: 0, indirect: 0, packages: 0, tablesModified: 0 },
     });
     renderPanel();
     expect(
       await screen.findByText("No impacted dependents"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Showing 0 of 0")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Pagination" })).toBeNull();
   });
 
   it("retries after a failure", async () => {
@@ -594,92 +759,5 @@ describe("ImpactReport", () => {
       screen.getByRole("button", { name: "Retry analysis query" }),
     );
     expect(await screen.findByText("Blast radius")).toBeInTheDocument();
-  });
-});
-
-describe("ImpactReport graph mode", () => {
-  afterEach(() => {
-    getPlsqlImpact.mockReset();
-    onOpenEvidence.mockReset();
-    onOpenObject.mockReset();
-    onInspectObject.mockReset();
-    onInspectEdge.mockReset();
-    onInspectPath.mockReset();
-    resetCytoscapeMock(cyMock);
-  });
-
-  it("renders the changed object, affected objects, and path edges", async () => {
-    getPlsqlImpact.mockResolvedValue(result);
-    const user = userEvent.setup();
-    renderPanel();
-    await screen.findByText("Blast radius");
-    await user.click(screen.getByRole("button", { name: "Graph" }));
-
-    expect(
-      await screen.findByRole("img", { name: /Impact graph for/ }),
-    ).toBeInTheDocument();
-    const elements = addedElements(cyMock);
-    const ids = elements.map((element) => element.data.id);
-    expect(ids).toContain("plsql://sample/HR/FUNCTION/DOCU_FIDE");
-    expect(ids).toContain("plsql://sample/HR/FUNCTION/CALC_IVA_MORA");
-    const edge = elements.find(
-      (element) =>
-        element.data.id === "edge://sample/CALLS/CALC_IVA_MORA/DOCU_FIDE",
-    );
-    expect(edge?.data).toMatchObject({
-      source: "plsql://sample/HR/FUNCTION/CALC_IVA_MORA",
-      target: "plsql://sample/HR/FUNCTION/DOCU_FIDE",
-      label: "CALLS",
-    });
-  });
-
-  it("collapses routines into a package node and drills down on tap", async () => {
-    getPlsqlImpact.mockResolvedValue(result);
-    const user = userEvent.setup();
-    renderPanel();
-    await screen.findByText("Blast radius");
-    await user.click(screen.getByRole("button", { name: "Graph" }));
-    await user.click(screen.getByLabelText("Group by package"));
-
-    await waitFor(() => {
-      const elements = addedElements(cyMock);
-      expect(elements.map((element) => element.data.id)).toEqual([
-        "pkg://HR.FA_QFACT_CALC",
-      ]);
-    });
-
-    const nodeHandler = cyMock.on.mock.calls.find(
-      (call) => call[1] === "node",
-    )![2] as (event: { target: { id: () => string } }) => void;
-    act(() => {
-      nodeHandler({ target: { id: () => "pkg://HR.FA_QFACT_CALC" } });
-    });
-
-    await waitFor(() => {
-      const elements = addedElements(cyMock);
-      const ids = elements.map((element) => element.data.id);
-      expect(ids).toContain("plsql://sample/HR/FUNCTION/DOCU_FIDE");
-      expect(ids).toContain("plsql://sample/HR/FUNCTION/CALC_IVA_MORA");
-    });
-  });
-
-  it("reports member node taps through onOpenObject", async () => {
-    getPlsqlImpact.mockResolvedValue(result);
-    const user = userEvent.setup();
-    renderPanel();
-    await screen.findByText("Blast radius");
-    await user.click(screen.getByRole("button", { name: "Graph" }));
-    await waitFor(() => expect(cyMock.on).toHaveBeenCalled());
-    const nodeHandler = cyMock.on.mock.calls.find(
-      (call) => call[1] === "node",
-    )![2] as (event: { target: { id: () => string } }) => void;
-    act(() => {
-      nodeHandler({
-        target: { id: () => "plsql://sample/HR/FUNCTION/CALC_IVA_MORA" },
-      });
-    });
-    expect(onOpenObject).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "CALC_IVA_MORA" }),
-    );
   });
 });

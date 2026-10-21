@@ -15,9 +15,9 @@ describe("GET /api/config", () => {
     expect(body.plsqlMaxHops).toBe(20);
   });
 
-  it("defaults to 5 when PLSQL_MAX_HOPS is unset", async () => {
+  it("defaults to 100 when PLSQL_MAX_HOPS is unset", async () => {
     delete process.env.PLSQL_MAX_HOPS;
     const body = await GET().json();
-    expect(body.plsqlMaxHops).toBe(5);
+    expect(body.plsqlMaxHops).toBe(100);
   });
 });

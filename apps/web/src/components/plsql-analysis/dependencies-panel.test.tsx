@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithIntl as render } from "@/test/render-with-intl";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +9,6 @@ import type {
   PlsqlObjectReference,
   PlsqlPath,
 } from "@/lib/contracts";
-import { addedElements, resetCytoscapeMock } from "./cytoscape-mock";
 import { DependenciesPanel } from "./dependencies-panel";
 
 const getPlsqlDependencies = vi.hoisted(() => vi.fn());
@@ -23,17 +22,6 @@ vi.mock("./monaco-source-editor", () => ({
     <pre data-testid="monaco-source-editor">{props.value ?? ""}</pre>
   ),
 }));
-
-const cyMock = vi.hoisted(() => ({
-  on: vi.fn(),
-  destroy: vi.fn(),
-  elements: vi.fn(() => ({ remove: vi.fn() })),
-  add: vi.fn(),
-  layout: vi.fn(() => ({ run: vi.fn(), one: vi.fn() })),
-  pan: vi.fn(() => ({ x: 10, y: 20 })),
-  zoom: vi.fn(() => 1.5),
-}));
-vi.mock("cytoscape", () => ({ default: vi.fn(() => cyMock) }));
 
 const object: PlsqlObject = {
   id: "plsql://sample/HR/FUNCTION/DOCU_FIDE",
@@ -78,20 +66,12 @@ function callerSummary(): PlsqlDependencySummary {
   };
 }
 
-const emptySummary: PlsqlDependencySummary = {
-  counts: { callers: 1, callees: 0, reads: 0, writes: 0, other: 0 },
-  items: [],
-  truncated: false,
-  total: 0,
-};
-
 function renderPanel(
   overrides: {
-    onOpenObject?: (reference: PlsqlObjectReference) => void;
     onInspectObject?: (reference: PlsqlObjectReference) => void;
     onInspectEdge?: (edge: PlsqlDependency) => void;
-    onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
     onInspectPath?: (path: PlsqlPath) => void;
+    groupByPackage?: boolean;
     initialCategory?: "callers" | "callees" | "reads" | "writes" | "other";
   } = {},
 ) {
@@ -99,32 +79,31 @@ function renderPanel(
     <DependenciesPanel
       object={object}
       initialCategory={overrides.initialCategory}
+      groupByPackage={overrides.groupByPackage ?? false}
       onOpenEvidence={vi.fn()}
-      onOpenObject={overrides.onOpenObject ?? vi.fn()}
       onInspectObject={overrides.onInspectObject ?? vi.fn()}
       onInspectEdge={overrides.onInspectEdge}
-      onAnalyzeObject={overrides.onAnalyzeObject}
       onInspectPath={overrides.onInspectPath}
     />,
   );
 }
 
-describe("DependenciesPanel graph mode", () => {
+describe("DependenciesPanel categories", () => {
   afterEach(() => {
     vi.clearAllMocks();
     getPlsqlDependencies.mockReset();
     getPlsqlFileSource.mockReset();
-    resetCytoscapeMock(cyMock);
   });
 
-  it("starts in list mode with category chips", async () => {
+  it("lists the categories as chips with their counts", async () => {
     getPlsqlDependencies.mockResolvedValue(callerSummary());
     renderPanel();
     expect(
       await screen.findByRole("button", { name: /Callers 1/ }),
     ).toBeInTheDocument();
+    // The list is the only view: there is no graph toggle.
     expect(
-      screen.queryByRole("button", { name: /One level/ }),
+      screen.queryByRole("button", { name: "Graph" }),
     ).not.toBeInTheDocument();
   });
 
@@ -139,119 +118,27 @@ describe("DependenciesPanel graph mode", () => {
     expect(
       await screen.findByRole("button", { name: /Reads 3/ }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(getPlsqlDependencies).toHaveBeenCalledWith(object.id, "reads");
-  });
-
-  it("shows only the focused object when graph mode opens without expansions", async () => {
-    getPlsqlDependencies.mockResolvedValue(callerSummary());
-    const user = userEvent.setup();
-    renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Graph" }));
-    expect(
-      await screen.findByRole("img", { name: /Dependency graph for/ }),
-    ).toBeInTheDocument();
-    const elements = addedElements(cyMock);
-    expect(elements).toHaveLength(1);
-    expect(elements[0].data).toMatchObject({
-      id: object.id,
-      focused: "true",
+    expect(getPlsqlDependencies).toHaveBeenCalledWith(object.id, "reads", {
+      limit: 25,
+      offset: 0,
+      order: "name",
     });
-    expect(screen.getByText(/Expand a category/)).toBeInTheDocument();
   });
 
-  it("renders foreign keys under Other in the list and graph", async () => {
+  it("renders foreign keys under Other", async () => {
     const summary = callerSummary();
     summary.counts = { callers: 0, callees: 0, reads: 0, writes: 0, other: 1 };
     summary.items[0].relationship = "FOREIGN_KEY";
     summary.items[0].source.kind = "Table";
     summary.items[0].target.kind = "Table";
     getPlsqlDependencies.mockResolvedValue(summary);
-    const user = userEvent.setup();
     renderPanel({ initialCategory: "other" });
     expect(await screen.findByText("FOREIGN_KEY")).toBeInTheDocument();
-    expect(getPlsqlDependencies).toHaveBeenCalledWith(object.id, "other");
-    await user.click(screen.getByRole("button", { name: "Graph" }));
-    await user.click(screen.getByRole("button", { name: /Other 1/ }));
-    await waitFor(() =>
-      expect(addedElements(cyMock)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            data: expect.objectContaining({
-              label: "FOREIGN_KEY",
-              source: summary.items[0].source.id,
-              target: summary.items[0].target.id,
-            }),
-          }),
-        ]),
-      ),
-    );
-  });
-
-  it("expands a category explicitly and draws its edges", async () => {
-    getPlsqlDependencies.mockResolvedValue(callerSummary());
-    const user = userEvent.setup();
-    renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Graph" }));
-    await user.click(await screen.findByRole("button", { name: /Callers 1/ }));
-    await waitFor(() =>
-      expect(getPlsqlDependencies).toHaveBeenCalledWith(object.id, "callers"),
-    );
-    await waitFor(() => {
-      const elements = addedElements(cyMock);
-      expect(elements).toHaveLength(3);
-      const edge = elements[2].data;
-      expect(edge).toMatchObject({
-        id: "edge://sample/CALLS/1",
-        source: "plsql://sample/HR/FUNCTION/CALC_IVA_MORA",
-        target: object.id,
-        label: "CALLS",
-      });
+    expect(getPlsqlDependencies).toHaveBeenCalledWith(object.id, "other", {
+      limit: 25,
+      offset: 0,
+      order: "name",
     });
-  });
-
-  it("expands every category with One level", async () => {
-    getPlsqlDependencies.mockResolvedValue(emptySummary);
-    const user = userEvent.setup();
-    renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Graph" }));
-    await user.click(screen.getByRole("button", { name: /One level/ }));
-    await waitFor(() => expect(getPlsqlDependencies).toHaveBeenCalledTimes(5));
-    for (const category of ["callers", "callees", "reads", "writes", "other"]) {
-      expect(getPlsqlDependencies).toHaveBeenCalledWith(object.id, category);
-    }
-  });
-
-  it("reports node taps through onOpenObject", async () => {
-    const onOpenObject = vi.fn();
-    getPlsqlDependencies.mockResolvedValue(callerSummary());
-    const user = userEvent.setup();
-    renderPanel({ onOpenObject });
-    await user.click(await screen.findByRole("button", { name: "Graph" }));
-    await user.click(await screen.findByRole("button", { name: /Callers 1/ }));
-    await waitFor(() => expect(cyMock.on).toHaveBeenCalled());
-    const nodeHandler = cyMock.on.mock.calls.find(
-      (call) => call[1] === "node",
-    )![2] as (event: { target: { id: () => string } }) => void;
-    nodeHandler({
-      target: { id: () => "plsql://sample/HR/FUNCTION/CALC_IVA_MORA" },
-    });
-    expect(onOpenObject).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "CALC_IVA_MORA" }),
-    );
-  });
-
-  it("shows the shared error panel when a graph fetch fails", async () => {
-    getPlsqlDependencies.mockResolvedValueOnce(emptySummary);
-    getPlsqlDependencies.mockRejectedValueOnce({
-      code: "analysis_unavailable",
-    });
-    const user = userEvent.setup();
-    renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Graph" }));
-    await user.click(screen.getByRole("button", { name: /Callees/ }));
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("unavailable"),
-    );
   });
 });
 
@@ -260,7 +147,6 @@ describe("DependenciesPanel results table", () => {
     vi.clearAllMocks();
     getPlsqlDependencies.mockReset();
     getPlsqlFileSource.mockReset();
-    resetCytoscapeMock(cyMock);
   });
 
   it("renders a compact row: the other object, relationship, resolution and source", async () => {
@@ -268,6 +154,7 @@ describe("DependenciesPanel results table", () => {
     renderPanel();
     const table = await screen.findByRole("table");
     expect(within(table).getByText("Related object")).toBeInTheDocument();
+    expect(within(table).getByText("Package")).toBeInTheDocument();
     expect(within(table).getByText("Relationship")).toBeInTheDocument();
     expect(within(table).getByText("Resolution")).toBeInTheDocument();
     expect(within(table).getByText("Evidence")).toBeInTheDocument();
@@ -279,6 +166,56 @@ describe("DependenciesPanel results table", () => {
     expect(within(table).getByText("Resolved")).toBeInTheDocument();
     const name = within(table).getByText("CALC_IVA_MORA");
     expect(name).toHaveAttribute("title", "HR.FA_QFACT_CALC.CALC_IVA_MORA");
+  });
+
+  it("files the rows under collapsible package headers when grouping is on", async () => {
+    const summary = callerSummary();
+    const standalone = {
+      ...summary.items[0],
+      id: "edge://sample/CALLS/2",
+      source: {
+        id: "plsql://sample/HR/PROCEDURE/LONE",
+        kind: "Procedure" as const,
+        name: "LONE",
+        schema: "HR",
+        qualifiedName: "HR.LONE",
+      },
+    };
+    summary.items = [...summary.items, standalone];
+    summary.counts = { ...summary.counts, callers: 2 };
+    getPlsqlDependencies.mockResolvedValue(summary);
+    const user = userEvent.setup();
+    const { rerender } = renderPanel();
+    const table = await screen.findByRole("table");
+    expect(
+      within(table).queryByRole("button", { name: /objects?$/ }),
+    ).toBeNull();
+
+    rerender(
+      <DependenciesPanel
+        object={object}
+        groupByPackage
+        onOpenEvidence={vi.fn()}
+        onInspectObject={vi.fn()}
+      />,
+    );
+    const grouped = await screen.findByRole("table");
+    expect(getPlsqlDependencies).toHaveBeenLastCalledWith(
+      object.id,
+      "callers",
+      { limit: 25, offset: 0, order: "package" },
+    );
+    const header = within(grouped).getByRole("button", {
+      name: "FA_QFACT_CALC, 1 object",
+    });
+    expect(
+      within(grouped).getByRole("button", { name: "No package, 1 object" }),
+    ).toBeInTheDocument();
+    expect(within(grouped).getByText("CALC_IVA_MORA")).toBeInTheDocument();
+
+    await user.click(header);
+    expect(within(grouped).queryByText("CALC_IVA_MORA")).toBeNull();
+    expect(within(grouped).getByText("LONE")).toBeInTheDocument();
   });
 
   it("selects the dependency and shows it inline when its Evidence link is clicked", async () => {
@@ -308,8 +245,8 @@ describe("DependenciesPanel results table", () => {
     render(
       <DependenciesPanel
         object={object}
+        groupByPackage={false}
         onOpenEvidence={onOpenEvidence}
-        onOpenObject={vi.fn()}
         onInspectObject={vi.fn()}
       />,
     );
@@ -329,7 +266,6 @@ describe("DependenciesPanel selected dependency", () => {
     vi.restoreAllMocks();
     getPlsqlDependencies.mockReset();
     getPlsqlFileSource.mockReset();
-    resetCytoscapeMock(cyMock);
   });
 
   it("opens a selected-dependency split when a row is selected", async () => {
@@ -378,14 +314,71 @@ describe("DependenciesPanel selected dependency", () => {
     expect(screen.queryByText("Selected dependency")).not.toBeInTheDocument();
   });
 
+  it("shows one row for an object called on several lines and lets each line be inspected", async () => {
+    const coordinate = (startLine: number) => ({
+      sourceFileId: "file://sample/hr/fa_qfact_calc.pkb",
+      path: "hr/fa_qfact_calc.pkb",
+      startLine,
+      startColumn: 1,
+      startOffset: startLine * 10,
+      endOffset: startLine * 10 + 5,
+    });
+    const callers = callerSummary();
+    callers.items[0] = {
+      ...callers.items[0],
+      evidence: coordinate(1496),
+      occurrences: [coordinate(1496), coordinate(1576)],
+      occurrenceCount: 2,
+    };
+    getPlsqlDependencies.mockResolvedValue(callers);
+    getPlsqlFileSource.mockResolvedValue({
+      file: {
+        fileId: "file://sample/hr/fa_qfact_calc.pkb",
+        path: "hr/fa_qfact_calc.pkb",
+      },
+      lines: ["  DOCU_FIDE(...);"],
+      highlight: { startLine: 1496, endLine: 1496 },
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getAllByText("CALC_IVA_MORA")).toHaveLength(1);
+    expect(
+      within(table).getByText("2 times · lines 1496, 1576"),
+    ).toBeInTheDocument();
+
+    await user.click(within(table).getByText("CALC_IVA_MORA"));
+    const group = await screen.findByRole("group", { name: "Occurrences" });
+    expect(
+      within(group).getByRole("button", { name: "line 1496" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() =>
+      expect(getPlsqlFileSource).toHaveBeenCalledWith(
+        "file://sample/hr/fa_qfact_calc.pkb",
+        { startLine: 1496, endLine: 1496 },
+      ),
+    );
+
+    await user.click(within(group).getByRole("button", { name: "line 1576" }));
+    expect(
+      within(group).getByRole("button", { name: "line 1576" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() =>
+      expect(getPlsqlFileSource).toHaveBeenCalledWith(
+        "file://sample/hr/fa_qfact_calc.pkb",
+        { startLine: 1576, endLine: 1576 },
+      ),
+    );
+  });
+
   it("inspects the trail's node and relationship in place, without navigating", async () => {
     const callers = callerSummary();
     getPlsqlDependencies.mockResolvedValue(callers);
-    const onOpenObject = vi.fn();
     const onInspectObject = vi.fn();
     const onInspectEdge = vi.fn();
     const user = userEvent.setup();
-    renderPanel({ onOpenObject, onInspectObject, onInspectEdge });
+    renderPanel({ onInspectObject, onInspectEdge });
     await user.click(await screen.findByText("CALC_IVA_MORA"));
     expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
 
@@ -395,7 +388,6 @@ describe("DependenciesPanel selected dependency", () => {
     expect(onInspectObject).toHaveBeenCalledWith(
       expect.objectContaining({ name: "CALC_IVA_MORA" }),
     );
-    expect(onOpenObject).not.toHaveBeenCalled();
     // The panel is untouched by the inspect: still on Callers, split still open.
     expect(screen.getByRole("button", { name: /Callers 1/ })).toHaveAttribute(
       "aria-pressed",
@@ -409,33 +401,9 @@ describe("DependenciesPanel selected dependency", () => {
     );
   });
 
-  it("opens the split view from a graph edge tap", async () => {
-    const callers = callerSummary();
-    callers.items[0] = { ...callers.items[0], evidence: null };
-    getPlsqlDependencies.mockResolvedValue(callers);
-    getPlsqlFileSource.mockResolvedValue(null);
-    const user = userEvent.setup();
-    renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Graph" }));
-    await user.click(await screen.findByRole("button", { name: /Callers 1/ }));
-    await waitFor(() => expect(cyMock.on).toHaveBeenCalled());
-    const edgeHandler = cyMock.on.mock.calls.find(
-      (call) => call[1] === "edge",
-    )![2] as (event: { target: { id: () => string } }) => void;
-    act(() => {
-      edgeHandler({ target: { id: () => "edge://sample/CALLS/1" } });
-    });
-    expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
-    expect(
-      screen.getByText("No source evidence available for this dependency."),
-    ).toBeInTheDocument();
-  });
-
-  it("provides Open object, Analyze impact, View full path and Copy qualified name actions", async () => {
+  it("provides View full path and Copy qualified name actions (open and analyze live in the Inspector)", async () => {
     const callers = callerSummary();
     getPlsqlDependencies.mockResolvedValue(callers);
-    const onOpenObject = vi.fn();
-    const onAnalyzeObject = vi.fn();
     const onInspectPath = vi.fn();
     const user = userEvent.setup();
     // userEvent.setup() attaches its own clipboard stub to navigator; spy on
@@ -443,21 +411,12 @@ describe("DependenciesPanel selected dependency", () => {
     const writeText = vi
       .spyOn(navigator.clipboard, "writeText")
       .mockResolvedValue(undefined);
-    renderPanel({ onOpenObject, onAnalyzeObject, onInspectPath });
+    renderPanel({ onInspectPath });
     await user.click(await screen.findByText("CALC_IVA_MORA"));
     await screen.findByText("Selected dependency");
 
-    await user.click(screen.getByRole("button", { name: "Open object" }));
-    expect(onOpenObject).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "CALC_IVA_MORA" }),
-    );
-
-    await user.click(
-      screen.getByRole("button", { name: "Analyze impact for CALC_IVA_MORA" }),
-    );
-    expect(onAnalyzeObject).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "CALC_IVA_MORA" }),
-    );
+    expect(screen.queryByRole("button", { name: "Open object" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Analyze impact/ })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "View full path" }));
     expect(onInspectPath).toHaveBeenCalledWith(

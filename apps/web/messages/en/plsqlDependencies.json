@@ -9,19 +9,14 @@
   "panel": {
     "ariaLabel": "Dependencies",
     "categoryGroup": "Dependency category",
-    "graphExpansion": "Graph expansion",
-    "oneLevel": "One level",
     "loading": "Loading dependencies…",
-    "graphLabel": "Dependency graph for {name}",
-    "expandHint": "Expand a category to explore the neighborhood of {name}.",
     "resultsHeading": "Dependency results",
-    "truncated": "Results truncated",
     "tableLabel": "{category} results",
-    "fallbackCategory": "Dependency",
     "empty": "No matching dependencies"
   },
   "columns": {
     "relatedObject": "Related object",
+    "package": "Package",
     "relationship": "Relationship",
     "resolution": "Resolution",
     "evidence": "Evidence"
@@ -29,13 +24,7 @@
   "selected": {
     "title": "Selected dependency",
     "close": "Close selected dependency",
-    "openObject": "Open object",
-    "analyzeImpact": "Analyze impact",
-    "analyzeImpactFor": "Analyze impact for {name}",
     "viewFullPath": "View full path",
-    "copied": "Copied",
-    "copyQualifiedName": "Copy qualified name",
-    "copiedAnnouncement": "Qualified name copied to clipboard.",
     "sourceEvidence": "Source evidence",
     "noEvidence": "No source evidence available for this dependency."
   },
@@ -61,18 +50,37 @@
     "schema": "Schema",
     "qualifiedName": "Qualified name",
     "package": "Package",
-    "file": "File",
-    "startLine": "Start line",
-    "endOffset": "End offset",
-    "dependencyEdge": "Dependency edge",
+    "dependencyEdge": "Dependency",
     "from": "From",
     "to": "To",
     "relationship": "Relationship",
     "evidence": "Evidence",
     "none": "None",
     "dependencyPath": "Dependency path",
-    "hops": "Hops",
     "hopCount": "{count, plural, one {# hop} other {# hops}}",
-    "fullPath": "Full path"
+    "fullPath": "Full path",
+    "verbs": {
+      "CALLS": "calls",
+      "READS": "reads from",
+      "WRITES": "writes to",
+      "VIEW_DEPENDS_ON": "is a view that depends on",
+      "FOREIGN_KEY": "references (foreign key)",
+      "TRIGGER_ON": "is a trigger on",
+      "TRIGGERS": "triggers",
+      "INDEXES": "indexes",
+      "SYNONYM_FOR": "is a synonym for",
+      "DECLARES": "declares",
+      "CONTAINS": "contains"
+    },
+    "step": "Step {number}",
+    "occurrences": "{count, plural, one {# occurrence} other {# occurrences}}",
+    "line": "line {line}",
+    "declaration": "Declaration",
+    "copy": "Copy qualified name",
+    "copied": "Copied",
+    "openObject": "Open object",
+    "analyzeImpact": "Analyze impact",
+    "analyzeImpactFor": "Analyze impact for {name}",
+    "inspected": "In details"
   }
 }

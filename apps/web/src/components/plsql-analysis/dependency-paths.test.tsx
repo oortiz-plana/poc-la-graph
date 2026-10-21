@@ -129,8 +129,6 @@ describe("DependencyPathsSection selected path", () => {
           onOpenEvidence={onOpenEvidence}
           onInspectPath={vi.fn()}
           onInspectEdge={vi.fn()}
-          onOpenObject={vi.fn()}
-          onAnalyzeObject={vi.fn()}
         />
       </SWRConfig>,
     );
@@ -222,7 +220,7 @@ describe("DependencyPathsSection selected path", () => {
     );
   });
 
-  it("loads and appends the next dependency-path page", async () => {
+  it("navigates dependency-path pages", async () => {
     const user = userEvent.setup();
     render(
       <SWRConfig value={{ provider: () => new Map() }}>
@@ -242,29 +240,32 @@ describe("DependencyPathsSection selected path", () => {
     await user.click(
       await screen.findByRole("option", { name: /RUN_PAYROLL/ }),
     );
-    findPlsqlPaths
-      .mockResolvedValueOnce({
-        items: [twoHopPath],
-        truncated: true,
-        count: 2,
-        nextCursor: "paths-page-2",
-      })
-      .mockResolvedValueOnce({
-        items: [{ ...twoHopPath, id: "path://sample/second" }],
-        truncated: false,
-        count: 2,
+    findPlsqlPaths.mockImplementation(
+      async (_from: string, _to: string, options: { offset?: number }) => ({
+        items: [
+          {
+            ...twoHopPath,
+            id: options.offset ? "path://sample/second" : twoHopPath.id,
+          },
+        ],
+        truncated: !options.offset,
+        count: 30,
         nextCursor: null,
-      });
+      }),
+    );
 
     await user.click(screen.getByRole("button", { name: "Find paths" }));
-    expect(await screen.findByText("Showing 1 of 2")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("Showing 1–25 of 30")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(await screen.findByText("Showing 2 of 2")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(await screen.findByText("Showing 26–30 of 30")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
     expect(findPlsqlPaths).toHaveBeenLastCalledWith(trigger.id, runPayroll.id, {
       limit: 25,
-      cursor: "paths-page-2",
+      offset: 25,
     });
+
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(await screen.findByText("Showing 1–25 of 30")).toBeInTheDocument();
   });
 });

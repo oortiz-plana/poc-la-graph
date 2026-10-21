@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { renderWithIntl as render } from "@/test/render-with-intl";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceShell } from "./workspace-shell";
 
 function renderShell(hasInspection = true) {
@@ -106,7 +106,7 @@ describe("WorkspaceShell", () => {
   it("opens the Explorer and Inspector drawers from the toolbar", async () => {
     const user = userEvent.setup();
     renderShell();
-    await user.click(screen.getByRole("button", { name: "Objects" }));
+    await user.click(screen.getByRole("button", { name: "Browse objects" }));
     expect(
       screen.getByRole("dialog", { name: "Object Explorer" }),
     ).toBeInTheDocument();
@@ -128,7 +128,7 @@ describe("WorkspaceShell", () => {
         <p>main-content</p>
       </WorkspaceShell>,
     );
-    await user.click(screen.getByRole("button", { name: "Objects" }));
+    await user.click(screen.getByRole("button", { name: "Browse objects" }));
     // Scoped to the open drawer: a hidden (CSS-only) docked copy also exists
     // in the DOM, since the drawer's content stays mounted once opened.
     const drawerInput = within(
@@ -139,7 +139,7 @@ describe("WorkspaceShell", () => {
     // The input itself never unmounted (kept alive via forceMount), so its
     // value survives the close, even though the dialog role goes away.
     expect(drawerInput).toHaveValue("fa_qfact");
-    await user.click(screen.getByRole("button", { name: "Objects" }));
+    await user.click(screen.getByRole("button", { name: "Browse objects" }));
     expect(drawerInput).toHaveValue("fa_qfact");
   });
 
@@ -157,9 +157,10 @@ describe("WorkspaceShell", () => {
       "lg:block",
     );
     expect(screen.getByLabelText("Inspector").className).toContain("xl:block");
-    expect(screen.getByRole("button", { name: "Objects" }).className).toContain(
-      "lg:hidden",
-    );
+    // The Browse objects button is the always-visible way back to the Explorer.
+    expect(
+      screen.getByRole("button", { name: "Browse objects" }).className,
+    ).not.toContain("hidden");
     expect(
       screen.getByRole("button", { name: "Inspector" }).className,
     ).toContain("xl:hidden");
@@ -179,7 +180,7 @@ describe("WorkspaceShell", () => {
   it("shows a visible drawer title that leaves room for the close button", async () => {
     const user = userEvent.setup();
     renderShell();
-    await user.click(screen.getByRole("button", { name: "Objects" }));
+    await user.click(screen.getByRole("button", { name: "Browse objects" }));
     const drawer = screen.getByRole("dialog", { name: "Object Explorer" });
     const title = within(drawer).getByText("Object Explorer");
     expect(title.className).not.toContain("sr-only");
@@ -189,7 +190,7 @@ describe("WorkspaceShell", () => {
   it("returns focus to the Objects button when the drawer is dismissed", async () => {
     const user = userEvent.setup();
     renderShell();
-    const objects = screen.getByRole("button", { name: "Objects" });
+    const objects = screen.getByRole("button", { name: "Browse objects" });
     await user.click(objects);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(objects).toHaveFocus());
@@ -210,7 +211,7 @@ describe("WorkspaceShell", () => {
         <p>main-content</p>
       </WorkspaceShell>,
     );
-    await user.click(screen.getByRole("button", { name: "Objects" }));
+    await user.click(screen.getByRole("button", { name: "Browse objects" }));
     const drawer = screen.getByRole("dialog", { name: "Object Explorer" });
     await user.click(
       within(drawer).getByRole("button", { name: "pick-object" }),
@@ -239,5 +240,84 @@ describe("WorkspaceShell", () => {
     expect(
       screen.getByRole("dialog", { name: "Object Explorer" }),
     ).toBeInTheDocument();
+  });
+
+  describe("Browse objects", () => {
+    afterEach(() => {
+      Reflect.deleteProperty(window, "matchMedia");
+    });
+
+    function stubDocked(docked: boolean) {
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: docked,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+    }
+
+    it("resets the view and opens the Explorer drawer when it is not docked", async () => {
+      stubDocked(false);
+      const user = userEvent.setup();
+      const onExplore = vi.fn();
+      render(
+        <WorkspaceShell
+          explorer={() => <input type="search" aria-label="Explorer search" />}
+          inspector={<p>inspector-content</p>}
+          hasInspection={false}
+          onExplore={onExplore}
+        >
+          <p>main-content</p>
+        </WorkspaceShell>,
+      );
+      await user.click(screen.getByRole("button", { name: "Browse objects" }));
+      expect(onExplore).toHaveBeenCalledTimes(1);
+      const drawer = screen.getByRole("dialog", { name: "Object Explorer" });
+      await waitFor(() =>
+        expect(within(drawer).getByLabelText("Explorer search")).toHaveFocus(),
+      );
+    });
+
+    it("expands a collapsed docked Explorer and focuses its search", async () => {
+      stubDocked(true);
+      const user = userEvent.setup();
+      const onExplore = vi.fn();
+      render(
+        <WorkspaceShell
+          explorer={({ collapseDocked }) => (
+            <>
+              <input type="search" aria-label="Explorer search" />
+              <button type="button" onClick={collapseDocked}>
+                pick-object
+              </button>
+            </>
+          )}
+          inspector={<p>inspector-content</p>}
+          hasInspection={false}
+          onExplore={onExplore}
+        >
+          <p>main-content</p>
+        </WorkspaceShell>,
+      );
+      const pane = () =>
+        collapsibleAncestor(screen.getByLabelText("Object Explorer"));
+      expect(pane()).toHaveAttribute("data-state", "expanded");
+
+      // Picking an object folds the docked pane away...
+      await user.click(screen.getByRole("button", { name: "pick-object" }));
+      expect(pane()).toHaveAttribute("data-state", "collapsed");
+
+      // ...and Browse objects brings it back, ready for typing.
+      await user.click(screen.getByRole("button", { name: "Browse objects" }));
+      expect(onExplore).toHaveBeenCalledTimes(1);
+      expect(pane()).toHaveAttribute("data-state", "expanded");
+      await waitFor(() =>
+        expect(screen.getByLabelText("Explorer search")).toHaveFocus(),
+      );
+    });
   });
 });

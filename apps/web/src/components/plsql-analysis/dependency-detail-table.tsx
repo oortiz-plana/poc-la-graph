@@ -2,6 +2,12 @@
 
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import {
+  groupByPackage,
+  groupDomKey,
+  PackageGroupHeader,
+  useCollapsedGroups,
+} from "./package-grouping";
 
 export type DetailTableColumn<T> = {
   header: string;
@@ -24,6 +30,7 @@ export function DependencyDetailTable<T>({
   onSelectRow,
   emptyMessage,
   bordered = true,
+  groupKey,
 }: {
   ariaLabel: string;
   columns: DetailTableColumn<T>[];
@@ -36,7 +43,10 @@ export function DependencyDetailTable<T>({
    * + background), e.g. a section with its own header, so the table doesn't
    * nest a second box inside it. */
   bordered?: boolean;
+  /** When set, rows are grouped under collapsible package headers by this key. */
+  groupKey?: (row: T) => string | undefined;
 }) {
+  const collapsedGroups = useCollapsedGroups();
   if (rows.length === 0) {
     return (
       <p
@@ -49,6 +59,23 @@ export function DependencyDetailTable<T>({
       </p>
     );
   }
+  const renderRow = (row: T) => {
+    const rowId = getRowId(row);
+    return (
+      <DetailTableRow
+        key={rowId}
+        rowId={rowId}
+        columns={columns}
+        row={row}
+        selected={rowId === selectedId}
+        onSelect={() => onSelectRow(row)}
+        onSelectId={(id) => {
+          const target = rows.find((candidate) => getRowId(candidate) === id);
+          if (target) onSelectRow(target);
+        }}
+      />
+    );
+  };
   return (
     <div
       className={cn(
@@ -73,27 +100,28 @@ export function DependencyDetailTable<T>({
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y">
-          {rows.map((row) => {
-            const rowId = getRowId(row);
+        {groupKey ? (
+          groupByPackage(rows, groupKey).map((group) => {
+            const collapsed = collapsedGroups.isCollapsed(group.packageName);
             return (
-              <DetailTableRow
-                key={rowId}
-                rowId={rowId}
-                columns={columns}
-                row={row}
-                selected={rowId === selectedId}
-                onSelect={() => onSelectRow(row)}
-                onSelectId={(id) => {
-                  const target = rows.find(
-                    (candidate) => getRowId(candidate) === id,
-                  );
-                  if (target) onSelectRow(target);
-                }}
-              />
+              <tbody
+                key={groupDomKey(group.packageName)}
+                className="divide-y border-t"
+              >
+                <PackageGroupHeader
+                  packageName={group.packageName}
+                  count={group.items.length}
+                  collapsed={collapsed}
+                  colSpan={columns.length}
+                  onToggle={() => collapsedGroups.toggle(group.packageName)}
+                />
+                {!collapsed && group.items.map(renderRow)}
+              </tbody>
             );
-          })}
-        </tbody>
+          })
+        ) : (
+          <tbody className="divide-y">{rows.map(renderRow)}</tbody>
+        )}
       </table>
     </div>
   );
@@ -120,10 +148,12 @@ function DetailTableRow<T>({
       onSelect();
       return;
     }
+    // Every data row of the table (group headers excluded), so arrow keys
+    // also cross package groups.
     const siblingRows = Array.from(
-      event.currentTarget.parentElement?.querySelectorAll<HTMLTableRowElement>(
-        "tr",
-      ) ?? [],
+      event.currentTarget
+        .closest("table")
+        ?.querySelectorAll<HTMLTableRowElement>("tr[data-row-id]") ?? [],
     );
     const current = siblingRows.indexOf(event.currentTarget);
     let next = -1;

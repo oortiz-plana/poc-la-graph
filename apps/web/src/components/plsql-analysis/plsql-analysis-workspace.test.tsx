@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   getPlsqlObjectSource: vi.fn(),
   getPlsqlFileSource: vi.fn(),
   getPlsqlImpact: vi.fn(),
+  getPlsqlImpactSummary: vi.fn(),
   getPlsqlOverview: vi.fn(),
   getPlsqlHealth: vi.fn(),
 }));
@@ -139,7 +140,6 @@ function emptyImpactResult(): PlsqlImpactResult {
     truncated: false,
     count: 0,
     nextCursor: null,
-    summary: { direct: 0, indirect: 0, packages: 0, tablesModified: 0 },
   };
 }
 
@@ -208,6 +208,10 @@ describe("PlsqlAnalysisWorkspace", () => {
       truncated: false,
     });
     mocks.getPlsqlImpact.mockResolvedValue(emptyImpactResult());
+    mocks.getPlsqlImpactSummary.mockResolvedValue({
+      object: emptyImpactResult().object,
+      summary: { direct: 0, indirect: 0, packages: 0, tablesModified: 0 },
+    });
     mocks.getPlsqlOverview.mockResolvedValue({
       object: referenceFixture(
         functionObject.id,
@@ -241,7 +245,9 @@ describe("PlsqlAnalysisWorkspace", () => {
     // The Inspector is contextual: nothing is selected yet, so it doesn't
     // reserve any space.
     expect(screen.queryByLabelText("Inspector")).not.toBeInTheDocument();
-    expect(screen.getByText("No object selected")).toBeInTheDocument();
+    expect(
+      screen.getByText("What you can do with an object"),
+    ).toBeInTheDocument();
     expect(mocks.getPlsqlDependencies).not.toHaveBeenCalled();
   });
 
@@ -323,7 +329,6 @@ describe("PlsqlAnalysisWorkspace", () => {
       ],
       truncated: false,
       count: 1,
-      summary: { direct: 1, indirect: 0, packages: 1, tablesModified: 0 },
     });
     mocks.getPlsqlDependencies.mockResolvedValue({
       counts: { callers: 0, callees: 2, reads: 0, writes: 0, other: 0 },
@@ -358,8 +363,16 @@ describe("PlsqlAnalysisWorkspace", () => {
     // column also shows "line 12", so there are two.)
     expect(screen.getAllByText("line 12").length).toBeGreaterThan(0);
 
+    // Clicking a stop of the trail shows that object in the Inspector, which
+    // is where "Analyze impact" lives and acts on the object it shows.
     await user.click(
-      screen.getByRole("button", { name: "Analyze impact for RUN_PAYROLL" }),
+      screen.getByRole("button", { name: "HR.PKG_PAYROLL.RUN_PAYROLL" }),
+    );
+    const inspector = screen.getByLabelText("Inspector");
+    await user.click(
+      within(inspector).getByRole("button", {
+        name: "Analyze impact for RUN_PAYROLL",
+      }),
     );
     expect(
       await screen.findByRole("heading", { name: "RUN_PAYROLL" }),
@@ -432,6 +445,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(mocks.getPlsqlDependencies).toHaveBeenCalledWith(
       functionObject.id,
       "callers",
+      { limit: 25, offset: 0, order: "name" },
     );
     expect(
       await screen.findByRole("button", { name: /Callers 1/ }),
@@ -446,8 +460,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       "title",
       "Confidence: INFERRED",
     );
-    const sourceLink = screen.getByText("line 34");
-    expect(sourceLink).toBeInTheDocument();
+    const sourceLink = screen.getByRole("button", { name: "line 34" });
     expect(sourceLink).toHaveAttribute("title", "hr/pkg_payroll.pkb:34");
   });
 
@@ -509,7 +522,7 @@ describe("PlsqlAnalysisWorkspace", () => {
 
     // The relationship line inspects the edge the same way.
     await user.click(screen.getByRole("button", { name: "CALLS" }));
-    expect(within(inspector).getByText("Dependency edge")).toBeInTheDocument();
+    expect(within(inspector).getByText("Dependency")).toBeInTheDocument();
   });
 
   it("switches category chips and refetches the selected list", async () => {
@@ -563,12 +576,13 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(mocks.getPlsqlDependencies).toHaveBeenLastCalledWith(
       functionObject.id,
       "reads",
+      { limit: 25, offset: 0, order: "name" },
     );
     const table = await screen.findByRole("table");
     await waitFor(() => {
       expect(within(table).getByText("EMPLOYEES")).toBeInTheDocument();
     });
-    expect(screen.getByText("Results truncated")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–1 of 1")).toBeInTheDocument();
   });
 
   it("retries a failed dependencies query independently", async () => {
@@ -668,7 +682,6 @@ describe("PlsqlAnalysisWorkspace", () => {
       ],
       truncated: false,
       count: 1,
-      summary: { direct: 1, indirect: 0, packages: 1, tablesModified: 0 },
     });
     mocks.getPlsqlFileSource.mockResolvedValue({
       file: {
@@ -705,7 +718,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(screen.getAllByText("line 12").length).toBeGreaterThan(0);
   });
 
-  it("shows the empty impact state and result count", async () => {
+  it("shows the empty impact state without page navigation", async () => {
     const user = userEvent.setup();
     mocks.getPlsqlImpact.mockResolvedValue({
       ...emptyImpactResult(),
@@ -721,7 +734,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       await screen.findByText("No impacted dependents"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Showing 0 of 0")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Pagination" })).toBeNull();
   });
 
   it(
@@ -803,9 +816,7 @@ describe("PlsqlAnalysisWorkspace", () => {
 
       // Clicking the relationship line inspects the edge the same way.
       await user.click(screen.getByRole("button", { name: "CALLS" }));
-      expect(
-        within(inspector).getByText("Dependency edge"),
-      ).toBeInTheDocument();
+      expect(within(inspector).getByText("Dependency")).toBeInTheDocument();
 
       // Re-inspect the object, then jump to its Overview from the Inspector.
       await user.click(
@@ -888,7 +899,11 @@ describe("PlsqlAnalysisWorkspace", () => {
       await screen.findByRole("heading", { name: "Analysis Health" }),
     ).toBeInTheDocument();
     await waitFor(() =>
-      expect(mocks.getPlsqlHealth).toHaveBeenCalledWith(functionObject.id),
+      expect(mocks.getPlsqlHealth).toHaveBeenCalledWith(functionObject.id, {
+        category: "unresolved",
+        limit: 25,
+        offset: 0,
+      }),
     );
     expect(await screen.findByText("Unresolved")).toBeInTheDocument();
     expect(
@@ -973,7 +988,10 @@ describe("PlsqlAnalysisWorkspace", () => {
       "true",
     );
     expect(await screen.findByText("Selected dependency")).toBeInTheDocument();
-    expect(await screen.findByText("hr/pkg_payroll.pkb")).toBeInTheDocument();
+    // The file shows in the source panel header and in the Inspector's evidence list.
+    expect(
+      (await screen.findAllByText("hr/pkg_payroll.pkb")).length,
+    ).toBeGreaterThan(0);
     expect(mocks.getPlsqlFileSource).toHaveBeenCalledWith(
       "file://sample/hr/pkg_payroll.pkb",
       { startLine: 34, endLine: 34 },
@@ -1074,6 +1092,7 @@ describe("PlsqlAnalysisWorkspace", () => {
       expect(mocks.getPlsqlDependencies).toHaveBeenLastCalledWith(
         payrollObject.id,
         "callers",
+        { limit: 25, offset: 0, order: "name" },
       ),
     );
   });
@@ -1170,7 +1189,9 @@ describe("PlsqlAnalysisWorkspace", () => {
       ).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Clear selection" }));
       expect(window.location.search).toBe("");
-      expect(screen.getByText("No object selected")).toBeInTheDocument();
+      expect(
+        screen.getByText("What you can do with an object"),
+      ).toBeInTheDocument();
     });
 
     it("offers a retry when the linked object cannot be loaded", async () => {
@@ -1238,28 +1259,53 @@ describe("PlsqlAnalysisWorkspace", () => {
       await act(async () => {
         window.history.back();
       });
-      expect(await screen.findByText("No object selected")).toBeInTheDocument();
+      expect(
+        await screen.findByText("What you can do with an object"),
+      ).toBeInTheDocument();
     });
   });
 
-  it("opens the Object Explorer from the empty state's Browse objects action", async () => {
+  it("shows what the project holds and opens the Explorer on a kind from the landing", async () => {
     const user = userEvent.setup();
+    // A narrow screen: the Explorer is a drawer, not a docked pane.
+    stubMatchMedia(false);
+    mocks.searchPlsqlObjects.mockResolvedValue({
+      items: [],
+      truncated: false,
+      count: 1234,
+    });
     render(<PlsqlAnalysisWorkspace />);
-    await user.click(screen.getByRole("button", { name: "Browse objects" }));
+
+    const tables = await screen.findByRole("button", {
+      name: /1,234\s*Tables/,
+    });
+    await user.click(tables);
+
     expect(
       screen.getByRole("dialog", { name: "Object Explorer" }),
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.searchPlsqlObjects).toHaveBeenLastCalledWith("", {
+        kinds: ["Table"],
+        limit: 100,
+        offset: 0,
+      }),
+    );
   });
 
   it("closes the Explorer drawer once an object is chosen in it", async () => {
     const user = userEvent.setup();
+    // A narrow screen: the Explorer is a drawer, not a docked pane.
+    stubMatchMedia(false);
     mocks.searchPlsqlObjects.mockResolvedValue({
       items: [functionObject],
       truncated: false,
       count: 1,
     });
     render(<PlsqlAnalysisWorkspace />);
-    await user.click(screen.getByRole("button", { name: "Browse objects" }));
+    await user.click(
+      screen.getAllByRole("button", { name: "Browse objects" })[0],
+    );
     const drawer = screen.getByRole("dialog", { name: "Object Explorer" });
     await user.click(
       await within(drawer).findByRole(
@@ -1274,6 +1320,51 @@ describe("PlsqlAnalysisWorkspace", () => {
     expect(
       screen.queryByRole("dialog", { name: "Object Explorer" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("folds the Explorer after picking an object, and Browse objects starts over", async () => {
+    const user = userEvent.setup();
+    mocks.getPlsqlImpact.mockResolvedValue(emptyImpactResult());
+    mocks.getPlsqlDependencies.mockResolvedValue({
+      counts: { callers: 0, callees: 0, reads: 0, writes: 0, other: 0 },
+      items: [],
+      truncated: false,
+      total: 0,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+    const explorerPane = () =>
+      screen
+        .getByLabelText("Object Explorer")
+        .closest<HTMLElement>("[data-state]");
+    await selectFromExplorer(
+      user,
+      { items: [functionObject], truncated: false, count: 1 },
+      /GET_SALARY/,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "GET_SALARY" }),
+    ).toBeInTheDocument();
+    // The search panel gives its space to the analysis once an object is open.
+    expect(explorerPane()).toHaveAttribute("data-state", "collapsed");
+
+    mocks.searchPlsqlObjects.mockResolvedValue({
+      items: [],
+      truncated: false,
+      count: 0,
+    });
+    await user.click(
+      screen.getAllByRole("button", { name: "Browse objects" })[0],
+    );
+
+    // Back to the signed-in start screen: nothing selected, search empty.
+    expect(
+      await screen.findByText("What you can do with an object"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "GET_SALARY" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(explorerPane()).toHaveAttribute("data-state", "expanded");
   });
 
   it("lets the Source tab reopen the object's source after it was closed", async () => {

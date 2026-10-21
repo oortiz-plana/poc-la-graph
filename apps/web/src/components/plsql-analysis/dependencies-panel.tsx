@@ -1,10 +1,10 @@
 "use client";
 
-import { Copy, LoaderCircle, Minus, Plus } from "lucide-react";
+import { LoaderCircle, Route } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
-import { getPlsqlDependencies, type PlsqlProblemCode } from "@/lib/api";
+import { getPlsqlDependencies } from "@/lib/api";
 import type {
   PlsqlDependency,
   PlsqlDependencyCategory,
@@ -14,28 +14,34 @@ import type {
   PlsqlPath,
   PlsqlSourceCoordinate,
 } from "@/lib/contracts";
-import { AnalysisError, problemCodeOf } from "./analysis-error";
+import { AnalysisError } from "./analysis-error";
+import {
+  ANALYSIS_PAGE_SIZE,
+  AnalysisPageNavigator,
+  AnalysisPaginationScope,
+} from "./analysis-pagination";
 import {
   DependencyDetailTable,
   type DetailTableColumn,
 } from "./dependency-detail-table";
-import {
-  DependencyGraph,
-  type GraphEdge,
-  type GraphNode,
-} from "./dependency-graph";
 import { dependencyToPath, DependencyPathTrail } from "./dependency-path-trail";
 import {
+  ObjectCell,
+  PackageCell,
   useEvidenceLineLabel,
-  evidenceLocation,
+  edgeOccurrences,
+  OccurrencePicker,
   RelationshipChip,
   ResolutionBadge,
-  EVIDENCE_LINK_CLASS,
+  EvidenceCell,
 } from "./plsql-atoms";
+import { CopyValueButton } from "./copy-value-button";
 import { InsightPanel } from "./insight-panel";
 import { ListDetailSplit } from "./list-detail-split";
+import { packageKeyOf } from "./package-grouping";
 import { SourceBody } from "./source-viewer";
-import { ViewModeToggle, type ViewMode } from "./view-mode-toggle";
+import { StickyBar } from "./sticky-bar";
+import { usePagedQuery } from "./use-paged-query";
 
 type SectionStatus = "loading" | "ready" | "error";
 
@@ -54,196 +60,108 @@ type DependencyListRow = {
   edge: PlsqlDependency;
 };
 
-export function DependenciesPanel({
+export function DependenciesPanel(
+  props: ComponentProps<typeof DependenciesPanelContent>,
+) {
+  return (
+    <AnalysisPaginationScope>
+      <DependenciesPanelContent {...props} />
+    </AnalysisPaginationScope>
+  );
+}
+
+function DependenciesPanelContent({
   object,
   initialCategory,
+  groupByPackage,
   onOpenEvidence,
-  onOpenObject,
   onInspectObject,
   onInspectEdge,
-  onAnalyzeObject,
   onInspectPath,
 }: {
   object: PlsqlObject;
   /** Category selected on first render, e.g. arriving from Overview's "View all in Dependencies". */
   initialCategory?: PlsqlDependencyCategory;
+  /** Files the rows under collapsible package headers. */
+  groupByPackage: boolean;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
-  /** Graph node taps navigate: drilling into a node's own neighborhood is the point of the graph. */
-  onOpenObject: (reference: PlsqlObjectReference) => void;
   /** Source/target chips in the selected-dependency trail inspect in place instead,
    * matching the Paths view: navigating away would reset this panel back to
    * its default category (see the objectId-keyed reset effect above). */
   onInspectObject: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
   /** "Analyze impact" contextual action for the selected dependency's other object. */
-  onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
   /** "View full path" contextual action: shows the one-hop edge as a path in the Inspector. */
   onInspectPath?: (path: PlsqlPath) => void;
 }) {
   const t = useTranslations("plsqlDependencies");
-  const evidenceLineLabel = useEvidenceLineLabel();
   const objectId = object.id;
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [category, setCategory] = useState<PlsqlDependencyCategory>(
     initialCategory ?? "callers",
   );
-  const [pages, setPages] = useState<
-    Partial<Record<PlsqlDependencyCategory, PlsqlDependencySummary>>
-  >({});
-  const [expanded, setExpanded] = useState<
-    ReadonlySet<PlsqlDependencyCategory>
-  >(() => new Set());
-  const [status, setStatus] = useState<SectionStatus>("loading");
-  const [errorCode, setErrorCode] = useState<PlsqlProblemCode>();
-  const [attempt, setAttempt] = useState(0);
+  const [page, setPage] = useState(0);
+  const [knownCounts, setKnownCounts] = useState<{
+    objectId: string;
+    counts: PlsqlDependencySummary["counts"];
+  }>();
   const [selectedEdge, setSelectedEdge] = useState<PlsqlDependency>();
+  // A view grouped by package reads its list in package order, so paging goes
+  // through the packages alphabetically; flipping it re-reads from page 1.
+  const order = groupByPackage ? "package" : "name";
+  const dependencyPage = usePagedQuery({
+    listKey: `dependencies|${objectId}|${category}|${order}`,
+    page,
+    fetchPage: (requestedPage) =>
+      getPlsqlDependencies(objectId, category, {
+        limit: ANALYSIS_PAGE_SIZE,
+        offset: requestedPage * ANALYSIS_PAGE_SIZE,
+        order,
+      }),
+  });
+  const activeSummary = dependencyPage.data;
+  const status: SectionStatus = activeSummary
+    ? "ready"
+    : dependencyPage.failed
+      ? "error"
+      : "loading";
 
-  // Reset per-object state so graphs and lists never mix two objects.
+  // Reset per-object state so lists never mix two objects.
   useEffect(() => {
-    setPages({});
-    setExpanded(new Set());
     setCategory(initialCategory ?? "callers");
     setSelectedEdge(undefined);
+    setPage(0);
   }, [objectId, initialCategory]);
 
-  // List mode: load the active category.
+  // Every response carries every category's counts; keep them while another
+  // category loads so the chips never blink.
   useEffect(() => {
-    if (viewMode !== "list") return;
-    let cancelled = false;
-    setStatus("loading");
-    setErrorCode(undefined);
-    getPlsqlDependencies(objectId, category)
-      .then((value) => {
-        if (cancelled) return;
-        setPages((prev) => ({ ...prev, [category]: value }));
-        setStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setErrorCode(problemCodeOf(error));
-          setStatus("error");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [objectId, category, viewMode, attempt]);
+    if (activeSummary) {
+      setKnownCounts({ objectId, counts: activeSummary.counts });
+    }
+  }, [objectId, activeSummary]);
+  const counts =
+    knownCounts?.objectId === objectId ? knownCounts.counts : undefined;
 
-  // Graph mode: load every expanded category not fetched yet.
   useEffect(() => {
-    if (viewMode !== "graph") return;
-    const missing = CATEGORIES.map((entry) => entry.value).filter(
-      (value) => expanded.has(value) && !pages[value],
-    );
-    if (missing.length === 0) {
-      setStatus("ready");
-      return;
-    }
-    let cancelled = false;
-    setStatus("loading");
-    setErrorCode(undefined);
-    Promise.all(missing.map((value) => getPlsqlDependencies(objectId, value)))
-      .then((values) => {
-        if (cancelled) return;
-        setPages((prev) => {
-          const next = { ...prev };
-          missing.forEach((value, index) => {
-            next[value] = values[index];
-          });
-          return next;
-        });
-        setStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setErrorCode(problemCodeOf(error));
-          setStatus("error");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [objectId, viewMode, expanded, pages, attempt]);
+    setPage(0);
+    setSelectedEdge(undefined);
+  }, [groupByPackage]);
 
-  const counts = (() => {
-    for (const entry of CATEGORIES) {
-      const page = pages[entry.value];
-      if (page) return page.counts;
-    }
-    return undefined;
-  })();
-
-  function buildGraph() {
-    const nodeMap = new Map<string, GraphNode>();
-    const refById = new Map<string, PlsqlObjectReference>();
-    const edges: GraphEdge[] = [];
-    const ensure = (ref: PlsqlObjectReference, focused = false) => {
-      if (!nodeMap.has(ref.id)) {
-        nodeMap.set(ref.id, {
-          id: ref.id,
-          label: ref.qualifiedName,
-          kind: ref.kind,
-          focused: focused ? true : undefined,
-        });
-        refById.set(ref.id, ref);
-      }
-    };
-    ensure(
-      {
-        id: object.id,
-        kind: object.kind,
-        name: object.name,
-        schema: object.schema,
-        qualifiedName: object.qualifiedName,
-      },
-      true,
-    );
-    for (const entry of CATEGORIES) {
-      if (!expanded.has(entry.value)) continue;
-      const page = pages[entry.value];
-      if (!page) continue;
-      for (const edge of page.items) {
-        ensure(edge.source);
-        ensure(edge.target);
-        edges.push({
-          id: edge.id,
-          source: edge.source.id,
-          target: edge.target.id,
-          label: edge.relationship,
-        });
-      }
-    }
-    const edgeById = new Map<string, PlsqlDependency>();
-    for (const entry of CATEGORIES) {
-      const page = pages[entry.value];
-      if (!page) continue;
-      for (const edge of page.items) edgeById.set(edge.id, edge);
-    }
-    return { nodes: [...nodeMap.values()], edges, refById, edgeById };
+  function selectCategory(next: PlsqlDependencyCategory) {
+    setCategory(next);
+    setSelectedEdge(undefined);
+    setPage(0);
   }
 
-  function toggleExpand(value: PlsqlDependencyCategory) {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
-      return next;
-    });
-  }
-
-  function expandOneLevel() {
-    setExpanded(new Set(CATEGORIES.map((entry) => entry.value)));
+  function changePage(next: number) {
+    setPage(next);
+    setSelectedEdge(undefined);
   }
 
   function selectEdge(edge: PlsqlDependency) {
     onInspectEdge?.(edge);
     setSelectedEdge((current) => (current?.id === edge.id ? undefined : edge));
   }
-
-  const activePage = pages[category];
-  const activeSummary =
-    viewMode === "list" && status === "ready" ? activePage : undefined;
-  const graph = viewMode === "graph" ? buildGraph() : undefined;
 
   const rows: DependencyListRow[] = (activeSummary?.items ?? []).map(
     (edge) => ({
@@ -253,141 +171,73 @@ export function DependenciesPanel({
     }),
   );
 
-  const columns: DetailTableColumn<DependencyListRow>[] = [
-    {
-      header: t("columns.relatedObject"),
-      cell: (row) => (
-        <span
-          title={row.other.qualifiedName}
-          className="break-words font-medium"
-        >
-          {row.other.name}
-        </span>
-      ),
-    },
-    {
-      header: t("columns.relationship"),
-      cell: (row) => <RelationshipChip relationship={row.edge.relationship} />,
-    },
-    {
-      header: t("columns.resolution"),
-      cell: (row) => <ResolutionBadge resolution={row.edge.resolution} />,
-    },
-    {
-      header: t("columns.evidence"),
-      cell: (row) => {
-        const label = evidenceLineLabel(row.edge.evidence);
-        const fullLocation = evidenceLocation(row.edge.evidence);
-        if (label === undefined) {
-          return <span className="text-text-muted">—</span>;
-        }
-        if (!row.edge.evidence?.sourceFileId) {
-          return (
-            <span
-              title={fullLocation}
-              className="break-words text-xs text-text-secondary"
-            >
-              {label}
-            </span>
-          );
-        }
-        return (
-          <button
-            type="button"
-            title={fullLocation}
-            onClick={(event) => {
-              event.stopPropagation();
-              selectEdge(row.edge);
-            }}
-            className={EVIDENCE_LINK_CLASS}
-          >
-            {label}
-          </button>
-        );
-      },
-    },
-  ];
+  const compact = selectedEdge !== undefined;
+  const objectColumn: DetailTableColumn<DependencyListRow> = {
+    header: t("columns.relatedObject"),
+    cell: (row) => <ObjectCell reference={row.other} compact={compact} />,
+  };
+  const packageColumn: DetailTableColumn<DependencyListRow> = {
+    header: t("columns.package"),
+    cell: (row) => <PackageCell reference={row.other} />,
+  };
+  const relationshipColumn: DetailTableColumn<DependencyListRow> = {
+    header: t("columns.relationship"),
+    cell: (row) => <RelationshipChip relationship={row.edge.relationship} />,
+  };
+  const resolutionColumn: DetailTableColumn<DependencyListRow> = {
+    header: t("columns.resolution"),
+    cell: (row) => <ResolutionBadge resolution={row.edge.resolution} />,
+  };
+  const evidenceColumn: DetailTableColumn<DependencyListRow> = {
+    header: t("columns.evidence"),
+    cell: (row) => (
+      <EvidenceCell edge={row.edge} onSelect={() => selectEdge(row.edge)} />
+    ),
+  };
+  const columns = compact
+    ? [objectColumn, relationshipColumn, resolutionColumn, evidenceColumn]
+    : [
+        objectColumn,
+        packageColumn,
+        relationshipColumn,
+        resolutionColumn,
+        evidenceColumn,
+      ];
 
   return (
     <section aria-label={t("panel.ariaLabel")}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {viewMode === "list" ? (
-          <div
-            role="group"
-            aria-label={t("panel.categoryGroup")}
-            className="flex flex-wrap gap-2"
-          >
-            {CATEGORIES.map((entry) => {
-              const active = entry.value === category;
-              const count = counts?.[entry.value];
-              return (
-                <button
-                  key={entry.value}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setCategory(entry.value)}
-                  className={`inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-1 text-sm font-medium ${
-                    active
-                      ? "border-transparent bg-selected text-primary"
-                      : "bg-surface text-text-secondary hover:bg-background"
-                  }`}
-                >
-                  {t(`categories.${entry.value}`)}
-                  {count !== undefined && (
-                    <span className="rounded-full bg-background px-2 py-0.5 text-xs">
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div
-            role="group"
-            aria-label={t("panel.graphExpansion")}
-            className="flex flex-wrap gap-2"
-          >
-            {CATEGORIES.map((entry) => {
-              const isExpanded = expanded.has(entry.value);
-              const count = counts?.[entry.value];
-              return (
-                <button
-                  key={entry.value}
-                  type="button"
-                  aria-pressed={isExpanded}
-                  onClick={() => toggleExpand(entry.value)}
-                  className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium ${
-                    isExpanded
-                      ? "border-transparent bg-selected text-primary"
-                      : "bg-surface text-text-secondary hover:bg-background"
-                  }`}
-                >
-                  {isExpanded ? (
-                    <Minus aria-hidden className="h-3.5 w-3.5" />
-                  ) : (
-                    <Plus aria-hidden className="h-3.5 w-3.5" />
-                  )}
-                  {t(`categories.${entry.value}`)}
-                  {count !== undefined && (
-                    <span className="rounded-full bg-background px-2 py-0.5 text-xs">
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              onClick={expandOneLevel}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full border bg-surface px-3 py-1 text-sm font-medium text-text-secondary hover:bg-background"
-            >
-              <Plus aria-hidden className="h-3.5 w-3.5" /> {t("panel.oneLevel")}
-            </button>
-          </div>
-        )}
-        <ViewModeToggle mode={viewMode} onChange={setViewMode} />
-      </div>
+      <StickyBar>
+        <div
+          role="group"
+          aria-label={t("panel.categoryGroup")}
+          className="flex flex-wrap gap-2"
+        >
+          {CATEGORIES.map((entry) => {
+            const active = entry.value === category;
+            const count = counts?.[entry.value];
+            return (
+              <button
+                key={entry.value}
+                type="button"
+                aria-pressed={active}
+                onClick={() => selectCategory(entry.value)}
+                className={`inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-1 text-sm font-medium ${
+                  active
+                    ? "border-transparent bg-selected text-primary"
+                    : "bg-surface text-text-secondary hover:bg-background"
+                }`}
+              >
+                {t(`categories.${entry.value}`)}
+                {count !== undefined && (
+                  <span className="rounded-full bg-background px-2 py-0.5 text-xs">
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </StickyBar>
 
       {status === "loading" && (
         <p
@@ -401,39 +251,17 @@ export function DependenciesPanel({
       {status === "error" && (
         <div className="mt-3">
           <AnalysisError
-            code={errorCode}
-            onRetry={() => setAttempt((current) => current + 1)}
+            code={dependencyPage.errorCode}
+            onRetry={dependencyPage.retry}
           />
         </div>
       )}
 
-      {viewMode === "graph" && status === "ready" && graph && (
-        <>
-          <DependencyGraph
-            nodes={graph.nodes}
-            edges={graph.edges}
-            onSelectNode={(nodeId) => {
-              const ref = graph.refById.get(nodeId);
-              if (ref) onOpenObject(ref);
-            }}
-            onSelectEdge={(edgeId) => {
-              const edge = graph.edgeById.get(edgeId);
-              if (edge) selectEdge(edge);
-            }}
-            ariaLabel={t("panel.graphLabel", { name: object.qualifiedName })}
-          />
-          {expanded.size === 0 && (
-            <p className="mt-2 text-sm text-text-secondary">
-              {t("panel.expandHint", { name: object.name })}
-            </p>
-          )}
-        </>
-      )}
-
       <ListDetailSplit
+        stickyTop="top-14"
         list={
           <>
-            {viewMode === "list" && activeSummary && (
+            {activeSummary && (
               <section
                 aria-label={t("panel.resultsHeading")}
                 className="mt-3 rounded-lg border bg-surface"
@@ -442,11 +270,6 @@ export function DependenciesPanel({
                   <h3 className="text-sm font-semibold text-text-secondary">
                     {t("panel.resultsHeading")}
                   </h3>
-                  {activeSummary.truncated && (
-                    <span className="text-xs text-warning">
-                      {t("panel.truncated")}
-                    </span>
-                  )}
                 </div>
                 <DependencyDetailTable
                   ariaLabel={t("panel.tableLabel", {
@@ -459,7 +282,23 @@ export function DependenciesPanel({
                   onSelectRow={(row) => selectEdge(row.edge)}
                   emptyMessage={t("panel.empty")}
                   bordered={false}
+                  groupKey={
+                    groupByPackage
+                      ? (row) => packageKeyOf(row.other)
+                      : undefined
+                  }
                 />
+                {activeSummary.total > 0 && (
+                  <AnalysisPageNavigator
+                    page={page}
+                    pageSize={ANALYSIS_PAGE_SIZE}
+                    total={activeSummary.total}
+                    loading={dependencyPage.refreshing}
+                    error={dependencyPage.failed}
+                    onPageChange={changePage}
+                    onRetry={dependencyPage.retry}
+                  />
+                )}
               </section>
             )}
           </>
@@ -468,13 +307,12 @@ export function DependenciesPanel({
           status === "ready" &&
           selectedEdge && (
             <SelectedDependency
+              key={selectedEdge.id}
               edge={selectedEdge}
               objectId={objectId}
               onClose={() => setSelectedEdge(undefined)}
-              onOpenObject={onOpenObject}
               onInspectObject={onInspectObject}
               onInspectEdge={onInspectEdge}
-              onAnalyzeObject={onAnalyzeObject}
               onInspectPath={onInspectPath}
               onOpenEvidence={onOpenEvidence}
             />
@@ -489,43 +327,31 @@ function SelectedDependency({
   edge,
   objectId,
   onClose,
-  onOpenObject,
   onInspectObject,
   onInspectEdge,
-  onAnalyzeObject,
   onInspectPath,
   onOpenEvidence,
 }: {
   edge: PlsqlDependency;
   objectId: string;
   onClose: () => void;
-  onOpenObject: (reference: PlsqlObjectReference) => void;
   onInspectObject: (reference: PlsqlObjectReference) => void;
   onInspectEdge?: (edge: PlsqlDependency) => void;
-  onAnalyzeObject?: (reference: PlsqlObjectReference) => void;
   onInspectPath?: (path: PlsqlPath) => void;
   onOpenEvidence: (evidence: PlsqlSourceCoordinate | null) => void;
 }) {
   const t = useTranslations("plsqlDependencies");
   const evidenceLineLabel = useEvidenceLineLabel();
   const other = edge.source.id === objectId ? edge.target : edge.source;
-  const evidence = edge.evidence;
+  const occurrences = edgeOccurrences(edge);
+  const [occurrenceIndex, setOccurrenceIndex] = useState(0);
+  const evidence =
+    occurrences[Math.min(occurrenceIndex, occurrences.length - 1)] ??
+    edge.evidence;
   const lineLabel = evidenceLineLabel(evidence);
   // A single edge is a one-hop path, so it reuses the same trail the
   // Impact and Paths views use to explain a chain of relationships.
   const path = dependencyToPath(edge);
-  const [copied, setCopied] = useState(false);
-
-  async function copyQualifiedName() {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(other.qualifiedName);
-      }
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
 
   return (
     <InsightPanel
@@ -533,13 +359,13 @@ function SelectedDependency({
       title={t("selected.title")}
       closeLabel={t("selected.close")}
       onClose={onClose}
+      actions={<CopyValueButton value={other.qualifiedName} />}
       trail={
         <>
           <DependencyPathTrail
             path={path}
             onOpenObject={onInspectObject}
             onInspectEdge={onInspectEdge}
-            showKind
           />
           {/* The full path/line already appears once, in the source evidence
            * header on the right; here we only need the line number next to
@@ -553,49 +379,24 @@ function SelectedDependency({
               </>
             )}
           </p>
+          <OccurrencePicker
+            occurrences={occurrences}
+            activeIndex={occurrenceIndex}
+            onChange={setOccurrenceIndex}
+          />
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onOpenObject(other)}
-            >
-              {t("selected.openObject")}
-            </Button>
-            {onAnalyzeObject && (
-              <Button
-                size="sm"
-                variant="outline"
-                aria-label={t("selected.analyzeImpactFor", {
-                  name: other.name,
-                })}
-                onClick={() => onAnalyzeObject(other)}
-              >
-                {t("selected.analyzeImpact")}
-              </Button>
-            )}
             {onInspectPath && (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="outline"
                 onClick={() =>
                   onInspectPath({ id: edge.id, ...path, hopCount: 1 })
                 }
               >
-                {t("selected.viewFullPath")}
+                <Route aria-hidden /> {t("selected.viewFullPath")}
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void copyQualifiedName()}
-            >
-              <Copy aria-hidden />{" "}
-              {copied ? t("selected.copied") : t("selected.copyQualifiedName")}
-            </Button>
           </div>
-          <p aria-live="polite" className="sr-only">
-            {copied ? t("selected.copiedAnnouncement") : ""}
-          </p>
         </>
       }
       evidence={

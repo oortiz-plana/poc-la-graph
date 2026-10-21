@@ -56,6 +56,7 @@ async function settleSearch(
     expect(searchPlsqlObjects).toHaveBeenCalledWith("qf", {
       kinds: undefined,
       limit: 100,
+      offset: 0,
     }),
   );
   await waitFor(() =>
@@ -104,6 +105,7 @@ describe("ObjectExplorer", () => {
       expect(searchPlsqlObjects).toHaveBeenCalledWith("emp", {
         kinds: ["Table"],
         limit: 100,
+        offset: 0,
       }),
     );
   });
@@ -155,6 +157,84 @@ describe("ObjectExplorer", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("expands or collapses every package at once, enabling only what can change", async () => {
+    const user = newUser();
+    const otherPackage: PlsqlObject = {
+      ...base,
+      id: "plsql://p/HR/PACKAGE/AD_QUTIL",
+      name: "AD_QUTIL",
+      qualifiedName: "HR.AD_QUTIL",
+    };
+    const otherMember: PlsqlObject = {
+      ...docuFide,
+      id: "plsql://p/HR/FUNCTION/ARMA_LIN_COL",
+      name: "ARMA_LIN_COL",
+      qualifiedName: "HR.AD_QUTIL.ARMA_LIN_COL",
+      owner: "AD_QUTIL",
+    };
+    render(<ObjectExplorer onSelect={vi.fn()} />);
+    await settleSearch(user, [base, docuFide, otherPackage, otherMember]);
+    const expandAll = screen.getByRole("button", { name: "Expand all" });
+    const collapseAll = screen.getByRole("button", { name: "Collapse all" });
+    // Everything starts open: only "Collapse all" has anything to do.
+    expect(expandAll).toBeDisabled();
+    expect(collapseAll).toBeEnabled();
+
+    await user.click(collapseAll);
+    expect(screen.queryByRole("button", { name: "DOCU_FIDE" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "ARMA_LIN_COL" })).toBeNull();
+    expect(collapseAll).toBeDisabled();
+    expect(expandAll).toBeEnabled();
+
+    // A single package can still be opened by hand.
+    await user.click(
+      screen.getByRole("button", { name: "Expand package AD_QUTIL" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "ARMA_LIN_COL" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "DOCU_FIDE" })).toBeNull();
+    expect(collapseAll).toBeEnabled();
+
+    await user.click(expandAll);
+    expect(
+      screen.getByRole("button", { name: "DOCU_FIDE" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "ARMA_LIN_COL" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers no expand/collapse controls when no package is listed", async () => {
+    const user = newUser();
+    render(<ObjectExplorer onSelect={vi.fn()} />);
+    await settleSearch(user, [employeeTable]);
+    expect(screen.queryByRole("button", { name: "Collapse all" })).toBeNull();
+  });
+
+  it("forgets the search, filter and collapsed packages when told to reset", async () => {
+    const user = newUser();
+    const { rerender } = render(
+      <ObjectExplorer onSelect={vi.fn()} resetSignal={0} />,
+    );
+    await settleSearch(user, [base, docuFide]);
+    await user.click(screen.getByRole("button", { name: "Tables" }));
+    expect(screen.getByRole("searchbox")).toHaveValue("qf");
+
+    searchPlsqlObjects.mockResolvedValue({
+      items: [],
+      truncated: false,
+      count: 0,
+    });
+    rerender(<ObjectExplorer onSelect={vi.fn()} resetSignal={1} />);
+
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("marks the selected object and reports selection", async () => {
     const user = newUser();
     const onSelect = vi.fn();
@@ -173,18 +253,48 @@ describe("ObjectExplorer", () => {
     expect(screen.getByText("No objects match")).toBeInTheDocument();
   });
 
-  it("shows an actionable message when results are truncated", async () => {
+  it("pages through matches with the compact navigator", async () => {
     const user = newUser();
     render(<ObjectExplorer onSelect={vi.fn()} />);
-    searchPlsqlObjects.mockResolvedValueOnce({
-      items: [employeeTable],
-      truncated: true,
-      count: 1,
-    });
-    await user.type(screen.getByRole("searchbox"), "qf");
-    await waitFor(() =>
-      expect(screen.getByText("Showing first 100 results")).toBeInTheDocument(),
+    searchPlsqlObjects.mockImplementation(
+      async (_query: string, options: { offset?: number }) => ({
+        items: [options.offset ? docuFide : employeeTable],
+        truncated: !options.offset,
+        count: 250,
+      }),
     );
+    await user.type(screen.getByRole("searchbox"), "qf");
+    expect(await screen.findByText("Showing 1–100 of 250")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      await screen.findByText("Showing 101–200 of 250"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(searchPlsqlObjects).toHaveBeenLastCalledWith("qf", {
+        kinds: undefined,
+        limit: 100,
+        offset: 100,
+      }),
+    );
+
+    // A new search starts again from the first page.
+    await user.type(screen.getByRole("searchbox"), "x");
+    await waitFor(() =>
+      expect(searchPlsqlObjects).toHaveBeenLastCalledWith("qfx", {
+        kinds: undefined,
+        limit: 100,
+        offset: 0,
+      }),
+    );
+  });
+
+  it("offers no page controls when everything fits on one page", async () => {
+    const user = newUser();
+    render(<ObjectExplorer onSelect={vi.fn()} />);
+    await settleSearch(user, [employeeTable]);
+    expect(screen.queryByRole("navigation", { name: "Pagination" })).toBeNull();
   });
 
   it("renders the shared error panel and retries on demand", async () => {
@@ -220,6 +330,7 @@ describe("ObjectExplorer", () => {
       expect(searchPlsqlObjects).toHaveBeenCalledWith("", {
         kinds: ["Trigger"],
         limit: 100,
+        offset: 0,
       }),
     );
     expect(screen.getByRole("button", { name: "Triggers" })).toHaveAttribute(
@@ -244,6 +355,7 @@ describe("ObjectExplorer", () => {
     expect(searchPlsqlObjects).not.toHaveBeenCalledWith("", {
       kinds: ["Synonym"],
       limit: 100,
+      offset: 0,
     });
   });
 
@@ -285,5 +397,35 @@ describe("ObjectExplorer", () => {
     const selected = within(results).getByRole("button", { name: /EMPLOYEE/ });
     expect(selected).toHaveAttribute("aria-current", "true");
     expect(selected.tabIndex).toBe(0);
+  });
+
+  it("keeps packages and standalone objects in the server's alphabetical order", async () => {
+    const user = newUser();
+    render(<ObjectExplorer onSelect={vi.fn()} />);
+    const alpha = {
+      ...employeeTable,
+      id: "t-a",
+      name: "ALPHA_T",
+      qualifiedName: "HR.ALPHA_T",
+    };
+    const zeta = {
+      ...employeeTable,
+      id: "t-z",
+      name: "ZETA_T",
+      qualifiedName: "HR.ZETA_T",
+    };
+    await settleSearch(user, [alpha, base, docuFide, zeta]);
+
+    const labels = within(
+      screen.getByRole("list", { name: "Object search results" }),
+    )
+      .getAllByRole("button")
+      .map((button) => button.textContent);
+    expect(labels.indexOf("ALPHA_T")).toBeLessThan(
+      labels.indexOf("FA_QFACT_CALC"),
+    );
+    expect(labels.indexOf("FA_QFACT_CALC")).toBeLessThan(
+      labels.indexOf("ZETA_T"),
+    );
   });
 });

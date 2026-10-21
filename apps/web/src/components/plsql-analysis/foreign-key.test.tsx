@@ -93,7 +93,8 @@ describe("foreign-key browser contract and evidence", () => {
       render(<InspectorPanel inspection={{ kind: "edge", edge }} />);
       expect(screen.getByText("FOREIGN_KEY")).toBeInTheDocument();
       if (available) {
-        expect(screen.getByText("hr/employees.sql:5")).toBeInTheDocument();
+        expect(screen.getByText("hr/employees.sql")).toBeInTheDocument();
+        expect(screen.getByText("line 5")).toBeInTheDocument();
       } else {
         expect(screen.getByText("None")).toBeInTheDocument();
       }

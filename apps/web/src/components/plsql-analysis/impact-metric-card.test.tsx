@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithIntl as render } from "@/test/render-with-intl";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ImpactMetricCard } from "./impact-metric-card";
+import { ImpactMetricCard, MetricBar } from "./impact-metric-card";
 
 describe("ImpactMetricCard", () => {
   it("renders the value and label", () => {
@@ -58,5 +59,41 @@ describe("ImpactMetricCard", () => {
     button.focus();
     await user.keyboard("{Enter}");
     expect(onSelect).toHaveBeenCalledTimes(2);
+  });
+
+  it("groups thousands and shows a dash while the number is unknown", () => {
+    render(
+      <>
+        <ImpactMetricCard
+          value={12661}
+          label="Indirect"
+          active={false}
+          onSelect={vi.fn()}
+        />
+        <ImpactMetricCard
+          value={undefined}
+          label="Packages"
+          active={false}
+          onSelect={vi.fn()}
+        />
+      </>,
+    );
+    expect(screen.getByText("12,661")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
+  it("pins its metrics to the top of the scrolling pane", () => {
+    render(
+      <MetricBar ariaLabel="Totals" columns="grid-cols-2">
+        <ImpactMetricCard
+          value={1}
+          label="Direct"
+          active={false}
+          onSelect={vi.fn()}
+        />
+      </MetricBar>,
+    );
+    const group = screen.getByRole("group", { name: "Totals" });
+    expect(group.parentElement).toHaveClass("sticky", "top-0");
   });
 });

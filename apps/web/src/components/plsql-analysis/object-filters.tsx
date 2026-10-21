@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import {
   DropdownMenu,
@@ -30,7 +31,7 @@ export type ObjectFilter = {
   unavailable?: boolean;
 };
 
-export const PRIMARY_FILTERS: ObjectFilter[] = [
+const PRIMARY_FILTERS: ObjectFilter[] = [
   { key: "all", kinds: undefined },
   { key: "packages", kinds: ["Package"] },
   { key: "routines", kinds: ["Procedure", "Function"] },
@@ -39,7 +40,7 @@ export const PRIMARY_FILTERS: ObjectFilter[] = [
 ];
 
 /** Less common kinds, tucked behind the "More" menu to keep the primary row compact. */
-export const MORE_FILTERS: ObjectFilter[] = [
+const MORE_FILTERS: ObjectFilter[] = [
   { key: "Trigger", kinds: ["Trigger"] },
   { key: "Sequence", kinds: ["Sequence"] },
   { key: "Index", kinds: ["Index"] },
@@ -50,6 +51,11 @@ export const MORE_FILTERS: ObjectFilter[] = [
 
 export const DEFAULT_FILTER = PRIMARY_FILTERS[0];
 
+/** The primary filter behind a key, e.g. for a shortcut that opens the Explorer on tables only. */
+export function primaryFilter(key: ObjectFilterKey): ObjectFilter {
+  return PRIMARY_FILTERS.find((entry) => entry.key === key) ?? DEFAULT_FILTER;
+}
+
 function isMoreFilter(filter: ObjectFilter): boolean {
   return MORE_FILTERS.some((entry) => entry.key === filter.key);
 }
@@ -57,9 +63,12 @@ function isMoreFilter(filter: ObjectFilter): boolean {
 export function ObjectFilters({
   active,
   onChange,
+  children,
 }: {
   active: ObjectFilter;
   onChange: (filter: ObjectFilter) => void;
+  /** Extra controls that share the chips' row, pushed to its trailing edge. */
+  children?: ReactNode;
 }) {
   const t = useTranslations("plsqlWorkspace.filters");
   const moreActive = isMoreFilter(active);
@@ -120,6 +129,7 @@ export function ObjectFilters({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+      {children && <div className="ml-auto">{children}</div>}
     </div>
   );
 }

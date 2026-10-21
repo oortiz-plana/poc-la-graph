@@ -34,7 +34,7 @@ export function AnalysisHealth({
   useEffect(() => {
     let cancelled = false;
     setTotal(undefined);
-    getPlsqlHealth(objectId)
+    getPlsqlHealth(objectId, { limit: 1 })
       .then((health) => {
         if (!cancelled) setTotal(health.total);
       })
@@ -71,12 +71,16 @@ export function AnalysisHealth({
         )}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <DialogHeader className="px-6 pb-3 pt-6">
             <DialogTitle>{t("title")}</DialogTitle>
             <DialogDescription>{t("description")}</DialogDescription>
           </DialogHeader>
-          <HealthPanel objectId={objectId} onOpenEvidence={onOpenEvidence} />
+          {/* The list scrolls on its own, so the page controls stay in view. */}
+          <div className="overflow-y-auto px-6">
+            <HealthPanel objectId={objectId} onOpenEvidence={onOpenEvidence} />
+            <div aria-hidden className="h-6" />
+          </div>
         </DialogContent>
       </Dialog>
     </>

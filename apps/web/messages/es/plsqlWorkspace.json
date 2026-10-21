@@ -12,18 +12,32 @@
     "clearSelection": "Borrar selección",
     "browseObjects": "Explorar objetos",
     "openSourcePrompt": "Abre un objeto o sigue una ubicación de código fuente para verlo.",
-    "showSourceOf": "Mostrar el código fuente de {name}"
+    "showSourceOf": "Mostrar el código fuente de {name}",
+    "landing": {
+      "statsHeading": "Qué hay en el proyecto analizado",
+      "total": "Objetos",
+      "openFilter": "Explorar {label}",
+      "guideHeading": "Qué puedes hacer con un objeto",
+      "guide": {
+        "overview": "Cifras clave: quién depende de él, quién lo escribe y las primeras filas de cada una.",
+        "dependencies": "Llamadores, llamados, lectores, escritores y otras relaciones, con la línea de evidencia.",
+        "impact": "Todo lo afectado por un cambio, con filtros, profundidad y la ruta que explica cada fila.",
+        "paths": "Traza las rutas que conectan dos objetos.",
+        "source": "Lee el código detrás de cualquier relación, resaltado en la línea exacta."
+      },
+      "start": "Empieza eligiendo un objeto en el Explorador o abre un atajo de arriba."
+    }
   },
   "shell": {
     "objectExplorer": "Explorador de objetos",
     "analysisWorkspace": "Espacio de análisis",
-    "objects": "Objetos",
     "inspector": "Inspector",
     "explorerDescription": "Navegación de objetos PL/SQL",
     "inspectorDescription": "Detalles del objeto y de las dependencias seleccionados",
     "skipToWorkspace": "Saltar al espacio de análisis",
     "show": "Mostrar {label}",
-    "hide": "Ocultar {label}"
+    "hide": "Ocultar {label}",
+    "explore": "Explorar objetos"
   },
   "header": {
     "qualifiedName": "Nombre calificado",
@@ -37,9 +51,11 @@
     }
   },
   "explorer": {
+    "packageGroups": "Grupos de paquetes",
+    "expandAll": "Expandir todo",
+    "collapseAll": "Contraer todo",
     "searchLabel": "Buscar objetos",
     "searchPlaceholder": "Buscar paquetes, rutinas y tablas...",
-    "showingFirst": "Mostrando los primeros {limit} resultados",
     "searching": "Buscando…",
     "noMatch": "Ningún objeto coincide",
     "results": "Resultados de búsqueda de objetos",
@@ -72,17 +88,17 @@
     "searchFailed": "Falló la búsqueda de objetos",
     "selected": "Se seleccionó {kind} {name}."
   },
-  "viewMode": {
-    "group": "Modo de vista",
-    "graph": "Grafo",
-    "list": "Lista"
-  },
   "pagination": {
-    "showing": "Mostrando {loaded} de {total}",
-    "loadError": "No se pudieron cargar más resultados. Los resultados cargados siguen disponibles.",
-    "loading": "Cargando…",
-    "retry": "Reintentar carga",
-    "loadMore": "Cargar más"
+    "navigation": "Paginación",
+    "range": "Mostrando {from, number}–{to, number} de {total, number}",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "page": "Página {page}",
+    "goToPage": "Ir a la página {page}",
+    "gap": "Más páginas",
+    "loadPageError": "No se pudo cargar esta página.",
+    "retryPage": "Reintentar",
+    "pageOf": "Página {page} de {count}"
   },
   "error": {
     "sourceTooLarge": "Este archivo es demasiado grande para mostrarlo aquí.",
@@ -90,6 +106,17 @@
     "unavailable": "El análisis no está disponible",
     "sourceLimitDetail": "El visor de código fuente limita cuánto puede cargar de un solo archivo, por lo que reintentar fallaría de la misma forma.",
     "analysisLimitDetail": "El servicio de análisis limita cuántos datos puede calcular esta vista, por lo que reintentar fallaría de la misma forma.",
-    "retry": "Reintentar consulta de análisis"
+    "retry": "Reintentar consulta de análisis",
+    "notFound": "No se encontró lo solicitado.",
+    "sourceNotFound": "El código fuente de esta ubicación no está disponible en este entorno."
+  },
+  "grouping": {
+    "groups": "Grupos de paquetes",
+    "expandAll": "Expandir todo",
+    "collapseAll": "Contraer todo",
+    "toggle": "Agrupar por paquete",
+    "noPackage": "Sin paquete",
+    "count": "{count, plural, one {# objeto} other {# objetos}}",
+    "groupToggle": "{name}, {count, plural, one {# objeto} other {# objetos}}"
   }
 }

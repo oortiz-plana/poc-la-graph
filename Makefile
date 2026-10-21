@@ -1,4 +1,4 @@
-.PHONY: setup dev up up-postgres down logs test test-api test-web lint e2e compose-check compose-check-postgres smoke clean knowledge-ingest knowledge-status knowledge-rebuild knowledge-rollback test-integration test-graphify-real smoke-spanish
+.PHONY: setup dev up up-postgres down logs test test-api test-web lint e2e compose-check compose-check-postgres smoke clean knowledge-ingest knowledge-status knowledge-rebuild knowledge-rollback test-integration test-graphify-real smoke-spanish neo4j-reload
 
 setup:
 	@test -f .env || cp .env.example .env
@@ -64,3 +64,10 @@ smoke-spanish:
 
 clean:
 	docker compose down --remove-orphans --volumes
+
+# Replace the Neo4j graph with neo4j/dump/neo4j.dump (override NEO4J_COMPOSE for another stack).
+NEO4J_COMPOSE ?= docker-compose-plsql.yml
+neo4j-reload:
+	docker compose -f $(NEO4J_COMPOSE) stop neo4j
+	NEO4J_DUMP_FORCE=true docker compose -f $(NEO4J_COMPOSE) run --rm neo4j-init
+	docker compose -f $(NEO4J_COMPOSE) up -d neo4j

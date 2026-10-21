@@ -81,16 +81,18 @@ view, and the browser's Back/Forward buttons walk the objects visited. See the
 UI architecture section of the console document for layout breakpoints and
 keyboard behavior.
 
-Impact and Dependency paths load 25 results at a time. **Load more** appends rows
-and expands the Impact graph; the count and blast-radius summary describe the
-full filtered traversal. The endpoints accept `limit` (1–200, additionally capped
-by `PLSQL_MAX_ROWS`) and an opaque `cursor`, and return `nextCursor` (`null` at
-the end). Send the same object/filter query with each cursor. Invalid or
-cross-query cursors return the existing HTTP 422 `invalid_request` response.
-`truncated` indicates another page is available. Hop depth, including the
-deployment-configured “Max 50 hops” label, is independent of page size.
-Each page recomputes the bounded traversal; pagination reduces response size,
-not traversal work, and does not guarantee a snapshot across graph updates.
+The Overview, Dependencies, Impact and Paths views read 25 rows at a time and
+navigate them with page controls (range, Previous/Next and numbered pages), so
+any page can be opened directly. The counts and the blast-radius summary
+(`GET /impact/summary`) describe the full traversal and load independently of
+the rows. The endpoints accept `limit` (1–200, additionally capped by
+`PLSQL_MAX_ROWS`) and either `offset` (page navigation) or the opaque `cursor`
+of the previous page, never both; they return `nextCursor` (`null` at the end)
+and `truncated` when another page is available. Send the same object/filter
+query with each cursor; invalid or cross-query cursors return the existing HTTP
+422 `invalid_request` response. Hop depth, including the deployment-configured
+“Max 50 hops” label, is independent of page size. Pagination reduces response
+size and does not guarantee a snapshot across graph updates.
 
 It ships disabled by default and adds no behavior to the chat product. Enable it
 deterministically on the synthetic stack (`PLSQL_ADAPTER=synthetic`,
@@ -105,9 +107,15 @@ with `make e2e` covering search → detail → callers/callees → table access 
 paths → source → impact over the fixture corpus. Real mode
 (`PLSQL_ADAPTER=neo4j`, official `neo4j` 5.x driver, dependency decision
 recorded in the implementation plan §0.1) is implemented and opt-in. The
-default Compose stack provides a local `neo4j:5-community` service; point the
-API at it with `PLSQL_NEO4J_URI=bolt://neo4j:7687`,
-`PLSQL_NEO4J_USER=neo4j`, and the password from `NEO4J_AUTH`. Alternatively,
+Compose stacks provide a local Neo4j service (`NEO4J_IMAGE` overrides the
+server image). Point the adapter at it with `PLSQL_ADAPTER=neo4j`,
+`PLSQL_PROJECT_ID=<your project id>`, `PLSQL_NEO4J_URI=bolt://neo4j:7687` and
+the `NEO4J_AUTH` credentials. Optionally place a `neo4j-admin` dump at
+`neo4j/dump/neo4j.dump` (the whole `neo4j/` directory is git-ignored, so graph
+data is never committed): on the first start (empty `neo4j/data`) the
+`neo4j-init` job restores it, using a `NEO4J_IMAGE` at least as new as the one
+that produced the dump; run `make neo4j-reload` to replace an existing graph
+with it. Alternatively,
 set `PLSQL_NEO4J_URI`/`PLSQL_NEO4J_USER`/`PLSQL_NEO4J_PASSWORD` (server-side only)
 plus `PLSQL_SOURCE_ROOT`; a missing
 URI or unreachable server reports the analysis state as `unavailable` in

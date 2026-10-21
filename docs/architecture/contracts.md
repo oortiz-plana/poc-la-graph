@@ -74,9 +74,33 @@ authenticated `/api/v1/plsql` surface serves the developer console:
   — read-only source text (`{file, lines, highlight}`) served strictly under
   the configured `PLSQL_SOURCE_ROOT` with traversal guards and the
   `plsql_max_source_bytes` cap.
-- `GET /impact?objectId=…` — transitive dependents within `plsql_max_hops`
-  grouped by distance, each item carrying its shortest explaining path(s)
-  with per-hop evidence; no severity is stored or fabricated.
+- `GET /impact?objectId=…` — one cursor-paged slice of the transitive
+  dependents within `plsql_max_hops`, ordered by distance, each item carrying
+  its shortest explaining path(s) with per-hop evidence; no severity is stored
+  or fabricated.
+- `GET /impact/summary?objectId=…` — the blast-radius counts of the same
+  traversal (direct, indirect, distinct packages, tables modified). It is a
+  separate service so the totals never depend on loading a page of rows.
+- `GET /objects` (search) and `GET /health` also page by `offset`; `/health`
+  takes a `category` and then lists items for that category alone, while every
+  category keeps reporting its exact `count`.
+- `GET /impact`, `GET /paths` and `GET /dependencies` accept `offset` so a client can read any
+  page directly (page navigation); `/impact` and `/paths` still accept the
+  previous page's `cursor`, but never both. `/dependencies` also takes an optional
+  `relationship` that narrows the selected `reads`/`writes`/`other` page and its
+  `total` to one edge type (e.g. `TRIGGER_ON`); `counts` keep describing whole
+  categories.
+- Ordering: every list is alphabetical by the object's name (case-blind, the
+  qualified name breaking ties), so a row can be found by scanning pages.
+  Dependency lists order by the *other* object (the caller, the callee, the
+  table…), impact by the dependent (the distance is a column, not the order),
+  Salud by the referencing object, and the Explorer tree by top-level name
+  (a package heads its members). `order=package` on `/impact` and
+  `/dependencies` lists by package first (objects outside any package last),
+  then name, so a view grouped by package pages through the packages
+  alphabetically; the console sends it while "group by package" is on and
+  re-reads from page 1 whenever it flips. Paths keep hop count first, since a route's
+  length is what distinguishes it.
 - Opaque identifiers embed `/` (`plsql://…`, `edge://…`, `file://…`), so
   identifier endpoints take query parameters, never path segments.
 - Envelopes are `{items, truncated, count}`; results are bounded server-side

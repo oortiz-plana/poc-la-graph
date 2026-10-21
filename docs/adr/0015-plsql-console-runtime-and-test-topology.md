@@ -11,7 +11,8 @@ working unchanged. The PL/SQL analysis console needs a graph only when a
 developer connects one; the analysis graph is owned and synchronized by the
 sibling `plsqlgraph` repository (its Compose exposes Bolt on host port 7687,
 `neo4j:2026.07.1-community`, credentials `neo4j/neo4j` — no read-only role is
-created there, so read-only enforcement must be client-side). E2E suites in
+created there; the bundled local service here pins `neo4j:2026.09.0-community`
+(`NEO4J_IMAGE`) and can restore an optional, git-ignored `neo4j/dump/neo4j.dump` on first start, so read-only enforcement must be client-side). E2E suites in
 this repository run against the explicit synthetic overlay
 (`docker-compose.synthetic.yml`) and must not require the real runtime.
 Deterministic development is the phase-1 mode (ADR 0012), so the console and

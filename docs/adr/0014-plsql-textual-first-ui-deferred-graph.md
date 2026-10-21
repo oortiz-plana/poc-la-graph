@@ -64,3 +64,11 @@ Interactive graph visualization and an advanced code editor are **deferred**:
   layer without changing contracts, backend services, or text views.
 - Source content is rendered as server-provided text only; it is never
   assembled into raw HTML in the browser.
+
+## Amendment: graph views removed
+
+The optional Cytoscape views (Dependencies and Impact) shipped after this ADR
+were removed: the console is list-only again and the `cytoscape` dependency is
+gone. Package grouping, which only the graph view and an Impact-only checkbox
+offered, is now one workspace-wide "Group by package" indicator that applies to
+the Overview, Dependencies and Impact lists.

@@ -98,3 +98,14 @@ new ADR.
 - Source content is never part of graph or evidence payloads except through
   the dedicated source endpoint, which serves read-only text scoped to the
   configured source root (ADR 0012).
+
+## Amendment: one dependency per object pair
+
+The graph stores one edge per source location, but an edge identifier is only
+the (relationship, source, target) triple, so two calls to the same routine on
+different lines produced duplicate rows and inflated counts. `PlsqlDependency`
+now represents the pair once: `occurrences` lists every distinct source
+location (ordered by file, then line), `occurrenceCount` its size, and
+`evidence` stays the first occurrence. Lists, totals, per-category counts and
+impact path edges all count distinct pairs. Both fields are additive and
+default to a single occurrence, so existing consumers keep working.

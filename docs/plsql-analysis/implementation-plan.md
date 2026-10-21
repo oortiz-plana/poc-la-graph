@@ -35,7 +35,7 @@ Legend: ✅ implemented and verified · ◐ partial (foundation slices shipped) 
 - `app/config/settings.py` — `PLSQL_*` block: `plsql_adapter`
   (`disabled` | `synthetic` | `neo4j`, default `disabled`), `plsql_project_id`,
   `plsql_source_root`, Neo4j credential placeholders (server-side only),
-  `plsql_max_rows` (≤ 200), `plsql_max_hops` (≤ 5), query timeout, source byte
+  `plsql_max_rows` (≤ 200), `plsql_max_hops` (≤ 100), query timeout, source byte
   cap; empty secret-style values normalize to `None`.
 - `app/integrations/plsql/` — `client.py` (`AnalysisGraphClient` protocol incl.
   `callers_of`/`callees_of`/`table_access_of`), `models.py` (internal object +
@@ -275,6 +275,10 @@ Phase 0.1 follow-up — Neo4j adapter (real mode):
   path/impact expand one bounded frontier per hop instead of loading the
   graph. The traversal budget is the `plsql_max_traversal_edges` Settings
   parameter (default `20_000`); exceeding it raises `analysis_limit_exceeded`.
+  Impact later moved to an object-level walk (`impact_graph.py`): totals and
+  the blast-radius summary (`GET /impact/summary`) come from distinct hops
+  without evidence, and only the page being returned loads routes and
+  evidence, so the budget bounds one hop query rather than the whole impact.
   See `docs/plsql-analysis/max-edge-rows-proposal.md` for the design and
   `tests/plsql/test_plsql_neo4j_adapter.py` for the hermetic coverage.
 - Wiring: `build_analysis_client` composes the Neo4j client from the
@@ -477,7 +481,7 @@ that phase are updated.
 
 The real Neo4j adapter requires the official **`neo4j` Python driver** (5.x,
 matching the server generation `neo4j:2026.07.1-community` that `plsqlgraph`
-runs). **Resolved:** the dependency was confirmed and pinned
+runs; the bundled local Compose service now pins `neo4j:2026.09.0-community`). **Resolved:** the dependency was confirmed and pinned
 (`neo4j>=5.26,<6`, added to `apps/api/pyproject.toml`); the driver is confined
 to the adapter (`app/integrations/plsql/neo4j_client.py`). The synthetic mode
 and all default tests still run without any Neo4j server; only the
@@ -497,7 +501,7 @@ Add to `apps/api/app/config/settings.py` a grouped `PLSQL_*` block with
 | `plsql_neo4j_user` / `plsql_neo4j_password` | — | Server-side secrets; never in browser |
 | `plsql_neo4j_read_only` | `true` | Enforced session mode |
 | `plsql_source_root` (`PLSQL_SOURCE_ROOT`) | — | Read-only source root for the source endpoint |
-| `plsql_max_hops` | `5` | ≤ 5 |
+| `plsql_max_hops` | `100` | ≤ 100 |
 | `plsql_max_rows` | `200` | ≤ 200 |
 | `plsql_query_timeout_seconds` | `10.0` | > 0 |
 | `plsql_max_source_bytes` | `262144` | Per-file source cap |

@@ -8,7 +8,9 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 RUN python -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-WORKDIR /build
+# Mirrors the repository layout (apps/api inside /build) so tests that read
+# repo-level files by relative path find them.
+WORKDIR /build/apps/api
 COPY apps/api/ ./
 RUN pip install --upgrade pip && pip install . && \
     mkdir -p "$TIKTOKEN_CACHE_DIR" && \
@@ -16,6 +18,9 @@ RUN pip install --upgrade pip && pip install . && \
 
 FROM base AS development
 RUN pip install ".[dev]"
+# Repo-level fixtures the API tests read: the sample legal corpus and the frozen contracts.
+COPY knowledge/input /build/knowledge/input
+COPY contracts /build/contracts
 
 FROM development AS test
 RUN pytest

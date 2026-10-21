@@ -118,32 +118,27 @@ test.beforeEach(async ({ page, baseURL }) => {
       await route.fulfill({
         json: url.searchParams.get("objectId") === source.id ? source : object,
       });
+    } else if (kind === "summary") {
+      // The blast-radius totals are their own service, never a page of rows.
+      await route.fulfill({
+        json: {
+          object,
+          summary: { direct: 26, indirect: 0, packages: 0, tablesModified: 0 },
+        },
+      });
     } else if (kind === "impact" || kind === "paths") {
-      // Overview also asks for Impact without an explicit limit.
-      const limit = url.searchParams.get("limit");
-      expect(
-        limit === "25" || (kind === "impact" && limit === null),
-      ).toBeTruthy();
-      const next = url.searchParams.get("cursor");
-      expect(next === null || next === `${kind}-next`).toBeTruthy();
+      expect(url.searchParams.get("limit")).toBe("25");
+      // Pages are addressed by offset (page navigation), never by cursor.
+      expect(url.searchParams.has("cursor")).toBe(false);
+      const offset = Number(url.searchParams.get("offset") ?? 0);
       const rows = kind === "impact" ? items : paths;
       await route.fulfill({
         json: {
-          ...(kind === "impact"
-            ? {
-                object,
-                summary: {
-                  direct: 26,
-                  indirect: 0,
-                  packages: 0,
-                  tablesModified: 0,
-                },
-              }
-            : {}),
-          items: next ? rows.slice(25) : rows.slice(0, 25),
+          ...(kind === "impact" ? { object } : {}),
+          items: rows.slice(offset, offset + 25),
           count: 26,
-          truncated: !next,
-          nextCursor: next ? null : `${kind}-next`,
+          truncated: offset + 25 < 26,
+          nextCursor: null,
         },
       });
     } else {
@@ -161,9 +156,7 @@ test.beforeEach(async ({ page, baseURL }) => {
   await page.getByRole("button", { name: "EMPLOYEES", exact: true }).click();
 });
 
-test("paginates Impact and expands the graph with loaded results", async ({
-  page,
-}) => {
+test("navigates Impact pages with the page controls", async ({ page }) => {
   const initialRequest = page.waitForRequest((request) => {
     const url = new URL(request.url());
     return (
@@ -173,19 +166,18 @@ test("paginates Impact and expands the graph with loaded results", async ({
   await page.getByRole("tab", { name: "Impact", exact: true }).click();
   await initialRequest;
   const report = page.getByRole("region", { name: "Impact analysis" });
-  await expect(report.getByText("Showing 25 of 26")).toBeVisible();
+  await expect(report.getByText("Showing 1–25 of 26")).toBeVisible();
   await expect(report.getByLabel("Depth")).toHaveAttribute("max", "50");
-  await report.getByRole("button", { name: "Graph", exact: true }).click();
-  await report.getByRole("button", { name: "Load more", exact: true }).click();
-  await expect(report.getByText("Showing 26 of 26")).toBeVisible();
-  await expect(report.getByRole("button", { name: "Load more" })).toHaveCount(
-    0,
-  );
-  await report.getByRole("button", { name: "List", exact: true }).click();
-  await expect(report.locator("tbody tr")).toHaveCount(26);
+  await expect(report.locator("tbody tr")).toHaveCount(25);
+  await report.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(report.getByText("Showing 26–26 of 26")).toBeVisible();
+  await expect(report.locator("tbody tr")).toHaveCount(1);
+  await expect(report.getByRole("button", { name: "Next" })).toBeDisabled();
+  await report.getByRole("button", { name: "Go to page 1" }).click();
+  await expect(report.locator("tbody tr")).toHaveCount(25);
 });
 
-test("paginates dependency paths and preserves the selected route", async ({
+test("navigates dependency path pages and closes the selected route", async ({
   page,
 }) => {
   await page.getByRole("tab", { name: "Paths", exact: true }).click();
@@ -195,17 +187,18 @@ test("paginates dependency paths and preserves the selected route", async ({
   await report.getByRole("combobox", { name: "To object" }).fill("EMPLOYEES");
   await report.getByRole("option", { name: /HR.EMPLOYEES/ }).click();
   await report.getByRole("button", { name: "Find paths" }).click();
-  await expect(report.getByText("Showing 25 of 26")).toBeVisible();
+  await expect(report.getByText("Showing 1–25 of 26")).toBeVisible();
   await report.locator("tbody tr").first().click();
   await expect(
     report.getByText("Selected path", { exact: true }),
   ).toBeVisible();
-  await report.getByRole("button", { name: "Load more", exact: true }).click();
-  await expect(report.getByText("Showing 26 of 26")).toBeVisible();
-  await expect(report.locator("tbody tr")).toHaveCount(26);
-  await expect(
-    report.getByText("Selected path", { exact: true }),
-  ).toBeVisible();
+  await report.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(report.getByText("Showing 26–26 of 26")).toBeVisible();
+  await expect(report.locator("tbody tr")).toHaveCount(1);
+  // A route from another page is not selected any more.
+  await expect(report.getByText("Selected path", { exact: true })).toHaveCount(
+    0,
+  );
 });
 
 for (const width of [320, 640]) {
@@ -251,7 +244,6 @@ for (const width of [320, 640]) {
               ],
             },
           ],
-          summary: { direct: 1, indirect: 0, packages: 0, tablesModified: 0 },
           count: 1,
           truncated: false,
           nextCursor: null,
@@ -312,9 +304,11 @@ for (const width of [320, 640]) {
     await expect(
       inspector.getByText("FOREIGN_KEY", { exact: true }),
     ).toBeVisible();
+    // The Inspector lists the evidence as a file and a readable line.
     await expect(
-      inspector.getByText("hr/employees.sql:5", { exact: true }),
+      inspector.getByText("hr/employees.sql", { exact: true }),
     ).toBeVisible();
+    await expect(inspector.getByText("line 5", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(inspector).not.toBeVisible();
   });

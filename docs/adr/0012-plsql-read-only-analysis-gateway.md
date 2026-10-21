@@ -46,7 +46,7 @@ reviewed query paths:
   User or model input never becomes Cypher text; values flow through `$params`
   (qualified names and opaque ids such as `plsql://sample/HR/PACKAGE/...`).
   No `run_cypher`-style endpoint is exposed to the UI or API.
-- Bounds are enforced by configuration (`PLSQL_MAX_HOPS` ≤ 5, `PLSQL_MAX_ROWS`
+- Bounds are enforced by configuration (`PLSQL_MAX_HOPS` ≤ 100 (raised from 5), `PLSQL_MAX_ROWS`
   ≤ 200, query timeouts, pagination) and every envelope carries a
   `truncated` flag; behavior and results are deterministic for a fixed graph
   and catalog version.

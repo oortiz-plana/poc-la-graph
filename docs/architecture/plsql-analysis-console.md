@@ -108,7 +108,7 @@ Adapted to this repository:
 | Callers of a routine | `callers_of` | `CALLS` into the target by `qualifiedName` (upstream `CALLERS_OF_ROUTINE`) | rows capped |
 | Callees of a routine | `callees_of` | Inverse reviewed path — `CALLS` out of the routine (added to the local catalog; not in upstream catalog) | rows capped |
 | Table access by object/package | `table_access_of` | `READS`/`WRITES` and structural dependencies including incoming/outgoing `FOREIGN_KEY` | rows capped |
-| Transitive impact | `impact_of` | `READS`, `WRITES`, `VIEW_DEPENDS_ON`, `CALLS`, `TRIGGERS`, and `FOREIGN_KEY` in the selected direction | `PLSQL_MAX_HOPS` = 5 |
+| Transitive impact | `impact_of` | `READS`, `WRITES`, `VIEW_DEPENDS_ON`, `CALLS`, `TRIGGERS`, and `FOREIGN_KEY` in the selected direction | `PLSQL_MAX_HOPS` (default and ceiling 100) |
 | Dependency paths | `find_paths` | Bounded variable-length paths over the same typed relationships, `from`/`to` by id | hop and row caps, ordered output |
 | Unresolved/ambiguous | `unresolved_references` | `resolution IN (AMBIGUOUS, UNRESOLVED)` edges (upstream query) | rows capped |
 | Relationship evidence | `relationship_evidence` | Read edge properties (`sourceFileId`, offsets, lines, `evidenceKind`) | single record |
@@ -180,7 +180,9 @@ GET  /api/v1/plsql/callees            ?objectId=…     outgoing CALLS
 GET  /api/v1/plsql/table-access       ?objectId=…     READS/WRITES grouped
 GET  /api/v1/plsql/impact             ?objectId=…&direction=…&depth=…&relationship=…
                                                      &directOnly=…&writesOnly=…
-                                                     bounded impact + blast-radius summary
+                                                     one page of bounded impact
+GET  /api/v1/plsql/impact/summary     (same filters, no paging)
+                                                     blast-radius counts
 GET  /api/v1/plsql/health             ?objectId=…     diagnostics by category (scoped or repo-wide)
 GET  /api/v1/plsql/source             ?objectId=…     read-only source text
 GET  /api/v1/plsql/files              ?fileId=…       read-only source text by file id
@@ -199,9 +201,14 @@ for the coordinated API/browser rollout and traversal compatibility decision.
 
 `category` accepts `callers | callees | reads | writes | other`; `direction`
 accepts `upstream | downstream`; `relationship` restricts traversal to one
-typed edge kind. `impact` responses carry a `summary` with direct/indirect
+typed edge kind. `impact/summary` reports direct/indirect
 affected objects, distinct packages, and tables modified on the traversed
-paths. `health` groups unresolved, ambiguous, dynamic-SQL, parse-error, and
+paths; `impact` returns only the paged rows. Both share one object-level walk
+(each object is expanded once, at its shortest distance, reading distinct
+hops without evidence); only the objects of the requested page are expanded
+into routes, and only the hops of those routes load evidence. The traversal
+bound `plsql_max_traversal_edges` therefore limits one hop query, not the size
+of the whole impact. `health` groups unresolved, ambiguous, dynamic-SQL, parse-error, and
 unsupported-construct diagnostics; the last three remain empty until the
 pipeline projects them into the graph.
 
@@ -217,6 +224,10 @@ explaining paths, source response, and bounded envelopes carrying
 `startColumn`, `startOffset`, `endOffset` when present; dependency/edge
 payloads additionally keep optional `evidenceKind`, `derived`, `events`,
 `viaTable`, populated only for derived relationships (currently `TRIGGERS`).
+A dependency stands for one object pair (relationship, source, target) however
+many call sites it has: counts and totals are of distinct pairs, and
+`occurrences`/`occurrenceCount` list every distinct source location (the first
+is `evidence`). Impact items carry the same fields on their path edges.
 
 ## 8. Gateway architecture
 
@@ -270,10 +281,10 @@ apps/web/src/components/plsql-analysis/
   use-roving-focus.ts                    single Tab stop + arrow keys over the result list
   object-header.tsx                      breadcrumb, kind, actions, object tabs
   overview-panel.tsx                     headline metrics + direct callers
-  dependencies-panel.tsx                 category chips, list/graph, expansion, source split
-  impact-report.tsx                      blast radius, filters, list/graph, package grouping
+  dependencies-panel.tsx                 category chips, list, source split
+  impact-report.tsx                      blast radius, filters, list
+  package-grouping.tsx                   shared package grouping (headers, collapse state)
   dependency-paths.tsx                   from/to tracing with progressive disclosure
-  dependency-graph.tsx                   Cytoscape view with viewport preservation
   health-panel.tsx                       Analysis Health dialog (scoped or repository-wide)
   inspector-panel.tsx                    right pane for object/edge/path metadata
   source-viewer.tsx                      read-only file view + range highlight
@@ -315,11 +326,12 @@ apps/web/src/components/plsql-analysis/
   `getPlsqlHealth`, `getPlsqlObjectSource`, …) over
   `/api/backend/api/v1/plsql/...`, with every payload validated by Zod
   schemas in `apps/web/src/lib/contracts.ts` before rendering.
-- List mode is textual-first (ADR 0014): edges render
-  `source → relationship → target` with a confidence badge; graph mode
-  (Cytoscape) starts from the focused object and expands explicitly
-  (`+ Callers/+ Callees/+ Reads/+ Writes/+ One level`), optionally grouped by
-  package. Confidence uses plain-language terms (Resolved/Inferred/Unresolved)
+- The views are textual-first lists (ADR 0014): edges render
+  `source → relationship → target` with a confidence badge. There is no graph
+  view; a single workspace-wide "Group by package" indicator next to the object
+  tabs files the rows of Overview, Dependencies and Impact under collapsible
+  package headers (routines under their package, a package under itself,
+  everything else under "No package"). Confidence uses plain-language terms (Resolved/Inferred/Unresolved)
   so `EXACT` never promises guaranteed runtime execution; the raw value stays
   in the badge tooltip and the Inspector. `truncated` and unresolved items are
   visible and never hidden to fix layout.

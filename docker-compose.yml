@@ -103,7 +103,7 @@ services:
       PLSQL_QUERY_TIMEOUT_SECONDS: ${PLSQL_QUERY_TIMEOUT_SECONDS:-10.0}
       PLSQL_SOURCE_ENCODING: ${PLSQL_SOURCE_ENCODING:-iso-8859-1}
       PLSQL_MAX_SOURCE_BYTES: ${PLSQL_MAX_SOURCE_BYTES:-262144}
-      PLSQL_MAX_HOPS: ${PLSQL_MAX_HOPS:-5}
+      PLSQL_MAX_HOPS: ${PLSQL_MAX_HOPS:-100}
       LLM_ADAPTER: ${LLM_ADAPTER:-mock}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_BASE: ${LLM_API_BASE:-}
@@ -216,7 +216,7 @@ services:
       # Mirrors the api service's own PLSQL_MAX_HOPS: the backend is the
       # authority that enforces it, this only lets the console display the
       # real configured ceiling instead of a guess.
-      PLSQL_MAX_HOPS: ${PLSQL_MAX_HOPS:-5}
+      PLSQL_MAX_HOPS: ${PLSQL_MAX_HOPS:-100}
       API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-graphify}
@@ -289,8 +289,37 @@ services:
     restart: unless-stopped
     networks: [app]
 
+  # One-shot job: on the first start (no `neo4j` database in ./neo4j/data) it
+  # restores ./neo4j/dump/neo4j.dump (a neo4j-admin dump, e.g. a plsqlgraph
+  # export). Skipped when a database already exists or no dump is present;
+  # force a reload with `make neo4j-reload` (NEO4J_DUMP_FORCE=true).
+  neo4j-init:
+    image: ${NEO4J_IMAGE:-neo4j:5-community}
+    user: "0:0"
+    restart: "no"
+    environment:
+      NEO4J_DUMP_FORCE: ${NEO4J_DUMP_FORCE:-false}
+    volumes:
+      - ./neo4j/data:/data
+      - ./neo4j/dump:/dumps:ro
+    network_mode: none
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ "$$NEO4J_DUMP_FORCE" != "true" ] && [ -d /data/databases/neo4j ]; then
+          echo "neo4j-init: database already present, skipping dump load"; exit 0
+        fi
+        if [ ! -f /dumps/neo4j.dump ]; then
+          echo "neo4j-init: no neo4j/dump/neo4j.dump found, starting with an empty graph"; exit 0
+        fi
+        neo4j-admin database load neo4j --from-path=/dumps --overwrite-destination=true
+
   neo4j:
-    image: neo4j:5-community
+    depends_on:
+      neo4j-init:
+        condition: service_completed_successfully
+    image: ${NEO4J_IMAGE:-neo4j:5-community}
     container_name: neo4j
     restart: unless-stopped
     ports:

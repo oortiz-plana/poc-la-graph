@@ -97,10 +97,10 @@ size and does not guarantee a snapshot across graph updates.
 It ships disabled by default and adds no behavior to the chat product. Enable it
 deterministically on the synthetic stack (`PLSQL_ADAPTER=synthetic`,
 `PLSQL_PROJECT_ID=sample`, `PLSQL_SOURCE_ROOT=/app/plsql-fixtures/source` on the
-API; `PLSQL_ENABLED=true` on the web), or run
+API; `PLSQL_ENABLED=true` on the web), for example
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.synthetic.yml up --build
+PLSQL_ADAPTER=synthetic PLSQL_ENABLED=true docker compose up --build
 ```
 
 with `make e2e` covering search → detail → callers/callees → table access →

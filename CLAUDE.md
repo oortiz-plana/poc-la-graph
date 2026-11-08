@@ -36,24 +36,24 @@ matching local environment (`apps/api` venv, `apps/web` node_modules) is already
 
 ```bash
 make setup              # create .env if absent, build images
-make dev                # docker compose up --build (real Graphify + ingestion)
+make dev                # docker compose up --build (PL/SQL stack: api, web, Keycloak, Neo4j)
 make up-postgres        # swap in the tested PostgreSQL conversation backend
 make test               # test-api + test-web, containerized
 make lint               # Ruff/mypy (api) + ESLint/TypeScript (web), containerized
-make e2e                # synthetic stack + Playwright (specs/chat.spec.ts, specs/plsql-analysis.spec.ts)
+make e2e                # synthetic PL/SQL adapter + Playwright (specs/plsql-analysis.spec.ts)
 make compose-check      # validate the Compose model
 make smoke              # web/API health + readiness
-make knowledge-status / knowledge-ingest / knowledge-rebuild / knowledge-rollback
+make knowledge-status / knowledge-rollback
 make test-graphify-real # checks the installed Graphify package contract
 make smoke-spanish      # requires a healthy real stack + configured provider
 make logs / down
 make clean              # DESTRUCTIVE: removes the persistent knowledge volume — only on explicit request
 ```
 
-Synthetic (deterministic) stack, used by `make e2e` and for local PL/SQL console dev:
+Deterministic PL/SQL console, used by `make e2e` and for local console dev:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.synthetic.yml up --build
+PLSQL_ADAPTER=synthetic PLSQL_ENABLED=true docker compose up --build
 ```
 
 ### Backend (`apps/api`), local environment

@@ -91,8 +91,9 @@ Adapted to this repository:
   disabled (`PLSQL_ADAPTER=disabled`) and the console shows an explicit
   "Analysis is not configured" state.
 - `PLSQL_ADAPTER=synthetic` selects the deterministic fixture adapter — the
-  development and E2E surface, exercised through the existing
-  `docker-compose.synthetic.yml` overlay (ADR 0015).
+  development and E2E surface. ADR 0015 introduced it through a
+  `docker-compose.synthetic.yml` overlay; that overlay is gone and `make e2e`
+  now sets the adapter through environment variables.
 - `PLSQL_ADAPTER=neo4j` connects to an already-synchronized graph over Bolt
   using server-side environment credentials and a configured
   `PLSQL_PROJECT_ID`; the source root is mounted read-only when

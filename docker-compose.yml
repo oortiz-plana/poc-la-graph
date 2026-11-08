@@ -199,7 +199,7 @@ services:
   # export). Skipped when a database already exists or no dump is present;
   # force a reload with `make neo4j-reload` (NEO4J_DUMP_FORCE=true).
   neo4j-init:
-    image: ${NEO4J_IMAGE:-neo4j:latest}
+    image: ${NEO4J_IMAGE:-neo4j:2026.07.1-community}
     user: "0:0"
     restart: "no"
     environment:
@@ -224,7 +224,7 @@ services:
     depends_on:
       neo4j-init:
         condition: service_completed_successfully
-    image: ${NEO4J_IMAGE:-neo4j:latest}
+    image: ${NEO4J_IMAGE:-neo4j:2026.07.1-community}
     container_name: neo4j
     restart: unless-stopped
     ports:
@@ -241,9 +241,9 @@ services:
 
   # One-shot job that applies docker/neo4j/schema/*.cypher (idempotent
   # indexes the gateway needs). Re-run it after restoring or reloading the
-  # graph: `docker compose -f docker-compose-plsql.yml run --rm neo4j-schema`.
+  # graph: `docker compose run --rm neo4j-schema`.
   neo4j-schema:
-    image: ${NEO4J_IMAGE:-neo4j:5-community}
+    image: ${NEO4J_IMAGE:-neo4j:2026.07.1-community}
     restart: "no"
     depends_on: [neo4j]
     environment:

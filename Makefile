@@ -1,4 +1,4 @@
-.PHONY: setup dev up up-postgres down logs test test-api test-web lint e2e compose-check compose-check-postgres smoke clean knowledge-ingest knowledge-status knowledge-rebuild knowledge-rollback test-integration test-graphify-real smoke-spanish neo4j-reload
+.PHONY: setup dev up up-postgres down logs test test-api test-web lint e2e compose-check compose-check-postgres smoke clean knowledge-status knowledge-rollback test-integration test-graphify-real smoke-spanish neo4j-reload
 
 setup:
 	@test -f .env || cp .env.example .env
@@ -28,9 +28,11 @@ lint:
 	docker build --target lint -f docker/api.Dockerfile .
 	docker build --target lint -f docker/web.Dockerfile .
 
+# The stack has no Graphify runtime any more, so only the PL/SQL spec runs here.
 e2e:
-	docker compose -f docker-compose.yml -f docker-compose.synthetic.yml up -d --build
-	cd tests/e2e && npm ci && npx playwright install --with-deps chromium && npm test
+	PLSQL_ADAPTER=synthetic PLSQL_PROJECT_ID=sample PLSQL_SOURCE_ROOT=/app/plsql-fixtures/source \
+	PLSQL_ENABLED=true LLM_ADAPTER=mock docker compose up -d --build
+	cd tests/e2e && npm ci && npx playwright install --with-deps chromium && npm run test:plsql
 
 compose-check:
 	docker compose config --quiet
@@ -40,12 +42,6 @@ compose-check-postgres:
 
 smoke:
 	./scripts/smoke-test.sh
-
-knowledge-ingest:
-	docker compose run --rm knowledge-ingest python -m app.knowledge.cli ingest
-
-knowledge-rebuild:
-	docker compose run --rm knowledge-ingest python -m app.knowledge.cli ingest --force
 
 knowledge-status:
 	docker compose run --rm --no-deps api python -m app.knowledge.cli status
@@ -66,7 +62,7 @@ clean:
 	docker compose down --remove-orphans --volumes
 
 # Replace the Neo4j graph with neo4j/dump/neo4j.dump (override NEO4J_COMPOSE for another stack).
-NEO4J_COMPOSE ?= docker-compose-plsql.yml
+NEO4J_COMPOSE ?= docker-compose.yml
 neo4j-reload:
 	docker compose -f $(NEO4J_COMPOSE) stop neo4j
 	NEO4J_DUMP_FORCE=true docker compose -f $(NEO4J_COMPOSE) run --rm neo4j-init

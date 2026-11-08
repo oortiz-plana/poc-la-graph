@@ -193,15 +193,17 @@ make smoke
 make knowledge-status
 ```
 
-- Normal Compose startup uses the real Graphify runtime and ingestion pipeline.
-- Synthetic mode is explicit:
+- `docker-compose.yml` runs the PL/SQL stack (api, web, Keycloak, Neo4j). It has
+  no Graphify runtime or ingestion worker; the api pins the chat graph to the
+  in-process mock.
+- The deterministic PL/SQL console is selected with environment variables:
 
   ```bash
-  docker compose -f docker-compose.yml -f docker-compose.synthetic.yml up --build
+  PLSQL_ADAPTER=synthetic PLSQL_ENABLED=true docker compose up --build
   ```
 
-- `make e2e` uses the synthetic stack. It verifies deterministic application
-  behavior, not real Graphify extraction or real-model answer quality.
+- `make e2e` starts that stack and runs `specs/plsql-analysis.spec.ts`. It
+  verifies deterministic application behavior, not a real analyzed graph.
 - `make test-graphify-real` checks the installed Graphify package contract.
 - `make smoke-spanish` requires a healthy real stack and configured provider.
 - `make clean` removes the persistent knowledge volume. It is destructive and

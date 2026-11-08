@@ -1,0 +1,50 @@
+{
+  "heading": "Console usage",
+  "adminOnly": "Visible to admins only. Records which views each person opened, never what they searched for.",
+  "window": "Time window",
+  "days": "{days} days",
+  "loading": "Loading console usage",
+  "disabled": "Usage analytics is turned off for this console. An administrator can turn it on by setting PLSQL_USAGE_ENABLED=true on the API.",
+  "empty": "Nobody has used the console in the last {days} days.",
+  "truncated": "This window holds more activity than one summary reads, so the oldest requests are left out.",
+  "dailyHeading": "Requests per day",
+  "dayBar": "{day}: {requests, plural, one {# request} other {# requests}}",
+  "operationsHeading": "Requests by view",
+  "usersHeading": "Requests by person",
+  "topObjectsHeading": "Most viewed objects",
+  "objectGone": "An object no longer in the analyzed project",
+  "requestCount": "{requests, plural, one {# request} other {# requests}}",
+  "stats": {
+    "requests": "Requests",
+    "users": "People",
+    "errorRate": "Failed requests",
+    "p95": "95% of requests finish within",
+    "milliseconds": "{value} ms"
+  },
+  "columns": {
+    "operation": "View",
+    "user": "Person",
+    "requests": "Requests",
+    "errors": "Failed",
+    "p95": "p95",
+    "lastActive": "Last active",
+    "topOperation": "Most used view"
+  },
+  "operations": {
+    "searchObjects": "Object search",
+    "getObject": "Object detail",
+    "getOverview": "Overview",
+    "getDependencies": "Dependencies",
+    "listCallers": "Callers",
+    "listCallees": "Callees",
+    "listTableAccess": "Table access",
+    "findPaths": "Paths",
+    "listUnresolved": "Unresolved references",
+    "getHealth": "Analysis health",
+    "getRelationshipEvidence": "Relationship evidence",
+    "getObjectSource": "Object source",
+    "getFileSource": "File source",
+    "getImpactSummary": "Impact summary",
+    "getImpact": "Impact report"
+  }
+}

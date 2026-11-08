@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useFormatter, useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 import useSWR from "swr";
 import { Skeleton } from "@/components/ui/skeleton";
 import { searchPlsqlObjects } from "@/lib/api";
@@ -61,9 +62,7 @@ async function loadCounts(): Promise<Record<StatKey, number>> {
  * of an object offers, so the empty space is a map of the tool instead of a
  * dead end.
  */
-export function WorkspaceLanding(props: {
-  onBrowseKind: (key: ObjectFilterKey) => void;
-}) {
+export function WorkspaceLanding(props: LandingProps) {
   return (
     <AnalysisPaginationScope>
       <WorkspaceLandingContent {...props} />
@@ -71,11 +70,13 @@ export function WorkspaceLanding(props: {
   );
 }
 
-function WorkspaceLandingContent({
-  onBrowseKind,
-}: {
+type LandingProps = {
   onBrowseKind: (key: ObjectFilterKey) => void;
-}) {
+  /** Extra section shown after the guide, such as the admin-only usage summary. */
+  usage?: ReactNode;
+};
+
+function WorkspaceLandingContent({ onBrowseKind, usage }: LandingProps) {
   const t = useTranslations("plsqlWorkspace");
   const format = useFormatter();
   const { data: counts, error } = useSWR("plsql-landing-counts", loadCounts);
@@ -162,6 +163,7 @@ function WorkspaceLandingContent({
       <p className="text-sm text-text-secondary">
         {t("workspace.landing.start")}
       </p>
+      {usage}
     </div>
   );
 }

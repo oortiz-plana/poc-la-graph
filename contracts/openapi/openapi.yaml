@@ -1877,6 +1877,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/plsql/usage:
+    get:
+      tags:
+      - plsql
+      summary: Get Plsql Usage
+      description: Summarize console usage for the admin's tenant over the last ``days``.
+      operationId: get_plsql_usage_api_v1_plsql_usage_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          enum:
+          - 7
+          - 30
+          - 90
+          type: integer
+          default: 7
+          title: Days
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlsqlUsageSummary'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AccessActivity:
@@ -3725,6 +3759,177 @@ components:
       - endLine
       title: PlsqlSourceHighlight
       description: Inclusive line range a client should highlight in the viewer.
+    PlsqlUsageDay:
+      properties:
+        day:
+          type: string
+          title: Day
+          description: UTC calendar day, YYYY-MM-DD
+        requests:
+          type: integer
+          minimum: 0.0
+          title: Requests
+      additionalProperties: false
+      type: object
+      required:
+      - day
+      - requests
+      title: PlsqlUsageDay
+    PlsqlUsageObject:
+      properties:
+        objectId:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Objectid
+        object:
+          anyOf:
+          - $ref: '#/components/schemas/PlsqlObjectReference'
+          - type: 'null'
+        requests:
+          type: integer
+          minimum: 0.0
+          title: Requests
+      additionalProperties: false
+      type: object
+      required:
+      - objectId
+      - requests
+      title: PlsqlUsageObject
+      description: A frequently inspected object; ``object`` is null once it left the
+        graph.
+    PlsqlUsageOperation:
+      properties:
+        operation:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Operation
+        requests:
+          type: integer
+          minimum: 0.0
+          title: Requests
+        errors:
+          type: integer
+          minimum: 0.0
+          title: Errors
+        p95DurationMs:
+          type: number
+          minimum: 0.0
+          title: P95Durationms
+      additionalProperties: false
+      type: object
+      required:
+      - operation
+      - requests
+      - errors
+      - p95DurationMs
+      title: PlsqlUsageOperation
+      description: Requests for one console operation within the usage window.
+    PlsqlUsageSummary:
+      properties:
+        daysInWindow:
+          type: integer
+          enum:
+          - 7
+          - 30
+          - 90
+          title: Daysinwindow
+        since:
+          type: string
+          title: Since
+        until:
+          type: string
+          title: Until
+        requests:
+          type: integer
+          minimum: 0.0
+          title: Requests
+        distinctUsers:
+          type: integer
+          minimum: 0.0
+          title: Distinctusers
+        errors:
+          type: integer
+          minimum: 0.0
+          title: Errors
+        p50DurationMs:
+          type: number
+          minimum: 0.0
+          title: P50Durationms
+        p95DurationMs:
+          type: number
+          minimum: 0.0
+          title: P95Durationms
+        operations:
+          items:
+            $ref: '#/components/schemas/PlsqlUsageOperation'
+          type: array
+          title: Operations
+        daily:
+          items:
+            $ref: '#/components/schemas/PlsqlUsageDay'
+          type: array
+          title: Daily
+        users:
+          items:
+            $ref: '#/components/schemas/PlsqlUsageUser'
+          type: array
+          title: Users
+        topObjects:
+          items:
+            $ref: '#/components/schemas/PlsqlUsageObject'
+          type: array
+          title: Topobjects
+        truncated:
+          type: boolean
+          title: Truncated
+      additionalProperties: false
+      type: object
+      required:
+      - daysInWindow
+      - since
+      - until
+      - requests
+      - distinctUsers
+      - errors
+      - p50DurationMs
+      - p95DurationMs
+      - operations
+      - daily
+      - users
+      - topObjects
+      - truncated
+      title: PlsqlUsageSummary
+      description: Admin-only aggregate of PL/SQL console usage (ADR 0018).
+    PlsqlUsageUser:
+      properties:
+        username:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Username
+        requests:
+          type: integer
+          minimum: 0.0
+          title: Requests
+        lastActiveAt:
+          type: string
+          title: Lastactiveat
+        topOperation:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Topoperation
+      additionalProperties: false
+      type: object
+      required:
+      - username
+      - requests
+      - lastActiveAt
+      - topOperation
+      title: PlsqlUsageUser
+      description: One person's console activity; usernames are visible to admins only.
   securitySchemes:
     HTTPBearer:
       type: http

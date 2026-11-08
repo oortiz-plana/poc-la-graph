@@ -22,6 +22,7 @@ import {
   plsqlSourceContentSchema,
   plsqlImpactResultSchema,
   plsqlImpactSummaryResultSchema,
+  plsqlUsageSummarySchema,
   type BuildSummary,
   type AccessActivity,
   type AccessRequestContext,
@@ -34,6 +35,8 @@ import {
   type PlsqlDependencyCategory,
   type PlsqlDependencySummary,
   type PlsqlHealth,
+  type PlsqlUsageSummary,
+  type PlsqlUsageWindow,
   type PlsqlListOrder,
   type PlsqlHealthCategoryName,
   type PlsqlDependency,
@@ -659,6 +662,20 @@ export async function getPlsqlHealth(
   if (!response.ok)
     return plsqlFailure(response, "Could not load analysis health.");
   return plsqlHealthSchema.parse(await response.json());
+}
+
+/** Admin-only console usage over the last `days` (ADR 0018). */
+export async function getPlsqlUsage(
+  days: PlsqlUsageWindow,
+): Promise<PlsqlUsageSummary> {
+  const params = new URLSearchParams({ days: String(days) });
+  const response = await safeFetch(
+    `/api/backend/api/v1/plsql/usage?${params}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok)
+    return plsqlFailure(response, "Could not load console usage.");
+  return plsqlUsageSummarySchema.parse(await response.json());
 }
 
 type ImpactTraversalOptions = {

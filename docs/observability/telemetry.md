@@ -11,6 +11,7 @@ The formatter accepts only this reviewed context allowlist:
 
 - request: `request_id`, `method`, `path`, `status_code`
 - failures: `error_type`, `component`
+- PL/SQL console: `operation` (route name only)
 - ingestion: `ingestion_id`, `graph_version`, `document_count`
 - graph: `node_count`, `edge_count`
 - timing: `duration_ms`, `duration_seconds`
@@ -34,6 +35,26 @@ The formatter is a final containment layer, not a substitute for that policy.
   MCP payloads.
 - FastAPI and HTTPX OpenTelemetry instrumentation is enabled when its installed
   packages load successfully.
+
+## PL/SQL console usage analytics
+
+When `PLSQL_USAGE_ENABLED=true`, the API stores one row per authenticated
+`/api/v1/plsql/*` request in the `plsql_usage_events` table
+([ADR 0018](../adr/0018-plsql-console-usage-analytics.md)). Each row holds the
+timestamp, tenant, subject, username, operation (route name), outcome, HTTP
+status, duration and, when the request names one, the object id.
+
+This store differs from the log stream in one respect: it holds identifiable
+usernames, so admins can see activity per person. To keep that contained:
+
+- only the `admin` role can read it, through `GET /api/v1/plsql/usage`, and
+  only for its own tenant;
+- rows are purged after `PLSQL_USAGE_RETENTION_DAYS` (default 90);
+- subject and username are not on the log allowlist, so they never reach
+  standard output. The log stream gains only the `operation` field;
+- search text, source content, tokens and request bodies are never stored.
+
+The admin view lives on the `/plsql` landing page under "Console usage".
 
 ## Current POC limitations
 

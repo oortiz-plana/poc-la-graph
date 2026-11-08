@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,6 +39,7 @@ import {
 import type { PlsqlLocation } from "./plsql-location";
 import { SourceViewer, type SourceRequest } from "./source-viewer";
 import { usePlsqlHistory } from "./use-plsql-history";
+import { UsagePanel } from "./usage-panel";
 import { WorkspaceShell } from "./workspace-shell";
 
 /** A reference is a slim projection of an object; pad it to the full shape the object views expect. */
@@ -470,6 +471,11 @@ export function PlsqlAnalysisWorkspace() {
                 </p>
                 <EmptyState
                   restore={restore}
+                  usage={
+                    auth.roles.has("admin") ? (
+                      <UsagePanel onOpenObject={openObjectOverview} />
+                    ) : undefined
+                  }
                   onBrowseKind={(key) => {
                     setFilterRequest((current) => ({
                       id: (current?.id ?? 0) + 1,
@@ -491,11 +497,13 @@ export function PlsqlAnalysisWorkspace() {
 
 function EmptyState({
   restore,
+  usage,
   onBrowseKind,
   onRetry,
   onClear,
 }: {
   restore: Restore;
+  usage?: ReactNode;
   onBrowseKind: (key: ObjectFilterKey) => void;
   onRetry: () => void;
   onClear: () => void;
@@ -531,5 +539,5 @@ function EmptyState({
       </div>
     );
   }
-  return <WorkspaceLanding onBrowseKind={onBrowseKind} />;
+  return <WorkspaceLanding onBrowseKind={onBrowseKind} usage={usage} />;
 }

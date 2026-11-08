@@ -25,17 +25,19 @@ const mocks = vi.hoisted(() => ({
   getPlsqlImpactSummary: vi.fn(),
   getPlsqlOverview: vi.fn(),
   getPlsqlHealth: vi.fn(),
+  getPlsqlUsage: vi.fn(),
 }));
 
 const authState = vi.hoisted(() => ({
   config: { plsqlEnabled: true },
+  roles: new Set(["viewer", "editor"]),
 }));
 
 vi.mock("@/lib/api", () => mocks);
 vi.mock("../auth-provider", () => ({
   useAuth: () => ({
     username: "plsql-analyst",
-    roles: new Set(["viewer", "editor"]),
+    roles: authState.roles,
     logout: vi.fn(),
     config: authState.config,
   }),
@@ -192,6 +194,7 @@ describe("PlsqlAnalysisWorkspace", () => {
     window.history.replaceState(null, "", "/plsql");
     document.title = "PL/SQL analysis · Graphify Knowledge Agent";
     authState.config = { plsqlEnabled: true };
+    authState.roles = new Set(["viewer", "editor"]);
     mocks.getPlsqlDependencies.mockResolvedValue({
       counts: { callers: 0, callees: 0, reads: 0, writes: 0, other: 0 },
       items: [],
@@ -1291,6 +1294,73 @@ describe("PlsqlAnalysisWorkspace", () => {
         offset: 0,
       }),
     );
+  });
+
+  it("keeps console usage off the landing for people who are not admins", async () => {
+    mocks.searchPlsqlObjects.mockResolvedValue({
+      items: [],
+      truncated: false,
+      count: 1,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+
+    expect(
+      await screen.findByText("What you can do with an object"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Console usage")).not.toBeInTheDocument();
+    expect(mocks.getPlsqlUsage).not.toHaveBeenCalled();
+  });
+
+  it("shows console usage to admins and opens a most viewed object", async () => {
+    const user = userEvent.setup();
+    authState.roles = new Set(["viewer", "editor", "admin"]);
+    mocks.searchPlsqlObjects.mockResolvedValue({
+      items: [],
+      truncated: false,
+      count: 1,
+    });
+    mocks.getPlsqlObject.mockResolvedValue(functionObject);
+    mocks.getPlsqlUsage.mockResolvedValue({
+      daysInWindow: 7,
+      since: "2026-11-01T00:00:00+00:00",
+      until: "2026-11-07T12:00:00+00:00",
+      requests: 4,
+      distinctUsers: 1,
+      errors: 0,
+      p50DurationMs: 8,
+      p95DurationMs: 20,
+      operations: [
+        {
+          operation: "get_overview",
+          requests: 4,
+          errors: 0,
+          p95DurationMs: 20,
+        },
+      ],
+      daily: [{ day: "2026-11-07", requests: 4 }],
+      users: [
+        {
+          username: "alice",
+          requests: 4,
+          lastActiveAt: "2026-11-07T11:00:00+00:00",
+          topOperation: "get_overview",
+        },
+      ],
+      topObjects: [
+        { objectId: functionObject.id, object: functionObject, requests: 4 },
+      ],
+      truncated: false,
+    });
+    render(<PlsqlAnalysisWorkspace />);
+
+    await user.click(
+      await screen.findByRole("button", { name: functionObject.qualifiedName }),
+    );
+
+    expect(mocks.getPlsqlUsage).toHaveBeenCalledWith(7);
+    expect(
+      await screen.findByRole("heading", { name: "GET_SALARY" }),
+    ).toBeInTheDocument();
   });
 
   it("closes the Explorer drawer once an object is chosen in it", async () => {

@@ -142,3 +142,27 @@ def test_project_access_migration_makes_creator_the_private_owner(
 
     assert project[0] == "default"
     assert tuple(membership) == ("user", "owner-subject", "owner")
+
+
+def test_plsql_usage_migration_creates_indexed_events_table(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CONVERSATION_DATABASE_URL", raising=False)
+    database = tmp_path / "usage-migration.db"
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{database}")
+    command.upgrade(config, "head")
+
+    engine = sa.create_engine(f"sqlite:///{database}")
+    inspector = sa.inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("plsql_usage_events")}
+    indexes = {index["name"] for index in inspector.get_indexes("plsql_usage_events")}
+    engine.dispose()
+
+    assert {"subject", "username", "operation", "object_id"}.issubset(columns)
+    assert indexes == {
+        "ix_plsql_usage_events_tenant_time",
+        "ix_plsql_usage_events_tenant_operation",
+        "ix_plsql_usage_events_tenant_subject",
+    }
+    command.downgrade(config, "20260804_0005")

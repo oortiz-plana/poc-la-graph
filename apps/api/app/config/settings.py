@@ -132,6 +132,10 @@ class Settings(BaseSettings):
     plsql_query_timeout_seconds: float = Field(default=10.0, gt=0, le=300)
     plsql_max_source_bytes: int = Field(default=262_144, ge=1024, le=10_485_760)
     plsql_source_encoding: str = "iso-8859-1"
+    # Console usage analytics (ADR 0018): per-request records of who used which
+    # console operation, readable by admins only and purged after retention.
+    plsql_usage_enabled: bool = False
+    plsql_usage_retention_days: int = Field(default=90, ge=1, le=365)
 
     @field_validator(
         "llm_api_base",

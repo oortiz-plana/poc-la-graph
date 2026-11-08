@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphify-agent.local/schemas/plsql-usage.schema.json",
+  "title": "PL/SQL console usage summary",
+  "description": "Admin-only aggregate of PL/SQL console usage for one tenant and window (ADR 0018). Usernames are visible to admins only; search text is never recorded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "daysInWindow",
+    "since",
+    "until",
+    "requests",
+    "distinctUsers",
+    "errors",
+    "p50DurationMs",
+    "p95DurationMs",
+    "operations",
+    "daily",
+    "users",
+    "topObjects",
+    "truncated"
+  ],
+  "properties": {
+    "daysInWindow": { "type": "integer", "enum": [7, 30, 90] },
+    "since": { "type": "string", "format": "date-time" },
+    "until": { "type": "string", "format": "date-time" },
+    "requests": { "type": "integer", "minimum": 0 },
+    "distinctUsers": { "type": "integer", "minimum": 0 },
+    "errors": { "type": "integer", "minimum": 0 },
+    "p50DurationMs": { "type": "number", "minimum": 0 },
+    "p95DurationMs": { "type": "number", "minimum": 0 },
+    "operations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/operation" }
+    },
+    "daily": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/day" }
+    },
+    "users": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/user" }
+    },
+    "topObjects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/object" }
+    },
+    "truncated": { "type": "boolean" }
+  },
+  "$defs": {
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "requests", "errors", "p95DurationMs"],
+      "properties": {
+        "operation": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "requests": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 },
+        "p95DurationMs": { "type": "number", "minimum": 0 }
+      }
+    },
+    "day": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["day", "requests"],
+      "properties": {
+        "day": { "type": "string", "format": "date" },
+        "requests": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["username", "requests", "lastActiveAt", "topOperation"],
+      "properties": {
+        "username": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "requests": { "type": "integer", "minimum": 0 },
+        "lastActiveAt": { "type": "string", "format": "date-time" },
+        "topOperation": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objectId", "object", "requests"],
+      "properties": {
+        "objectId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "object": {
+          "oneOf": [
+            { "$ref": "plsql-dependency.schema.json#/$defs/objectReference" },
+            { "type": "null" }
+          ]
+        },
+        "requests": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -522,6 +522,53 @@ export const plsqlImpactSummaryResultSchema = z.object({
   summary: plsqlImpactSummarySchema,
 });
 
+/** Console usage windows the API accepts, in days (ADR 0018). */
+export const plsqlUsageWindowSchema = z.union([
+  z.literal(7),
+  z.literal(30),
+  z.literal(90),
+]);
+export const plsqlUsageSummarySchema = z.object({
+  daysInWindow: plsqlUsageWindowSchema,
+  since: z.string(),
+  until: z.string(),
+  requests: z.number().int().nonnegative(),
+  distinctUsers: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  p50DurationMs: z.number().nonnegative(),
+  p95DurationMs: z.number().nonnegative(),
+  operations: z.array(
+    z.object({
+      operation: z.string().min(1),
+      requests: z.number().int().nonnegative(),
+      errors: z.number().int().nonnegative(),
+      p95DurationMs: z.number().nonnegative(),
+    }),
+  ),
+  daily: z.array(
+    z.object({
+      day: z.string(),
+      requests: z.number().int().nonnegative(),
+    }),
+  ),
+  users: z.array(
+    z.object({
+      username: z.string().min(1),
+      requests: z.number().int().nonnegative(),
+      lastActiveAt: z.string(),
+      topOperation: z.string().min(1),
+    }),
+  ),
+  topObjects: z.array(
+    z.object({
+      objectId: z.string().min(1),
+      object: plsqlObjectReferenceSchema.nullable(),
+      requests: z.number().int().nonnegative(),
+    }),
+  ),
+  truncated: z.boolean(),
+});
+
 export type Project = z.infer<typeof projectSchema>;
 export type ProjectRole = z.infer<typeof projectRoleSchema>;
 export type ProjectMembership = z.infer<typeof projectMembershipSchema>;
@@ -552,6 +599,8 @@ export type PlsqlImpactSummaryResult = z.infer<
   typeof plsqlImpactSummaryResultSchema
 >;
 export type PlsqlHealth = z.infer<typeof plsqlHealthSchema>;
+export type PlsqlUsageWindow = z.infer<typeof plsqlUsageWindowSchema>;
+export type PlsqlUsageSummary = z.infer<typeof plsqlUsageSummarySchema>;
 /** How a list is ordered: by object name, or by package first for a grouped view. */
 export type PlsqlListOrder = "name" | "package";
 /** Keys of `PlsqlHealth` that hold a diagnostics category. */

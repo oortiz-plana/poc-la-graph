@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import uuid4
 
@@ -33,6 +34,7 @@ from app.api.errors import (
 )
 from app.api.routes.knowledge import router as knowledge_router
 from app.api.routes.plsql import router as plsql_router
+from app.api.routes.plsql import usage_router as plsql_usage_router
 from app.api.routes.projects import router as projects_router
 from app.auth import TokenVerifier, require_admin
 from app.auth.dependencies import AuthorizationError
@@ -51,6 +53,7 @@ from app.store import (
     ConversationStateConflict,
     create_conversation_store,
 )
+from app.usage import SQLAlchemyUsageRecorder, record_plsql_usage
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -102,6 +105,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.model = build_model(configured)
         application.state.knowledge = KnowledgeIngestionService(configured, logger)
         application.state.plsql_analysis = build_analysis_client(configured)
+        application.state.usage = SQLAlchemyUsageRecorder(
+            configured.conversation_database_url
+        )
+        await application.state.usage.initialize()
+        await _purge_expired_usage(application)
         application.state.initialized = True
         if (
             configured.knowledge_ingest_on_startup
@@ -122,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await application.state.projects.close()
             await application.state.token_verifier.close()
             await application.state.directory.close()
+            await application.state.usage.close()
             analysis_client = getattr(application.state, "plsql_analysis", None)
             analysis_close = getattr(analysis_client, "close", None)
             if callable(analysis_close):
@@ -149,6 +158,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ],
         expose_headers=["X-Request-ID"],
     )
+
+    if configured.plsql_usage_enabled:
+        application.middleware("http")(record_plsql_usage)
 
     @application.middleware("http")
     async def correlation_id(
@@ -216,6 +228,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(api_router)
     application.include_router(projects_router)
     application.include_router(plsql_router)
+    application.include_router(plsql_usage_router)
     if configured.knowledge_admin_endpoints_enabled:
         application.include_router(
             knowledge_router, dependencies=[Depends(require_admin)]
@@ -228,6 +241,7 @@ async def _cleanup_conversations(application: FastAPI) -> None:
     while True:
         await asyncio.sleep(interval)
         removed = await application.state.store.cleanup()
+        await _purge_expired_usage(application)
         upload_paths = await application.state.projects.cleanup_expired_uploads()
         await application.state.project_storage.cleanup_paths(upload_paths)
         retention = application.state.settings.project_archive_retention_days
@@ -243,6 +257,17 @@ async def _cleanup_conversations(application: FastAPI) -> None:
                 "expired_archived_conversations_removed",
                 extra={"conversation_count": removed},
             )
+
+
+async def _purge_expired_usage(application: FastAPI) -> None:
+    retention_days = application.state.settings.plsql_usage_retention_days
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+    removed = await application.state.usage.purge_before(cutoff)
+    if removed:
+        application.state.logger.info(
+            "expired_plsql_usage_events_removed",
+            extra={"component": "plsql_usage"},
+        )
 
 
 def _instrument(application: FastAPI) -> None:

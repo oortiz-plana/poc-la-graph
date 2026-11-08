@@ -289,7 +289,17 @@ apps/web/src/components/plsql-analysis/
   health-panel.tsx                       Analysis Health dialog (scoped or repository-wide)
   inspector-panel.tsx                    right pane for object/edge/path metadata
   source-viewer.tsx                      read-only file view + range highlight
+  workspace-landing.tsx                  landing: project counts, view guide, optional usage slot
+  usage-panel.tsx / use-usage-summary.ts admin-only console usage (ADR 0018)
 ```
+
+- **Console usage (ADR 0018).** For admins only, the landing page shows a
+  "Console usage" section when no object is selected. It has a 7/30/90-day
+  window, totals, people, failed requests, p95 duration, requests per day,
+  requests by view, requests by person and the most viewed objects (each one
+  opens that object's Overview). The workspace passes the panel into the
+  landing as a slot, so viewers never mount it or call `/usage`. When
+  `PLSQL_USAGE_ENABLED` is off, the section says so.
 
 - The existing application left menu is the only application navigation; the
   Object Explorer is contextual navigation inside the PL/SQL workspace. The

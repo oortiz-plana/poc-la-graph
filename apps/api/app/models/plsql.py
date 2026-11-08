@@ -273,3 +273,55 @@ class PlsqlImpactResult(ApiModel):
     truncated: bool
     count: int = Field(ge=0)
     next_cursor: str | None = Field(alias="nextCursor")
+
+
+UsageWindowDays = Literal[7, 30, 90]
+
+
+class PlsqlUsageOperation(ApiModel):
+    """Requests for one console operation within the usage window."""
+
+    operation: str = Field(min_length=1, max_length=64)
+    requests: int = Field(ge=0)
+    errors: int = Field(ge=0)
+    p95_duration_ms: float = Field(alias="p95DurationMs", ge=0)
+
+
+class PlsqlUsageDay(ApiModel):
+    day: str = Field(description="UTC calendar day, YYYY-MM-DD")
+    requests: int = Field(ge=0)
+
+
+class PlsqlUsageUser(ApiModel):
+    """One person's console activity; usernames are visible to admins only."""
+
+    username: str = Field(min_length=1, max_length=255)
+    requests: int = Field(ge=0)
+    last_active_at: str = Field(alias="lastActiveAt")
+    top_operation: str = Field(alias="topOperation", min_length=1, max_length=64)
+
+
+class PlsqlUsageObject(ApiModel):
+    """A frequently inspected object; ``object`` is null once it left the graph."""
+
+    object_id: str = Field(alias="objectId", min_length=1, max_length=512)
+    object: PlsqlObjectReference | None = None
+    requests: int = Field(ge=0)
+
+
+class PlsqlUsageSummary(ApiModel):
+    """Admin-only aggregate of PL/SQL console usage (ADR 0018)."""
+
+    days_in_window: UsageWindowDays = Field(alias="daysInWindow")
+    since: str
+    until: str
+    requests: int = Field(ge=0)
+    distinct_users: int = Field(alias="distinctUsers", ge=0)
+    errors: int = Field(ge=0)
+    p50_duration_ms: float = Field(alias="p50DurationMs", ge=0)
+    p95_duration_ms: float = Field(alias="p95DurationMs", ge=0)
+    operations: list[PlsqlUsageOperation]
+    daily: list[PlsqlUsageDay]
+    users: list[PlsqlUsageUser]
+    top_objects: list[PlsqlUsageObject] = Field(alias="topObjects")
+    truncated: bool

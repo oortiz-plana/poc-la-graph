@@ -73,8 +73,11 @@ async def current_principal(
 
 def require_role(role: Role):  # type: ignore[no-untyped-def]
     async def dependency(
+        request: Request,
         principal: Annotated[AuthPrincipal, Depends(current_principal)],
     ) -> AuthPrincipal:
+        # Shared with request-scoped middleware such as usage analytics.
+        request.state.principal = principal
         if role not in principal.roles:
             raise AuthorizationError(f"The {role} role is required")
         return principal

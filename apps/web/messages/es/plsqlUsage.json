@@ -1,0 +1,50 @@
+{
+  "heading": "Uso de la consola",
+  "adminOnly": "Solo visible para administradores. Registra qué vistas abrió cada persona, nunca lo que buscó.",
+  "window": "Periodo",
+  "days": "{days} días",
+  "loading": "Cargando el uso de la consola",
+  "disabled": "La analítica de uso está desactivada en esta consola. Un administrador puede activarla con PLSQL_USAGE_ENABLED=true en la API.",
+  "empty": "Nadie ha usado la consola en los últimos {days} días.",
+  "truncated": "Este periodo tiene más actividad de la que lee un resumen, así que se omiten las solicitudes más antiguas.",
+  "dailyHeading": "Solicitudes por día",
+  "dayBar": "{day}: {requests, plural, one {# solicitud} other {# solicitudes}}",
+  "operationsHeading": "Solicitudes por vista",
+  "usersHeading": "Solicitudes por persona",
+  "topObjectsHeading": "Objetos más consultados",
+  "objectGone": "Un objeto que ya no está en el proyecto analizado",
+  "requestCount": "{requests, plural, one {# solicitud} other {# solicitudes}}",
+  "stats": {
+    "requests": "Solicitudes",
+    "users": "Personas",
+    "errorRate": "Solicitudes fallidas",
+    "p95": "El 95 % de las solicitudes termina en",
+    "milliseconds": "{value} ms"
+  },
+  "columns": {
+    "operation": "Vista",
+    "user": "Persona",
+    "requests": "Solicitudes",
+    "errors": "Fallidas",
+    "p95": "p95",
+    "lastActive": "Última actividad",
+    "topOperation": "Vista más usada"
+  },
+  "operations": {
+    "searchObjects": "Búsqueda de objetos",
+    "getObject": "Detalle del objeto",
+    "getOverview": "Resumen",
+    "getDependencies": "Dependencias",
+    "listCallers": "Llamadores",
+    "listCallees": "Llamados",
+    "listTableAccess": "Acceso a tablas",
+    "findPaths": "Rutas",
+    "listUnresolved": "Referencias sin resolver",
+    "getHealth": "Estado del análisis",
+    "getRelationshipEvidence": "Evidencia de la relación",
+    "getObjectSource": "Código del objeto",
+    "getFileSource": "Código del archivo",
+    "getImpactSummary": "Resumen de impacto",
+    "getImpact": "Informe de impacto"
+  }
+}

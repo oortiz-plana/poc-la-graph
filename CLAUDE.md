@@ -187,7 +187,8 @@ Key env vars (see `.env.example` for the full set): `TENANCY_MODE` (`fixed` | `c
 `TENANT_ID`/`TENANT_IDS`, `AUTH_TENANT_CLAIM`, `AUTH_GROUPS_CLAIM`, `GRAPHIFY_RUNTIME_MODE`,
 `LLM_ADAPTER` (`litellm` | `mock`), `LLM_MODEL`/`LLM_API_BASE`/`LLM_API_KEY`,
 `OPENAI_API_KEY`, `KNOWLEDGE_SOURCE_INDEX_PATH`, `PLSQL_ADAPTER`/`PLSQL_PROJECT_ID`/
-`PLSQL_SOURCE_ROOT`/`PLSQL_ENABLED`. Never read, print, or search `.env` contents — check by
+`PLSQL_SOURCE_ROOT`/`PLSQL_ENABLED`, `PLSQL_USAGE_ENABLED`/`PLSQL_USAGE_RETENTION_DAYS`
+(admin-only console usage analytics, ADR 0018). Never read, print, or search `.env` contents — check by
 variable name/presence only (full rule in `AGENTS.md` § Secrets and sensitive data).
 
 ## Before you edit

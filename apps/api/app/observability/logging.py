@@ -19,6 +19,7 @@ _CONTEXT_FIELDS = (
     "auth_cause",
     "error_type",
     "component",
+    "operation",
     "ingestion_id",
     "graph_version",
     "document_count",

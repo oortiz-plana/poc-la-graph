@@ -129,6 +129,15 @@ Normative artifacts added for this contract:
 - `contracts/schemas/plsql-impact.schema.json`: bounded impact report.
 - `contracts/openapi/openapi.yaml`: `/api/v1/plsql` paths and `Plsql*`
   schemas.
+- `contracts/schemas/plsql-usage.schema.json`: admin-only console usage
+  summary (ADR 0018). `GET /api/v1/plsql/usage?days=7|30|90` requires the
+  `admin` role, answers `analysis_not_configured` (503) when
+  `PLSQL_USAGE_ENABLED` is off, and returns `{daysInWindow, since, until,
+  requests, distinctUsers, errors, p50DurationMs, p95DurationMs, operations,
+  daily, users, topObjects, truncated}`. `users[].username` is the only
+  personal field. `topObjects[].object` is `null` once an object has left
+  the analyzed graph. `test_frozen_contract_matches_the_usage_endpoint`
+  keeps the frozen OpenAPI path and schemas equal to the backend.
 
 Hardening (phase 6 of the
 [implementation plan](../plsql-analysis/implementation-plan.md)) added no

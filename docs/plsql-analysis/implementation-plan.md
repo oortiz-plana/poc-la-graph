@@ -29,6 +29,7 @@ Legend: ✅ implemented and verified · ◐ partial (foundation slices shipped) 
 | 4 — Source evidence and viewer | ✅ | Backend `/source` + `/files` + `/relationships/evidence` with root guards and byte caps; fixture source corpus; web source viewer wired to every evidence link; see shipped notes below |
 | 5 — Impact analysis | ✅ | Backend `/impact` (dependents grouped by distance, shortest explaining paths, no fabricated severity); web impact report with groups, path text, evidence links; see shipped notes below |
 | 6 — Hardening | ✅ | Bounds sweep + readiness matrix, a11y pass, full E2E spec wired into the synthetic suite, docs/Compose sync; see shipped notes below |
+| 7 — Console usage analytics | ✅ | Off by default (`PLSQL_USAGE_ENABLED`); per-request events with usernames, admin-only `/usage` summary, landing-page "Console usage" section, 90-day retention ([ADR 0018](../adr/0018-plsql-console-usage-analytics.md)) |
 
 ### Shipped — backend (`apps/api`)
 

@@ -163,6 +163,9 @@ The canonical containerized checks are `make test-api` and `make lint`.
 - Never hide or clip evidence to solve layout bugs. Test evidence UI at 320px,
   at 200% browser zoom, with keyboard navigation, and while scrolling.
 - Do not render user input or model output as trusted raw HTML.
+- Before adding or changing a component that more than one module imports,
+  follow `docs/ui/component-reuse.md` (scope and placement, caller-owned layout
+  and text, pure helpers, input clamping, ARIA placement, dedicated tests).
 
 Focused commands:
 

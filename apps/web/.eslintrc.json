@@ -1,3 +1,65 @@
 {
-  "extends": ["next/core-web-vitals", "next/typescript"]
+  "extends": [
+    "next/core-web-vitals",
+    "next/typescript",
+    "plugin:jsx-a11y/recommended"
+  ],
+  "rules": {
+    // Maintainability limits from docs/ui/component-reuse.md and AGENTS.md.
+    // They warn rather than fail so existing code can be brought in line gradually.
+    "max-lines-per-function": [
+      "warn",
+      { "max": 120, "skipBlankLines": true, "skipComments": true }
+    ],
+    "max-lines": [
+      "warn",
+      { "max": 400, "skipBlankLines": true, "skipComments": true }
+    ],
+    "complexity": ["warn", 15],
+    "max-params": ["warn", 3],
+    "max-depth": ["warn", 4],
+
+    // Crashes in the installed eslint-plugin-jsx-a11y (minimatch import error).
+    "jsx-a11y/label-has-associated-control": "off",
+    // Existing violations; raise back to "error" once they are fixed.
+    "jsx-a11y/no-autofocus": "warn",
+    "jsx-a11y/click-events-have-key-events": "warn",
+    "jsx-a11y/no-static-element-interactions": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["src/components/ui/**"],
+      "rules": {
+        // Shared primitives must not depend on feature components.
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@/components/*",
+                  "!@/components/ui",
+                  "!@/components/ui/*",
+                  "../*"
+                ],
+                "message": "components/ui must not import feature components. See docs/ui/component-reuse.md."
+              },
+              {
+                "group": ["next-intl"],
+                "message": "Take labels as props instead of reading a translation namespace. See docs/ui/component-reuse.md."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*-mock.ts"],
+      "rules": {
+        "max-lines-per-function": "off",
+        "max-lines": "off",
+        "max-params": "off"
+      }
+    }
+  ]
 }

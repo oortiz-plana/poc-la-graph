@@ -254,6 +254,7 @@ See:
 - [Architecture decisions](docs/adr/decision-log.md)
 - [Graphify adapter contract](contracts/mcp/graphify-adapter.md)
 - [UI guidelines](docs/ui/ui-guidelines.md)
+- [Component reuse guidelines](docs/ui/component-reuse.md)
 
 ## Main modules
 
